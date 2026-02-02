@@ -7,6 +7,9 @@
 [<img alt="ci errors" src="https://img.shields.io/github/actions/workflow/status/valeratrades/kingdomino/errors.yml?branch=master&style=for-the-badge&style=flat-square&label=errors&labelColor=420d09" height="20">](https://github.com/valeratrades/kingdomino/actions?query=branch%3Amaster) <!--NB: Won't find it if repo is private-->
 [<img alt="ci warnings" src="https://img.shields.io/github/actions/workflow/status/valeratrades/kingdomino/warnings.yml?branch=master&style=for-the-badge&style=flat-square&label=warnings&labelColor=d16002" height="20">](https://github.com/valeratrades/kingdomino/actions?query=branch%3Amaster) <!--NB: Won't find it if repo is private-->
 
+multi-player implementation of kingdomino // in rust, because of course it is
+
+rules: https://www.youtube.com/watch?v=smbwBPmP4Ms
 
 
 
