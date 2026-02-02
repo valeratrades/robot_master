@@ -1,4 +1,4 @@
-# kingdomino
+# kingdomino <img width="25%" src="https://kingdomino.fr/wp-content/uploads/2024/04/Kingdomino-Platinium-3DBox.png" alt="Kingdomino box">
 ![Minimum Supported Rust Version](https://img.shields.io/badge/nightly-1.92+-ab6000.svg)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/kingdomino.svg?color=fc8d62&logo=rust" height="20" style=flat-square>](https://crates.io/crates/kingdomino)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs&style=flat-square" height="20">](https://docs.rs/kingdomino)
@@ -9,7 +9,9 @@
 
 multi-player implementation of kingdomino // in rust, because of course it is
 
-rules: https://www.youtube.com/watch?v=smbwBPmP4Ms
+rules:
+    - [YT (en)](https://www.youtube.com/watch?v=smbwBPmP4Ms)
+    - [pdf (fr)](./.readme_assets/Kingdomino-Regles-FR.pdf)
 
 
 
