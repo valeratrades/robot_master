@@ -73,6 +73,18 @@
               + combined.shellHook
               + ''
                 cp -f ${(v-utils.files.treefmt) { inherit pkgs; }} ./.treefmt.toml
+
+                export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
+                  pkgs.vulkan-loader
+                  pkgs.libxkbcommon
+                  pkgs.wayland
+                  pkgs.udev
+                  pkgs.alsa-lib
+                  pkgs.xorg.libX11
+                  pkgs.xorg.libXcursor
+                  pkgs.xorg.libXi
+                  pkgs.xorg.libXrandr
+                ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
               '';
 
             packages = [
@@ -80,10 +92,20 @@
               openssl
               pkg-config
               rust
+              # bevy dependencies
+              alsa-lib
+              udev
+              vulkan-loader
+              libxkbcommon
+              wayland
+              xorg.libX11
+              xorg.libXcursor
+              xorg.libXi
+              xorg.libXrandr
             ] ++ pre-commit-check.enabledPackages ++ combined.enabledPackages;
 
-						env.RUST_BACKTRACE = 1;
-						env.RUST_LIB_BACKTRACE = 0;
+            env.RUST_BACKTRACE = 1;
+            env.RUST_LIB_BACKTRACE = 0;
           };
       }
     );

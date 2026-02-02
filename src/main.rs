@@ -2,8 +2,6 @@ use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
 pub mod config;
-use config::{LiveSettings, SettingsFlags};
-
 fn main() {
 	v_utils::clientside!();
 	let cli = Cli::parse();
@@ -17,8 +15,11 @@ fn main() {
 			return;
 		}
 	};
-	greet(live_settings);
+	run(live_settings);
 }
+mod sprite_animation;
+use config::{LiveSettings, SettingsFlags};
+
 #[derive(Default, Parser)]
 #[command(author, version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), ")"), about, long_about = None)]
 struct Cli {
@@ -26,7 +27,6 @@ struct Cli {
 	settings: SettingsFlags,
 }
 
-fn greet(settings: Arc<LiveSettings>) {
-	let config = settings.config();
-	println!("Hello, {}!", config.example_greet);
+fn run(settings: Arc<LiveSettings>) {
+	sprite_animation::run();
 }
