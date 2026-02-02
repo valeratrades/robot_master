@@ -1,32 +1,28 @@
-use std::{sync::Arc, time::Duration};
-
-use clap::Parser;
-pub mod config;
-fn main() {
-	v_utils::clientside!();
-	let cli = Cli::parse();
-	let live_settings = match LiveSettings::new(cli.settings, Duration::from_secs(5)) {
-		Ok(ls) => Arc::new(ls),
-		Err(e) => {
-			eprintln!("Error reading config: {e}");
-			for cause in e.chain().skip(1) {
-				eprintln!("  Caused by: {cause}");
-			}
-			return;
-		}
-	};
-	run(live_settings);
+#[cfg(not(feature = "ssr"))]
+pub fn main() {
+	// hydration handled in lib.rs
 }
-mod sprite_animation;
-use config::{LiveSettings, SettingsFlags};
+#[cfg(feature = "ssr")]
+#[tokio::main]
+async fn main() {
+	use axum::Router;
+	use kingdomino::app::*;
+	use leptos::prelude::*;
+	use leptos_axum::*;
 
-#[derive(Default, Parser)]
-#[command(author, version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), ")"), about, long_about = None)]
-struct Cli {
-	#[command(flatten)]
-	settings: SettingsFlags,
-}
+	let conf = get_configuration(None).unwrap();
+	let addr = conf.leptos_options.site_addr;
+	let leptos_options = conf.leptos_options;
 
-fn run(settings: Arc<LiveSettings>) {
-	sprite_animation::run();
+	let app = Router::new()
+		.leptos_routes(&leptos_options, generate_route_list(App), {
+			let leptos_options = leptos_options.clone();
+			move || shell(leptos_options.clone())
+		})
+		.fallback(leptos_axum::file_and_error_handler(shell))
+		.with_state(leptos_options);
+
+	let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+	println!("listening on http://{}", &addr);
+	axum::serve(listener, app.into_make_service()).await.unwrap();
 }

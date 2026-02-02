@@ -18,6 +18,7 @@
         #NB: can't load rust-bin from nightly.latest, as there are week guarantees of which components will be available on each day.
         rust = pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
           extensions = [ "rust-src" "rust-analyzer" "rust-docs" "rustc-codegen-cranelift-preview" ];
+          targets = [ "wasm32-unknown-unknown" ];
         });
         pre-commit-check = pre-commit-hooks.lib.${system}.run (v-utils.files.preCommit { inherit pkgs; });
         manifest = (pkgs.lib.importTOML ./Cargo.toml).package;
@@ -30,6 +31,7 @@
           lastSupportedVersion = "nightly-2026-02-01";
           langs = [ "rs" ];
           jobs.default = true;
+          #gitignore.extend = ["web/"]; //TODO: .
         };
         readme = v-utils.readme-fw {
           inherit pkgs pname;
@@ -52,7 +54,7 @@
           {
             default = rustPlatform.buildRustPackage {
               inherit pname;
-              version = manifest.version;
+              version = "0.1.0";
 
               buildInputs = with pkgs; [
                 openssl.dev
@@ -72,19 +74,30 @@
               pre-commit-check.shellHook
               + combined.shellHook
               + ''
-                cp -f ${(v-utils.files.treefmt) { inherit pkgs; }} ./.treefmt.toml
+                                cp -f ${(v-utils.files.treefmt) { inherit pkgs; }} ./.treefmt.toml
 
-                export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
-                  pkgs.vulkan-loader
-                  pkgs.libxkbcommon
-                  pkgs.wayland
-                  pkgs.udev
-                  pkgs.alsa-lib
-                  pkgs.xorg.libX11
-                  pkgs.xorg.libXcursor
-                  pkgs.xorg.libXi
-                  pkgs.xorg.libXrandr
-                ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+                                # Append WASM rustflags to .cargo/config.toml (after v-utils generates it)
+                                if [ -f .cargo/config.toml ] && ! grep -q "wasm_js" .cargo/config.toml; then
+                                  chmod +w .cargo/config.toml
+                                  cat >> .cargo/config.toml << 'EOF'
+
+                [target.wasm32-unknown-unknown]
+                rustflags = ['--cfg=getrandom_backend="wasm_js"']
+                EOF
+                                  chmod -w .cargo/config.toml
+                                fi
+
+                                export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
+                                  pkgs.vulkan-loader
+                                  pkgs.libxkbcommon
+                                  pkgs.wayland
+                                  pkgs.udev
+                                  pkgs.alsa-lib
+                                  pkgs.xorg.libX11
+                                  pkgs.xorg.libXcursor
+                                  pkgs.xorg.libXi
+                                  pkgs.xorg.libXrandr
+                                ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
               '';
 
             packages = [
@@ -92,6 +105,10 @@
               openssl
               pkg-config
               rust
+              wasm-bindgen-cli
+              wasm-pack
+              simple-http-server
+              cargo-leptos
               # bevy dependencies
               alsa-lib
               udev

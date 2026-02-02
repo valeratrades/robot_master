@@ -1,28 +1,83 @@
 cargo-features = ["codegen-backend"]
+
 [package]
 name = "kingdomino"
-version = "0.1.0"
 edition = "2024"
+version = "0.1.0"
 
-[package.metadata.docs.rs]
-cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]
+[package.metadata.leptos]
+bin-target = "kingdomino"
+output-name = "kingdomino"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+assets-dir = "public"
+site-addr = "127.0.0.1:58937"
+reload-port = 58938
+browserquery = "defaults"
+bin-features = ["ssr"]
+bin-default-features = false
+lib-features = ["hydrate"]
+lib-default-features = false
+lib-profile-release = "wasm-release"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["ssr"] # convenient when running the game as standalone
+hydrate = [
+    "leptos/hydrate",
+    "dep:wasm-bindgen",
+    "dep:console_error_panic_hook",
+]
+ssr = [
+    "leptos/ssr",
+    "leptos_router/ssr",
+    "leptos_meta/ssr",
+    "dep:axum",
+    "dep:tokio",
+    "dep:leptos_axum",
+    "dep:tower-http",
+    "dep:clap",
+    "v_utils/io",
+    "v_utils/cli",
+]
 
 [dependencies]
-bevy = "0.15"
-clap = { version = "^4.5.4", features = ["derive"] }
-color-eyre = "^0.6.3"
-derive-new = "^0"
-v_utils = { version = "^2.15.0", features = ["io", "macros", "cli"] }
+bevy = "0.18"
+leptos = "0.8"
+leptos_meta = "0.8"
+leptos_router = "0.8"
+v_utils = { version = "2.15", features = ["macros"] }
+
+# hydrate
+console_error_panic_hook = { version = "0.1", optional = true }
+getrandom = { version = "0.4", features = ["wasm_js"] }
+wasm-bindgen = { version = "=0.2.108", optional = true }
+
+# ssr
+axum = { version = "0.8", optional = true }
+clap = { version = "4.5", features = ["derive"], optional = true }
+leptos_axum = { version = "0.8", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+tower-http = { version = "0.6", features = ["fs"], optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.108"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement"] }
 
 [lints.clippy]
-# Stable
-float_cmp = "allow" # is bad for `==` direct comparisons, but `<` and `>` should be allowed
-len_zero = "allow" # `.empty()` is O(1) but on &str only
+float_cmp = "allow"
+len_zero = "allow"
 undocumented_unsafe_blocks = "warn"
 tabs_in_doc_comments = "allow"
-doc_lazy_continuation = "allow" # tries to make me add a newline after a list in docs
-
-# Questionable
-# const fns, so actually more performant
+doc_lazy_continuation = "allow"
 get_first = "allow"
 get_last_with_len = "allow"
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = 'z'
+lto = true
+codegen-units = 1
+panic = "abort"
