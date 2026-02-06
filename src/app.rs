@@ -28,7 +28,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 pub fn App() -> impl IntoView {
 	provide_meta_context();
 	view! {
-		<Title text="Kingdomino" />
+		<Title text="Robot Master" />
 		<Router>
 			<TopBar />
 			<main class="min-h-screen bg-gray-900">
