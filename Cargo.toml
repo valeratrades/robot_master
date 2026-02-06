@@ -1,13 +1,13 @@
 cargo-features = ["codegen-backend"]
 
 [package]
-name = "kingdomino"
+name = "robot_master"
 edition = "2024"
 version = "0.1.0"
 
 [package.metadata.leptos]
-bin-target = "kingdomino"
-output-name = "kingdomino"
+bin-target = "robot_master"
+output-name = "robot_master"
 site-root = "target/site"
 site-pkg-dir = "pkg"
 assets-dir = "public"

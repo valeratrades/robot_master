@@ -43,7 +43,7 @@ fn configure_app(app: &mut App) {
 			.set(ImagePlugin::default_nearest())
 			.set(WindowPlugin {
 				primary_window: Some(Window {
-					title: "Kingdomino".to_string(),
+					title: "Robot Master".to_string(),
 					#[cfg(target_arch = "wasm32")]
 					canvas: Some("#bevy-canvas".to_string()),
 					#[cfg(target_arch = "wasm32")]

@@ -6,9 +6,9 @@ pub fn main() {
 #[tokio::main]
 async fn main() {
 	use axum::Router;
-	use kingdomino::app::*;
 	use leptos::prelude::*;
 	use leptos_axum::*;
+	use robot_master::app::*;
 
 	let conf = get_configuration(None).unwrap();
 	let addr = conf.leptos_options.site_addr;
