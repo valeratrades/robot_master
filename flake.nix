@@ -25,13 +25,16 @@
         pname = manifest.name;
         stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv;
 
-        rs = v-utils.rs { inherit pkgs rust; };
+        rs = v-utils.rs {
+          inherit pkgs rust;
+          targets."wasm32-unknown-unknown".rustflags = [ ''--cfg=getrandom_backend="wasm_js"'' ];
+        };
         github = v-utils.github {
           inherit pkgs pname rs;
           lastSupportedVersion = "nightly-2026-02-01";
           langs = [ "rs" ];
           jobs.default = true;
-          #gitignore.extend = ["web/"]; //TODO: .
+          gitlabSync.mirrorBaseUrl = "https://gitlab.isima.fr/vasakharov";
         };
         readme = v-utils.readme-fw {
           inherit pkgs pname;
@@ -74,30 +77,19 @@
               pre-commit-check.shellHook
               + combined.shellHook
               + ''
-                                cp -f ${(v-utils.files.treefmt) { inherit pkgs; }} ./.treefmt.toml
+                cp -f ${(v-utils.files.treefmt) { inherit pkgs; }} ./.treefmt.toml
 
-                                # Append WASM rustflags to .cargo/config.toml (after v-utils generates it)
-                                if [ -f .cargo/config.toml ] && ! grep -q "wasm_js" .cargo/config.toml; then
-                                  chmod +w .cargo/config.toml
-                                  cat >> .cargo/config.toml << 'EOF'
-
-                [target.wasm32-unknown-unknown]
-                rustflags = ['--cfg=getrandom_backend="wasm_js"']
-                EOF
-                                  chmod -w .cargo/config.toml
-                                fi
-
-                                export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
-                                  pkgs.vulkan-loader
-                                  pkgs.libxkbcommon
-                                  pkgs.wayland
-                                  pkgs.udev
-                                  pkgs.alsa-lib
-                                  pkgs.xorg.libX11
-                                  pkgs.xorg.libXcursor
-                                  pkgs.xorg.libXi
-                                  pkgs.xorg.libXrandr
-                                ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+                export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
+                  pkgs.vulkan-loader
+                  pkgs.libxkbcommon
+                  pkgs.wayland
+                  pkgs.udev
+                  pkgs.alsa-lib
+                  pkgs.xorg.libX11
+                  pkgs.xorg.libXcursor
+                  pkgs.xorg.libXi
+                  pkgs.xorg.libXrandr
+                ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
               '';
 
             packages = [
