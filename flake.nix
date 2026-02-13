@@ -21,13 +21,19 @@
           targets = [ "wasm32-unknown-unknown" ];
         });
         pre-commit-check = pre-commit-hooks.lib.${system}.run (v-utils.files.preCommit { inherit pkgs; });
-        manifest = (pkgs.lib.importTOML ./Cargo.toml).package;
+        manifest = (pkgs.lib.importTOML ./robot_master/Cargo.toml).package;
         pname = manifest.name;
         stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv;
 
         rs = v-utils.rs {
           inherit pkgs rust;
           targets."wasm32-unknown-unknown".rustflags = [ ''--cfg=getrandom_backend="wasm_js"'' ];
+          build = {
+            enable = true;
+            workspace = {
+              "./robot_master" = [ "git_version" "log_directives" ];
+            };
+          };
         };
         github = v-utils.github {
           inherit pkgs pname rs;
@@ -97,8 +103,6 @@
               openssl
               pkg-config
               rust
-              wasm-bindgen-cli
-              wasm-pack
               simple-http-server
               cargo-leptos
               # bevy dependencies

@@ -5672,19 +5672,26 @@ name = "robot_master"
 version = "0.1.0"
 dependencies = [
  "axum",
- "bevy",
- "clap",
  "console_error_panic_hook",
  "getrandom 0.4.1",
  "leptos",
  "leptos_axum",
  "leptos_meta",
  "leptos_router",
+ "robot_master_game",
  "tokio",
  "tower-http",
- "v_utils",
  "wasm-bindgen",
  "web-sys",
+]
+
+[[package]]
+name = "robot_master_game"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "clap",
+ "v_utils",
 ]
 
 [[package]]
