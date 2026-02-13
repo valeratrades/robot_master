@@ -1,0 +1,16 @@
+cargo-features = ["codegen-backend"]
+
+[package]
+name = "robot_master_game"
+edition = "2024"
+version = "0.1.0"
+
+[dependencies]
+bevy = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+clap = { version = "4.5", features = ["derive"] }
+v_utils = { workspace = true, features = ["io", "cli"] }
+
+[lints]
+workspace = true
