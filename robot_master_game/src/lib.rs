@@ -1,20 +1,25 @@
 //! Bevy game module - sprite animation demo
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod config;
+
 use std::time::Duration;
 
 use bevy::{asset::AssetMetaCheck, input::common_conditions::input_just_pressed, prelude::*};
 #[cfg(not(target_arch = "wasm32"))]
-use {crate::config::LiveSettings, std::sync::Arc, v_utils::utils::exit_on_error};
+use {config::LiveSettings, std::sync::Arc, v_utils::utils::exit_on_error};
 
 /// Creates a Bevy App configured for the game.
 /// Call `.run()` on it to start.
+///
+/// `asset_dir`: path to the assets directory, resolved relative to `BEVY_ASSET_ROOT` / `CARGO_MANIFEST_DIR` / exe dir by Bevy.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn create_app(settings: Arc<LiveSettings>) -> App {
+pub fn create_app(settings: Arc<LiveSettings>, asset_dir: &str) -> App {
 	let mut app = App::new();
 
 	app.insert_resource(Settings(settings));
 
-	configure_app(&mut app);
+	configure_app(&mut app, asset_dir);
 	app
 }
 #[cfg(target_arch = "wasm32")]
@@ -27,17 +32,22 @@ pub fn create_app() -> App {
 #[derive(Resource)]
 struct Settings(Arc<LiveSettings>);
 
+#[cfg(not(target_arch = "wasm32"))]
+fn configure_app(app: &mut App, asset_dir: &str) {
+	configure_app_inner(app, asset_dir.to_string());
+}
+#[cfg(target_arch = "wasm32")]
 fn configure_app(app: &mut App) {
+	// Leptos serves the `public` assets-dir at root `/`, so wasm uses an empty path.
+	configure_app_inner(app, String::new());
+}
+
+fn configure_app_inner(app: &mut App, file_path: String) {
 	app.add_plugins(
 		DefaultPlugins
 			.set(AssetPlugin {
 				meta_check: AssetMetaCheck::Never,
-				// Leptos serves the `public` assets-dir at root `/`, so wasm uses an empty path.
-				// On native, assets live in `public/` rather than Bevy's default `assets/`.
-				#[cfg(target_arch = "wasm32")]
-				file_path: String::new(),
-				#[cfg(not(target_arch = "wasm32"))]
-				file_path: "public".to_string(),
+				file_path,
 				..default()
 			})
 			.set(ImagePlugin::default_nearest())

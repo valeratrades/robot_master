@@ -1,79 +1,23 @@
 cargo-features = ["codegen-backend"]
 
-[package]
-name = "robot_master"
-edition = "2024"
-version = "0.1.0"
+[workspace]
+members = ["robot_master", "robot_master_*"]
+resolver = "3"
 
-[package.metadata.leptos]
-bin-target = "robot_master"
-output-name = "robot_master"
-site-root = "target/site"
-site-pkg-dir = "pkg"
-assets-dir = "public"
-site-addr = "127.0.0.1:58937"
-reload-port = 58938
-browserquery = "defaults"
-bin-features = ["ssr"]
-bin-default-features = false
-lib-features = ["hydrate"]
-lib-default-features = false
-lib-profile-release = "wasm-release"
+default-members = ["robot_master"]
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = ["ssr"] # convenient when running the game as standalone
-hydrate = [
-    "leptos/hydrate",
-    "dep:wasm-bindgen",
-    "dep:console_error_panic_hook",
-]
-ssr = [
-    "leptos/ssr",
-    "leptos_router/ssr",
-    "leptos_meta/ssr",
-    "dep:axum",
-    "dep:tokio",
-    "dep:leptos_axum",
-    "dep:tower-http",
-    "dep:clap",
-    "v_utils/io",
-    "v_utils/cli",
-]
-
-[dependencies]
-bevy = "0.18"
-leptos = "0.8"
-leptos_meta = "0.8"
-leptos_router = "0.8"
-v_utils = { version = "2.15", features = ["macros"] }
-
-# hydrate
-console_error_panic_hook = { version = "0.1", optional = true }
-getrandom = { version = "0.4", features = ["wasm_js"] }
-wasm-bindgen = { version = "=0.2.108", optional = true }
-
-# ssr
-axum = { version = "0.8", optional = true }
-clap = { version = "4.5", features = ["derive"], optional = true }
-leptos_axum = { version = "0.8", optional = true }
-tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
-tower-http = { version = "0.6", features = ["fs"], optional = true }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "=0.2.108"
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement"] }
-
-[lints.clippy]
-float_cmp = "allow"
-len_zero = "allow"
-undocumented_unsafe_blocks = "warn"
-tabs_in_doc_comments = "allow"
+[workspace.lints.clippy]
 doc_lazy_continuation = "allow"
+float_cmp = "allow"
 get_first = "allow"
 get_last_with_len = "allow"
+len_zero = "allow"
+tabs_in_doc_comments = "allow"
+undocumented_unsafe_blocks = "warn"
+
+[workspace.dependencies]
+bevy = "0.18"
+v_utils = { version = "2.15", features = ["macros"] }
 
 [profile.wasm-release]
 inherits = "release"
