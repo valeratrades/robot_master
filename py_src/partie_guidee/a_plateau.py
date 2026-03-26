@@ -38,7 +38,7 @@ def cases_libres(plateau: Plateau) -> list[tuple[int, int]]:
 	Elle renvoie la liste des cases vides (contenant la valeur none)"""
 
 	#Q: is this more performant?
-	#TODO: check against version without compaction. If the same, let's use numpy. This is hot path
+	#A: @njit doesn't work with typechecked. And some tests compare with python lists directly. Will just wait for rust to make this performant
 	return [(i, j) for i in range(len(plateau)) for j in range(len(plateau[i])) if plateau[i][j] is None]
 
 
