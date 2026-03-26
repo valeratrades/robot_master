@@ -1,6 +1,6 @@
-from z_variablesDeTest import *
-from e_jeu import *
-from d_score import *
+from z_variablesDeTest import new_plateau_test
+from a_plateau import plateau_to_string
+from e_jeu import tour, jeux
 
 
 

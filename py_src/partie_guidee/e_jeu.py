@@ -5,8 +5,9 @@ from pathlib import Path
 # Ajoute le chemin du dossier parent au sys.path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from partie_guidee.c_joueuses import *
-from partie_guidee.d_score import *
+from partie_guidee.a_plateau import Plateau
+from partie_guidee.c_joueuses import DicoJoueuse, choix_et_pose_carte
+from partie_guidee.d_score import victoire
 from typeguard import typechecked
 
 

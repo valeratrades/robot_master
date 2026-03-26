@@ -1,10 +1,7 @@
 from collections import Counter  # pour comparer peu importe l'ordre
 import pytest
 from inline_snapshot import snapshot
-from a_plateau import plateau_to_string
-
-
-Plateau = list[list[int | None]]
+from a_plateau import Plateau, plateau_to_string
 
 
 def new_plateau_test() -> Plateau:

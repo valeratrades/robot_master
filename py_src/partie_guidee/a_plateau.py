@@ -21,7 +21,7 @@ def afficher_coordonnees(plateau: Plateau) -> None:
 	"""La fonction afficher_coordonnees prend en argument un plateau
 	et affiche les coordonnées de chaque point du plateau. Cette fonction ne sera jamais
 	utilisée, elle est là pour vous aider à comprendre comment sont fixées les coordonnées"""
-	n = len(plateau)
+	n = plateau.__len__()
 	for i in range(n):
 		for j in range(n):
 			print("|"+str((i,j)), end ="")
@@ -39,7 +39,7 @@ def cases_libres(plateau: Plateau) -> list[tuple[int, int]]:
 
 	#Q: is this more performant?
 	#A: @njit doesn't work with typechecked. And some tests compare with python lists directly. Will just wait for rust to make this performant
-	return [(i, j) for i in range(len(plateau)) for j in range(len(plateau[i])) if plateau[i][j] is None]
+	return [(i, j) for i in range(plateau.__len__()) for j in range(plateau[i].__len__()) if plateau[i][j] is None]
 
 
 @typechecked
@@ -47,7 +47,7 @@ def plateau_to_string(plateau: Plateau, vide: str = "   ") -> str:
 	"""La fonction plateau_to_string prend en argument un plateau,
 	et un argument optionnel vide qui représente les cases vides.
 	La fonction retourne une chaine de charactère."""
-	n = len(plateau)
+	n = plateau.__len__()
 	sep = "-" * (4 * n + 9)
 	cols = "".join(f"{j}   " for j in range(n))
 	header = " " * 10 + cols.rstrip()

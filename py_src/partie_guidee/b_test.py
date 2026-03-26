@@ -1,5 +1,6 @@
-from z_variablesDeTest import *
-from b_gestionCartes import *
+from z_variablesDeTest import Counter, new_plateau_test, plateau_test, new_small_plateau_test, small_plateau_test
+from a_plateau import creer_plateau
+from b_gestionCartes import new_pile_cartes, distribution_cartes, liste_to_dico, cases_voisines, emplacement_jouable, place_carte
 
 
 

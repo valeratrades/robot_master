@@ -5,7 +5,7 @@ from pathlib import Path
 # Ajoute le chemin du dossier parent au sys.path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from IA.f_fonctions_additionelles import *
+from IA.f_fonctions_additionelles import cartes_restantes
 
 
 def cases_vide_ligne(dico_ligne,taille=5):
