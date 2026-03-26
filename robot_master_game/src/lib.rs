@@ -7,6 +7,7 @@ use bevy::{asset::AssetMetaCheck, prelude::*};
 #[cfg(not(target_arch = "wasm32"))]
 use {config::LiveSettings, std::sync::Arc, v_utils::utils::exit_on_error};
 
+const MOVE_SPEED: f32 = 200.0;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum PlayerId {
 	Player1,
@@ -40,6 +41,21 @@ impl PlayerId {
 pub struct LocalPlayer(pub PlayerId);
 
 #[cfg(not(target_arch = "wasm32"))]
+pub fn create_app(settings: Arc<LiveSettings>, asset_dir: &str, local_player: PlayerId) -> App {
+	let mut app = App::new();
+	app.insert_resource(Settings(settings));
+	app.insert_resource(LocalPlayer(local_player));
+	configure_app(&mut app, asset_dir);
+	app
+}
+#[cfg(target_arch = "wasm32")]
+pub fn create_app() -> App {
+	let mut app = App::new();
+	app.insert_resource(LocalPlayer(PlayerId::Player1));
+	configure_app(&mut app);
+	app
+}
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Resource)]
 struct Settings(Arc<LiveSettings>);
 
@@ -69,25 +85,6 @@ impl AnimationConfig {
 	fn timer_from_fps(fps: u8) -> Timer {
 		Timer::new(Duration::from_secs_f32(1.0 / (fps as f32)), TimerMode::Once)
 	}
-}
-
-const MOVE_SPEED: f32 = 200.0;
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn create_app(settings: Arc<LiveSettings>, asset_dir: &str, local_player: PlayerId) -> App {
-	let mut app = App::new();
-	app.insert_resource(Settings(settings));
-	app.insert_resource(LocalPlayer(local_player));
-	configure_app(&mut app, asset_dir);
-	app
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn create_app() -> App {
-	let mut app = App::new();
-	app.insert_resource(LocalPlayer(PlayerId::Player1));
-	configure_app(&mut app);
-	app
 }
 
 #[cfg(not(target_arch = "wasm32"))]
