@@ -46,6 +46,7 @@
           };
           github = v_flakes.github {
             inherit pkgs pname rs;
+            enable = true;
             lastSupportedVersion = "nightly-2026-02-01";
             langs = [ "rs" "py" ];
             jobs.default = true;

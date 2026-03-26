@@ -20,15 +20,15 @@ jobs:
         1|')\nproject_path=$(echo \"https://gitlab.isima.fr/vasakharov/${repo_name}\"\
         \ | sed -E 's|https?://[^/]+/(.+)|\\1|' | sed 's|/|%2F|g')\ngithub_url=\"\
         https://github.com/${{ github.repository }}\"\n\n# Disable issues, MRs, wiki,\
-        \ etc. and set description pointing to GitHub\ncurl -sf --max-time 10 --request\
-        \ PUT \\\n  --header \"PRIVATE-TOKEN: ${{ secrets.GITLAB_TOKEN }}\" \\\n \
-        \ --header \"Content-Type: application/json\" \\\n  --data '{\n    \"issues_access_level\"\
-        : \"disabled\",\n    \"merge_requests_access_level\": \"disabled\",\n    \"\
-        wiki_access_level\": \"disabled\",\n    \"builds_access_level\": \"disabled\"\
-        ,\n    \"snippets_access_level\": \"disabled\",\n    \"description\": \"Mirror\
-        \ of '\"${github_url}\"'. All development happens on GitHub.\"\n  }' \\\n\
-        \  \"https://${gitlab_host}/api/v4/projects/${project_path}\" > /dev/null\
-        \ || true\n"
+        \ etc. and set description pointing to GitHub\ncurl -sf --max-time 30 --retry\
+        \ 2 --request PUT \\\n  --header \"PRIVATE-TOKEN: ${{ secrets.GITLAB_TOKEN\
+        \ }}\" \\\n  --header \"Content-Type: application/json\" \\\n  --data '{\n\
+        \    \"lfs_enabled\": false,\n    \"issues_access_level\": \"disabled\",\n\
+        \    \"merge_requests_access_level\": \"disabled\",\n    \"wiki_access_level\"\
+        : \"disabled\",\n    \"builds_access_level\": \"disabled\",\n    \"snippets_access_level\"\
+        : \"disabled\",\n    \"description\": \"Mirror of '\"${github_url}\"'. All\
+        \ development happens on GitHub.\"\n  }' \\\n  \"https://${gitlab_host}/api/v4/projects/${project_path}\"\
+        \ > /dev/null || true\n"
     - name: Push to GitLab mirror
       run: "repo_name=\"${GITHUB_REPOSITORY#*/}\"\nmirror_url=\"https://gitlab.isima.fr/vasakharov/${repo_name}.git\"\
         \ngitlab_host=$(echo \"https://gitlab.isima.fr/vasakharov\" | sed -E 's|https?://([^/]+).*|\\\
