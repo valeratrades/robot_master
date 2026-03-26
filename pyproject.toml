@@ -2,10 +2,15 @@
 name = "robot-master-py"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+  "typeguard>=4.4",
+]
 
 [dependency-groups]
 dev = [
   "pytest>=8.0",
   "ruff>=0.9",
 ]
+
+[tool.pytest.ini_options]
+typeguard-packages = "py_src"
