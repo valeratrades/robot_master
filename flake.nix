@@ -44,11 +44,13 @@
               };
             };
           };
+          py = v_flakes.py {
+            inherit pkgs;
+          };
           github = v_flakes.github {
-            inherit pkgs pname rs;
+            inherit pkgs pname rs py;
             enable = true;
             lastSupportedVersion = "nightly-2026-02-01";
-            langs = [ "rs" "py" ];
             jobs.default = true;
             gitlabSync.mirrorBaseUrl = "https://gitlab.isima.fr/vasakharov";
           };
@@ -59,7 +61,7 @@
             rootDir = ./.;
             badges = [ "msrv" "crates_io" "docs_rs" "loc" "ci" ];
           };
-          combined = v_flakes.utils.combine [ rs github readme ];
+          combined = v_flakes.utils.combine [ rs py github readme ];
         in
         {
           _module.args.pkgs = pkgs;

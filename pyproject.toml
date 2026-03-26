@@ -13,12 +13,12 @@ dev = [
   "ruff>=0.9",
 ]
 
+[tool.inline-snapshot]
+format-command = "ruff format --stdin-filename {filename}"
+
 [tool.pytest.ini_options]
 typeguard-packages = "py_src"
 
 [tool.ty.environment]
-python = ".devenv/state/venv"
 extra-search-paths = ["py_src"]
-
-[tool.inline-snapshot]
-format-command = "ruff format --stdin-filename {filename}"
+python = ".devenv/state/venv"
