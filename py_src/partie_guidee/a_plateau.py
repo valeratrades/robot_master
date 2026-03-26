@@ -42,4 +42,19 @@ def plateau_to_string(plateau: Plateau, vide: str = "   ") -> str:
 	"""La fonction plateau_to_string prend en argument un plateau,
 	et un argument optionnel vide qui représente les cases vides.
 	La fonction retourne une chaine de charactère."""
-	pass
+	n = len(plateau)
+	sep = "-" * (4 * n + 9)
+	cols = "".join(f"{j}   " for j in range(n))
+	header = " " * 10 + cols.rstrip()
+	lines = [sep, header, sep]
+	for i in range(n):
+		row = f"({i},_)   |"
+		for j in range(n):
+			cell = plateau[i][j]
+			if cell is None:
+				row += f"{vide}|"
+			else:
+				row += f" {cell} |"
+		lines.append(row)
+	lines.append(sep)
+	return "\n".join(lines)
