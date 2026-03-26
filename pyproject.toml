@@ -9,8 +9,12 @@ dependencies = [
 [dependency-groups]
 dev = [
   "pytest>=8.0",
+  "inline-snapshot>=0.19",
   "ruff>=0.9",
 ]
 
 [tool.pytest.ini_options]
 typeguard-packages = "py_src"
+
+[tool.inline-snapshot]
+format-command = "ruff format --stdin-filename {filename}"
