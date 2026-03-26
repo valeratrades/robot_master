@@ -5,7 +5,7 @@ from pathlib import Path
 # Ajoute le chemin du dossier parent au sys.path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from partie_guidee.b_gestionCartes import *
+from partie_guidee.a_plateau import Plateau
 from typeguard import typechecked
 
 

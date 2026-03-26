@@ -1,5 +1,5 @@
-from z_variablesDeTest import *
-from a_plateau import *
+from z_variablesDeTest import Counter, new_plateau_test
+from a_plateau import creer_plateau, cases_libres, plateau_to_string
 plateau_test=new_plateau_test()
 
 def test_creer_plateau_1():

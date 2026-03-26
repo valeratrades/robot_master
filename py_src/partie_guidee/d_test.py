@@ -1,5 +1,6 @@
-from z_variablesDeTest import *
-from d_score import *
+from z_variablesDeTest import new_plateau_test, plateau_test
+from d_score import init_dico_cartes, colonne_to_dico, score_ligne, score_joueuse, victoire
+from b_gestionCartes import liste_to_dico
 
 
 def test_init_dico_cartes():

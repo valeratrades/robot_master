@@ -6,10 +6,11 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 
-from partie_guidee.b_gestionCartes import *
+from partie_guidee.a_plateau import Plateau
+from partie_guidee.b_gestionCartes import cases_voisines, emplacement_jouable, place_carte, distribution_cartes, liste_to_dico
 
-from IA.g_greedy import *
-from IA.h_agressif import *
+from IA.g_greedy import choix_carte_greedy
+from IA.h_agressif import choix_carte_agressif
 
 import random
 

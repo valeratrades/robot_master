@@ -5,7 +5,8 @@ from pathlib import Path
 # Ajoute le chemin du dossier parent au sys.path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from partie_guidee.d_score import *
+from partie_guidee.a_plateau import Plateau
+from partie_guidee.d_score import score_joueuse, colonne_to_dico
 
 
 

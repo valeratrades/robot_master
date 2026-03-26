@@ -1,5 +1,5 @@
-from z_variablesDeTest import *
-from c_joueuses import *
+from z_variablesDeTest import new_plateau_test, new_small_plateau_test, small_plateau_test
+from c_joueuses import init_tuple_joueuses, configuration_textuel, choix_carte_random, choix_carte_manuel, choix_et_pose_carte
 
 
 
