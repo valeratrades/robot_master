@@ -24,12 +24,8 @@ lib-profile-release = "wasm-release"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["ssr"] # convenient when running the game as standalone
-hydrate = [
-    "leptos/hydrate",
-    "dep:wasm-bindgen",
-    "dep:console_error_panic_hook",
-]
+default = ["ssr"]
+hydrate = ["leptos/hydrate", "dep:wasm-bindgen", "dep:console_error_panic_hook"]
 ssr = [
     "leptos/ssr",
     "leptos_router/ssr",
