@@ -37,21 +37,18 @@ ssr = [
 ]
 
 [dependencies]
-leptos = "0.8"
-leptos_meta = "0.8"
-leptos_router = "0.8"
 robot_master_game = { path = "../robot_master_game" }
 
-# hydrate
+axum = { version = "0.8", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 getrandom = { version = "0.4", features = ["wasm_js"] }
-wasm-bindgen = { version = "0.2.106", optional = true }
-
-# ssr
-axum = { version = "0.8", optional = true }
+leptos = "0.8"
 leptos_axum = { version = "0.8", optional = true }
+leptos_meta = "0.8"
+leptos_router = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 tower-http = { version = "0.6", features = ["fs"], optional = true }
+wasm-bindgen = { version = "0.2.106", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 clap = { version = "4.5", features = ["derive"] }
