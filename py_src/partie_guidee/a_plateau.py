@@ -10,7 +10,9 @@ def creer_plateau(taille: int = 5) -> Plateau | None:
 	Cet argument est optionnel et prend la valeur 5 par défaut
 	Si taille est pair ou négatif, on envoie un message d'erreur
 	Sinon on crée une matrice de dimension taille x taille remplie de None"""
-	pass
+	if taille < 0 or taille % 2 == 0:
+		return None
+	return [[None for _ in range(taille)] for _ in range(taille)]
 
 
 #Fonction donnée aux étudiants
@@ -34,7 +36,10 @@ def afficher_coordonnees(plateau: Plateau) -> None:
 def cases_libres(plateau: Plateau) -> list[tuple[int, int]]:
 	"""La fonction cases_libres prend en argument un plateau
 	Elle renvoie la liste des cases vides (contenant la valeur none)"""
-	pass
+
+	#Q: is this more performant?
+	#TODO: check against version without compaction. If the same, let's use numpy. This is hot path
+	return [(i, j) for i in range(len(plateau)) for j in range(len(plateau[i])) if plateau[i][j] is None]
 
 
 @typechecked

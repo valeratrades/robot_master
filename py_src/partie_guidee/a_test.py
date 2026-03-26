@@ -22,7 +22,7 @@ def test_cases_libres_2():
 
 def test_plateau_to_string_1():
 	assert plateau_to_string(creer_plateau(5)) == """-----------------------------
-          0   1   2   3   4  
+          0   1   2   3   4
 -----------------------------
 (0,_)   |   |   |   |   |   |
 (1,_)   |   |   |   |   |   |
@@ -34,7 +34,7 @@ def test_plateau_to_string_1():
 
 def test_plateau_to_string_2():
 	assert plateau_to_string(new_plateau_test()) == """-----------------------------
-          0   1   2   3   4  
+          0   1   2   3   4
 -----------------------------
 (0,_)   |   |   | 1 | 1 | 0 |
 (1,_)   |   | 2 |   | 3 |   |
@@ -45,7 +45,7 @@ def test_plateau_to_string_2():
 
 def test_plateau_to_string_3():
 	assert plateau_to_string(creer_plateau(7)) == """-------------------------------------
-          0   1   2   3   4   5   6  
+          0   1   2   3   4   5   6
 -------------------------------------
 (0,_)   |   |   |   |   |   |   |   |
 (1,_)   |   |   |   |   |   |   |   |
