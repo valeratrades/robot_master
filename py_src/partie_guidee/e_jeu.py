@@ -163,23 +163,3 @@ def jeux(taille: int = 5, maxC: int = 5, nbC: int = 6, v: bool = True, cartes_di
 		f"{name_p1}: score {score_p1} (row {idx_p1})\n"
 		f"{verdict}"
 	)
-
-
-if __name__ == "__main__":
-	import builtins
-
-	manual = "-m" in sys.argv
-	# feed answers to `init_tuple_joueuses` and `configuration_textuel`
-	mode = "m" if manual else "r"
-	answers = iter(["Alice", "Bob", mode, "r"])
-	real_input = builtins.input
-	_sentinel = object()
-	def patched_input(prompt: object = "", /) -> str: #noqa: D103
-		v = next(answers, _sentinel)
-		if v is _sentinel:
-			return real_input(prompt)
-		assert isinstance(v, str)
-		return v
-	builtins.input = patched_input # type: ignore[assignment]
-
-	jeux()
