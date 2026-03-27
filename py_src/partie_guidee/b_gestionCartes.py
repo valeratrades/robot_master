@@ -53,7 +53,7 @@ def liste_to_dico(list: list[int], dico_options: dict[str, int] = {"maxC": 5}) -
 	Les clé du dictionnaire sont les valeurs de cartes possibles (de 0 à maxC). Et les valeurs sont le nombre de cartes correspondantes.
 	"""
 	maxC = dico_options["maxC"]
-	dico = dict.fromkeys(range(maxC + 1), 0)
+	dico = {v: 0 for v in range(maxC + 1)}
 	for carte in list:
 		dico[carte] += 1
 	return dico
