@@ -1,0 +1,12 @@
+[package]
+name = "robot_master_engine"
+edition = "2024"
+version = "0.1.0"
+
+[dependencies]
+robot_master_core = { path = "../robot_master_core" }
+
+rand = "0.9"
+
+[lints]
+workspace = true

@@ -69,30 +69,72 @@
             badges = [ "msrv" "crates_io" "docs_rs" "loc" "ci" ];
           };
           combined = v_flakes.utils.combine [ rs py github readme ];
+
+          nativeLibs = with pkgs; [
+            alsa-lib
+            udev
+            vulkan-loader
+            libxkbcommon
+            wayland
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXi
+            xorg.libXrandr
+          ];
+
+          rustPlatform = pkgs.makeRustPlatform {
+            rustc = rust;
+            cargo = rust;
+            inherit stdenv;
+          };
         in
         {
           _module.args.pkgs = pkgs;
 
           packages =
             let
-              rustc = rust;
-              cargo = rust;
-              rustPlatform = pkgs.makeRustPlatform {
-                inherit rustc cargo stdenv;
-              };
-            in
-            {
-              default = rustPlatform.buildRustPackage {
+              site = rustPlatform.buildRustPackage {
                 inherit pname;
                 version = "0.1.0";
 
-                buildInputs = with pkgs; [
-                  openssl.dev
-                ];
+                buildInputs = [ pkgs.openssl.dev ] ++ nativeLibs;
                 nativeBuildInputs = with pkgs; [ pkg-config ];
 
                 cargoLock.lockFile = ./Cargo.lock;
                 src = pkgs.lib.cleanSource ./.;
+              };
+
+              core = python.pkgs.buildPythonPackage {
+                pname = "robot_master_core";
+                version = "0.1.0";
+                format = "pyproject";
+
+                src = pkgs.lib.cleanSource ./.;
+
+                cargoDeps = rustPlatform.importCargoLock {
+                  lockFile = ./Cargo.lock;
+                };
+
+                nativeBuildInputs = [
+                  rustPlatform.cargoSetupHook
+                  rustPlatform.maturinBuildHook
+                  rust
+                  pkgs.maturin
+                  pkgs.mold
+                ];
+
+                maturinBuildFlags = [ "-m" "robot_master_core/Cargo.toml" ];
+
+                # .cargo/config.toml has nightly-only -Z flags; use our nightly toolchain.
+                RUSTC = "${rust}/bin/rustc";
+                CARGO = "${rust}/bin/cargo";
+              };
+            in
+            {
+              inherit core site;
+              default = pkgs.symlinkJoin {
+                name = "robot-master";
+                paths = [ site core ];
               };
             };
 
@@ -116,24 +158,15 @@
               test_e.exec = ''pytest py_src/partie_guidee/e_test.py "$@"'';
             };
 
-            packages = with pkgs; [
-              mold
-              openssl
-              pkg-config
+            packages = [
+              pkgs.mold
+              pkgs.openssl
+              pkgs.pkg-config
               rust
-              simple-http-server
-              cargo-leptos
-              # bevy dependencies
-              alsa-lib
-              udev
-              vulkan-loader
-              libxkbcommon
-              wayland
-              xorg.libX11
-              xorg.libXcursor
-              xorg.libXi
-              xorg.libXrandr
-            ] ++ pre-commit-check.enabledPackages ++ combined.enabledPackages;
+              pkgs.maturin
+              pkgs.simple-http-server
+              pkgs.cargo-leptos
+            ] ++ nativeLibs ++ pre-commit-check.enabledPackages ++ combined.enabledPackages;
 
             env = {
               RUST_BACKTRACE = 1;
@@ -146,17 +179,7 @@
               + ''
                 cp -f ${(v_flakes.files.treefmt) { inherit pkgs; }} ./.treefmt.toml
 
-                export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
-                  pkgs.vulkan-loader
-                  pkgs.libxkbcommon
-                  pkgs.wayland
-                  pkgs.udev
-                  pkgs.alsa-lib
-                  pkgs.xorg.libX11
-                  pkgs.xorg.libXcursor
-                  pkgs.xorg.libXi
-                  pkgs.xorg.libXrandr
-                ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+                export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath nativeLibs}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
                 if [ ! -d ".devenv/state/venv" ]; then
                   uv venv .devenv/state/venv
