@@ -19,7 +19,10 @@ DicoJoueuse = dict[int, tuple[str, str, dict[int, int]]]
 #Donné aux étudiants
 @typechecked
 def init_tuple_joueuses(dico_options: dict[str, bool] = {"v": True}) -> tuple[str, str]:
-	"""La fonction init_tuple_joueuses prend un argument optionnel dico_options (par défaut la clé 'v' est Vrai). Si v est vrai la fonction demande à l'utilisateur de saisir le nom de la joueuse et du joueur et les renvoie sous forme de tuples. Sinon, elle renvoie (Alice,Bob)."""
+	"""La fonction init_tuple_joueuses prend un argument optionnel dico_options (par défaut la clé 'v' est Vrai).
+
+	Si v est vrai la fonction demande à l'utilisateur de saisir le nom de la joueuse et du joueur et les renvoie sous forme de tuples. Sinon, elle renvoie (Alice,Bob).
+	"""
 	if not dico_options.get("v", True):
 		return ("Alice", "Bob")
 	# > user input in a unit-tested function
@@ -85,10 +88,13 @@ def choix_carte_random(plateau: Plateau, dico_main: dict[int, int], nom_joueuse:
 
 @typechecked
 def choix_et_pose_carte(plateau: Plateau, dico_joueuses: DicoJoueuse, dico_options: dict[str, int | bool], joueuse_active: int) -> None:
-	"""La fonction choix_et_pose_carte effectue le tour de la joueuse_active (un int égal à 0 ou 1). Elle appel la fonction choix_carte_manuel ou choix_carte_random en fonction des information dans dico_joueuse, la fonction place_carte du fichier b et retire la carte du la main de la joueuse. Enfin, si la valeur de 'v' est vrai dans dico_options, on affiche un message comme 'A pose la carte x sur la case i,j' en remplaçant Axij bien évidement."""
+	"""La fonction choix_et_pose_carte effectue le tour de la joueuse_active (un int égal à 0 ou 1).
+
+	Elle appel la fonction choix_carte_manuel ou choix_carte_random en fonction des information dans dico_joueuse, la fonction place_carte du fichier b et retire la carte du la main de la joueuse. Enfin, si la valeur de 'v' est vrai dans dico_options, on affiche un message comme 'A pose la carte x sur la case i,j' en remplaçant Axij bien évidement.
+	"""
 	nom, mode, dico_main = dico_joueuses[joueuse_active]
 
-	# no enum, just a bare string. wonderful
+	# no enum, just a bare string. Wonderful
 	if mode == "m":
 		carte, posL, posC = choix_carte_manuel(plateau, dico_main, nom, dico_options)
 	else:
