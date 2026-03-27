@@ -1,7 +1,9 @@
-from collections import Counter  # pour comparer peu importe l'ordre
-import pytest
-from inline_snapshot import snapshot
+from __future__ import annotations
+
+from collections import Counter  # noqa: F401  # re-exported for test files
+
 from a_plateau import Plateau, plateau_to_string
+from inline_snapshot import snapshot
 
 
 def new_plateau_test() -> Plateau:

@@ -5,7 +5,7 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
     devenv.url = "github:cachix/devenv/v1.6.1";
     pre-commit-hooks.url = "github:cachix/git-hooks.nix";
-    v_flakes.url = "github:valeratrades/v_flakes?ref=v1.4";
+    v_flakes.url = "github:valeratrades/v_flakes?ref=v1.5";
   };
 
   outputs = inputs@{ self, nixpkgs, rust-overlay, flake-parts, devenv, pre-commit-hooks, v_flakes }:
@@ -46,6 +46,13 @@
           };
           py = v_flakes.py {
             inherit pkgs;
+            ruff.exclude.augment = [
+              "py_src/partie_guidee/a_test.py"
+              "py_src/partie_guidee/b_test.py"
+              "py_src/partie_guidee/c_test.py"
+              "py_src/partie_guidee/d_test.py"
+              "py_src/partie_guidee/e_test.py"
+            ];
           };
           github = v_flakes.github {
             inherit pkgs pname rs py;
