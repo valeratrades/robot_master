@@ -6,8 +6,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from IA.e_jeu_IA import tour as _tour
-from IA.e_jeu_IA import jeux as _jeux
+from IA.e_jeu_IA import jeux as _jeux, tour as _tour
 from partie_guidee.a_plateau import Grid
 from partie_guidee.c_joueuses import DicoJoueuse, choix_et_pose_carte, configuration_textuel, init_tuple_joueuses
 from typeguard import typechecked

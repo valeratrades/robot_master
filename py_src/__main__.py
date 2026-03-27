@@ -7,12 +7,12 @@ from enum import StrEnum, auto
 from pathlib import Path
 
 
-class Cmd(StrEnum): #noqa: D101
+class Cmd(StrEnum):
 	guided = auto()
 	naive = auto()
 
 
-def create_parser() -> argparse.ArgumentParser: #noqa: D103
+def create_parser() -> argparse.ArgumentParser:
 	parser = argparse.ArgumentParser(description="Robot Master")
 	subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -27,11 +27,13 @@ def create_parser() -> argparse.ArgumentParser: #noqa: D103
 	naive_mode.add_argument("-r", "--random", action="store_const", const="r", dest="mode", help="Random mode")
 	naive_mode.add_argument("-g", "--greedy", action="store_const", const="g", dest="mode", help="Greedy AI")
 	naive_mode.add_argument("-a", "--agressif", action="store_const", const="a", dest="mode", help="Agressif AI")
+	naive_mode.add_argument("-i", "--meilleur", action="store_const", const="i", dest="mode", help="Meilleur IA")
+	naive_mode.add_argument("-p", "--prof", action="store_const", const="p", dest="mode", help="Prof AI")
 
 	return parser
 
 
-def main() -> None: #noqa: D103
+def main() -> None:
 	parser = create_parser()
 	args = parser.parse_args()
 
