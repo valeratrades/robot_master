@@ -454,11 +454,11 @@
         "nixpkgs": "nixpkgs_7"
       },
       "locked": {
-        "lastModified": 1774576839,
-        "narHash": "sha256-4R7ktmy/23nFil10IOkU1s1WafR5/gDkxra/bnzLWJQ=",
+        "lastModified": 1774584993,
+        "narHash": "sha256-w9DlDPnnE6h0ZiO3Z59mUYwcCP8jdaO8I8eMnBGMjWU=",
         "owner": "valeratrades",
         "repo": "v_flakes",
-        "rev": "e2413dc3d8e3a874e6d7d02f38b0eee47a770e2c",
+        "rev": "45cdc46743686d555179ec09d2d972cf988babcf",
         "type": "github"
       },
       "original": {

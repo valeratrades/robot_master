@@ -107,13 +107,13 @@
             };
 
             scripts = {
+              run.exec = ''python -m py_src "$@"'';
               uv_sync.exec = "uv sync --prerelease=allow --no-install-project --dev";
               test_a.exec = ''pytest py_src/partie_guidee/a_test.py "$@"'';
               test_b.exec = ''pytest py_src/partie_guidee/b_test.py "$@"'';
               test_c.exec = ''pytest py_src/partie_guidee/c_test.py "$@"'';
               test_d.exec = ''pytest py_src/partie_guidee/d_test.py "$@"'';
               test_e.exec = ''pytest py_src/partie_guidee/e_test.py "$@"'';
-              run_cli.exec = ''python -m py_src tui "$@"'';
             };
 
             packages = with pkgs; [
