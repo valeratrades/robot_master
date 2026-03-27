@@ -113,7 +113,7 @@
               test_c.exec = ''pytest py_src/partie_guidee/c_test.py "$@"'';
               test_d.exec = ''pytest py_src/partie_guidee/d_test.py "$@"'';
               test_e.exec = ''pytest py_src/partie_guidee/e_test.py "$@"'';
-              run_cli.exec = ''python py_src/partie_guidee/e_jeu.py "$@"'';
+              run_cli.exec = ''python -m py_src tui "$@"'';
             };
 
             packages = with pkgs; [
