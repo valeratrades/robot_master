@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from collections import Counter  # noqa: F401  # re-exported for test files
 
-from a_plateau import Plateau, plateau_to_string
+from a_plateau import Grid, plateau_to_string
 from inline_snapshot import snapshot
 
 
-def new_plateau_test() -> Plateau:
+def new_plateau_test() -> Grid:
     return [
         [None, None, 1, 1, 0],
         [None, 2, None, 3, None],
@@ -16,14 +16,14 @@ def new_plateau_test() -> Plateau:
     ]
 
 
-plateau_test: Plateau = new_plateau_test()
+plateau_test: Grid = new_plateau_test()
 
 
-def new_small_plateau_test() -> Plateau:
+def new_small_plateau_test() -> Grid:
     return [[None, 1, 2], [3, None, None], [4, None, None]]
 
 
-small_plateau_test: Plateau = new_small_plateau_test()
+small_plateau_test: Grid = new_small_plateau_test()
 
 
 def test_plateau_test_repr():
