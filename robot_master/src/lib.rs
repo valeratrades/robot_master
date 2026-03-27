@@ -1,6 +1,8 @@
 #![feature(generic_const_exprs)]
 #![allow(incomplete_features)]
 
+pub mod algos;
+pub mod config;
 pub mod tui;
 
 #[cfg(feature = "python")]
