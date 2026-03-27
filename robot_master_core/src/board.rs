@@ -22,17 +22,6 @@ where
 	[(); N * N]:, {
 	cells: [Cell; N * N],
 }
-
-impl<const N: usize> Default for Board<N>
-where
-	[(); N * N]:,
-{
-	fn default() -> Self {
-		// Can't use [EMPTY; N*N] via derive (Default for arrays requires T: Default, but EMPTY=u8::MAX ≠ 0).
-		Self { cells: [u8::MAX; N * N] }
-	}
-}
-
 impl<const N: usize> Board<N>
 where
 	[(); N * N]:,
@@ -103,6 +92,16 @@ where
 				None
 			}
 		})
+	}
+}
+
+impl<const N: usize> Default for Board<N>
+where
+	[(); N * N]:,
+{
+	fn default() -> Self {
+		// Can't use [EMPTY; N*N] via derive (Default for arrays requires T: Default, but EMPTY=u8::MAX ≠ 0).
+		Self { cells: [u8::MAX; N * N] }
 	}
 }
 

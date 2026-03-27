@@ -5752,19 +5752,10 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 name = "robot_master"
 version = "0.1.0"
 dependencies = [
- "axum",
  "clap",
- "console_error_panic_hook",
- "getrandom 0.4.1",
- "leptos",
- "leptos_axum",
- "leptos_meta",
- "leptos_router",
- "robot_master_game",
- "tokio",
- "tower-http",
- "wasm-bindgen",
- "web-sys",
+ "pyo3",
+ "rand",
+ "robot_master_core",
 ]
 
 [[package]]
@@ -5791,6 +5782,25 @@ dependencies = [
  "bevy",
  "clap",
  "v_utils",
+]
+
+[[package]]
+name = "robot_master_site"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "clap",
+ "console_error_panic_hook",
+ "getrandom 0.4.1",
+ "leptos",
+ "leptos_axum",
+ "leptos_meta",
+ "leptos_router",
+ "robot_master_game",
+ "tokio",
+ "tower-http",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

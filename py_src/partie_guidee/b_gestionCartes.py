@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import robot_master_core as _rc
+import robot_master as _rc
 
 Grid = list[list[int | None]]
 
