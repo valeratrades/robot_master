@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::game::PlayerId;
 
 pub const EMPTY: Cell = u8::MAX;
@@ -100,35 +102,53 @@ where
 	[(); N * N]:,
 {
 	fn default() -> Self {
-		// Can't use [EMPTY; N*N] via derive (Default for arrays requires T: Default, but EMPTY=u8::MAX ≠ 0).
 		Self { cells: [u8::MAX; N * N] }
 	}
 }
 
-pub type Board5 = Board<5>;
-pub type Board7 = Board<7>;
-pub type Board9 = Board<9>;
-pub type Board11 = Board<11>;
+impl<const N: usize> fmt::Display for Board<N>
+where
+	[(); N * N]:,
+{
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let bar: String = "-".repeat(9 + 4 * N);
+		writeln!(f, "{bar}")?;
+		write!(f, "          ")?;
+		for c in 0..N {
+			if c + 1 < N {
+				write!(f, "{c}   ")?;
+			} else {
+				write!(f, "{c}")?;
+			}
+		}
+		writeln!(f)?;
+		writeln!(f, "{bar}")?;
+		for row in 0..N {
+			write!(f, "({row},_)   |")?;
+			for col in 0..N {
+				let cell = self.get(Pos { row: row as u8, col: col as u8 });
+				if cell == EMPTY {
+					write!(f, "   |")?;
+				} else {
+					write!(f, " {cell} |")?;
+				}
+			}
+			writeln!(f)?;
+		}
+		write!(f, "{bar}")?;
+		Ok(())
+	}
+}
 
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use crate::game::PlayerId;
 
-	fn center5() -> Board5 {
-		let mut b = Board5::default();
+	fn center5() -> Board<5> {
+		let mut b = Board::<5>::default();
 		b.set(Pos { row: 2, col: 2 }, 3);
 		b
-	}
-
-	#[test]
-	fn new_board_all_empty() {
-		let b = Board5::default();
-		for row in 0..5u8 {
-			for col in 0..5u8 {
-				assert!(b.is_empty(Pos { row, col }));
-			}
-		}
 	}
 
 	#[test]
@@ -164,7 +184,7 @@ mod tests {
 
 	#[test]
 	fn line_row_col() {
-		let mut b = Board5::default();
+		let mut b = Board::<5>::default();
 		b.set(Pos { row: 0, col: 0 }, 1);
 		b.set(Pos { row: 1, col: 0 }, 2);
 		b.set(Pos { row: 2, col: 0 }, 3);

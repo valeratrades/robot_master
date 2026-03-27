@@ -1,3 +1,5 @@
+use std::fmt;
+
 use rand::{Rng, seq::SliceRandom};
 
 pub const MAX_CARD_VALUE: usize = 5;
@@ -40,6 +42,23 @@ impl Hand {
 
 	pub fn total(&self) -> u8 {
 		self.counts.iter().sum()
+	}
+}
+
+impl fmt::Display for Hand {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{{")?;
+		let mut first = true;
+		for (v, &c) in self.counts.iter().enumerate() {
+			if c > 0 {
+				if !first {
+					write!(f, ", ")?;
+				}
+				write!(f, "{v}:{c}")?;
+				first = false;
+			}
+		}
+		write!(f, "}}")
 	}
 }
 
