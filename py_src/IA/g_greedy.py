@@ -15,8 +15,36 @@ from dataclasses import dataclass
 
 from partie_guidee.a_plateau import Grid
 from partie_guidee.b_gestionCartes import emplacement_jouable
-from partie_guidee.d_score import colonne_to_dico, score_ligne
+from partie_guidee.d_score import colonne_to_dico
 from typeguard import typechecked
+
+
+def _score_ligne(counts: dict[int, int]) -> int:
+	# PERF: inlined from d_score.score_ligne to avoid per-card function call overhead in the hot loop.
+	# Rules: 1 copy = face value, 2 copies = 10xface, 3+ copies = 100 flat.
+	return sum(
+		v if c == 1 else (10 * v if c == 2 else 100)
+		for v, c in counts.items()
+		if c > 0
+	)
+
+
+def _score_delta(counts: dict[int, int], card_val: int) -> int:
+	# PERF: analytic delta - avoids dict copy + two score_ligne calls per candidate (was O(maxC) alloc per iteration).
+	# Derived from the scoring rules:
+	#   0->1: gain face value             (+v)
+	#   1->2: lose face value, gain 10x   (+9v)
+	#   2->3: lose 10xface, gain 100 flat (+100 - 10v)
+	# >=3->*: already scoring 100, no change
+	c = counts.get(card_val, 0)
+	v = card_val
+	if c == 0:
+		return v
+	if c == 1:
+		return 9 * v
+	if c == 2:
+		return 100 - 10 * v
+	return 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,15 +61,9 @@ def choix_carte_greedy(plateau: Grid, dico_main: dict[int, int], dico_options: d
 	We optimise each stack in isolation, taking the local maximum delta per move. No weight is given to
 	which stack is likely to end up as the minimum (and thus the actual final score) - that prediction
 	would require either look-ahead or a probabilistic model of the opponent's play.
-	# Assumptions
-	We optimise each stack in isolation, taking the local maximum delta per move. No weight is given to
-	which stack is likely to end up as the minimum (and thus the actual final score) - that prediction
-	would require either look-ahead or a probabilistic model of the opponent's play.
 	"""
 
 	hand = dico_main
-
-	#TODO: switch everything to numparrays for speed
 
 	# find all playable positions on the board.
 	n = len(plateau)
@@ -72,15 +94,11 @@ def choix_carte_greedy(plateau: Grid, dico_main: dict[int, int], dico_options: d
 		if pos is None:
 			continue
 		stack = stacks[i]
-		current_score = score_ligne(stack)
-		entries: list[tuple[int, int]] = []
-		for card_val in range(maxC + 1):
-			if hand.get(card_val, 0) == 0:
-				continue
-			updated = dict(stack)
-			updated[card_val] = updated.get(card_val, 0) + 1
-			delta = score_ligne(updated) - current_score
-			entries.append((card_val, delta))
+		entries: list[tuple[int, int]] = [
+			(card_val, _score_delta(stack, card_val))
+			for card_val in range(maxC + 1)
+			if hand.get(card_val, 0) > 0
+		]
 		entries.sort(key=lambda x: (-x[1], x[0]))
 		scored_moves[i] = tuple(entries)
 
