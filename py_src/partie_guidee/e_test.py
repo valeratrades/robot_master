@@ -12,7 +12,7 @@ def test_tour(monkeypatch):
 	print(plateau_to_string(p))
 	dico_options = {"taille": 5, "maxC": 5, "nbC": 6, "v": True, "cartes_distrib": 12, "nbJ": 2}
 	dico_main = {0: 0, 1: 1, 2: 0, 3: 0, 4: 0, 5: 0}
-	dico_joueuses = {0: ["Alice", "m", dico_main], 1: ["Bob", "r", dico_main]}
+	dico_joueuses = {0: ("Alice", "m", dico_main), 1: ("Bob", "r", dico_main)}
 	responses = iter(["1", "2", "4"])
 	monkeypatch.setattr("builtins.input", lambda msg: next(responses))
 	tour(p, dico_joueuses, dico_options, 0)
