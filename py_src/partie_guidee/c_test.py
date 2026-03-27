@@ -18,7 +18,7 @@ def test_init_tuple_joueuses_2():
 def test_configuration_textuel(monkeypatch):
 	responses = iter(["r", "m"])
 	monkeypatch.setattr("builtins.input", lambda msg: next(responses))
-	assert configuration_textuel(("A", "B")) == {0: ["A", "r", {}], 1: ["B", "m", {}]}
+	assert configuration_textuel(("A", "B")) == {0: ("A", "r", {}), 1: ("B", "m", {})}
 
 
 # Test choix / pose carte
@@ -62,7 +62,7 @@ def test_choix_carte_manuel_3_utilisation_try(monkeypatch):
 def test_test_choix_et_pose_carte():
 	p = [[0, 1], [2, None]]
 	dico_main = {0: 0, 1: 1, 2: 0, 3: 0, 4: 0, 5: 0}
-	dico_joueuses = {0: ["A", "r", dico_main], 1: ["B", "r", {3: 1}]}
+	dico_joueuses = {0: ("A", "r", dico_main), 1: ("B", "r", {3: 1})}
 	option = {"v": False, "maxC": 5}
 	choix_et_pose_carte(p, dico_joueuses, option, 0)
 	assert p == [[0, 1], [2, 1]] and dico_main == {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
@@ -74,7 +74,7 @@ def test_test_choix_et_pose_carte_2(monkeypatch):
 	monkeypatch.setattr("builtins.input", lambda msg: next(responses))
 	p = [[0, 1], [2, None]]
 	dico_main = {0: 0, 1: 1, 2: 0, 3: 0, 4: 0, 5: 0}
-	dico_joueuses = {0: ["A", "r", dico_main], 1: ["B", "m", {3: 1}]}
+	dico_joueuses = {0: ("A", "r", dico_main), 1: ("B", "m", {3: 1})}
 	option = {"v": False, "maxC": 5}
 	choix_et_pose_carte(p, dico_joueuses, option, 1)
-	assert p == [[0, 1], [2, 3]] and dico_joueuses == {0: ["A", "r", dico_main], 1: ["B", "m", {3: 0}]}
+	assert p == [[0, 1], [2, 3]] and dico_joueuses == {0: ("A", "r", dico_main), 1: ("B", "m", {3: 0})}

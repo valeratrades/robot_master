@@ -13,7 +13,7 @@ from partie_guidee.a_plateau import Plateau, plateau_to_string
 from partie_guidee.b_gestionCartes import emplacement_jouable, place_carte
 from typeguard import typechecked
 
-DicoJoueuse = dict[int, list[str | dict[int, int]]]
+DicoJoueuse = dict[int, tuple[str, str, dict[int, int]]]
 
 
 #Donné aux étudiants
@@ -39,7 +39,7 @@ def configuration_textuel(tuple_joueuses: tuple[str, str]) -> DicoJoueuse:
 	dico: DicoJoueuse = dict()
 	for i in range(2):
 		mode = input(f"Mode de jeu pour {tuple_joueuses[i]} (m/r) : ")
-		dico[i] = [tuple_joueuses[i], mode, {}]
+		dico[i] = (tuple_joueuses[i], mode, {})
 	return dico
 
 
@@ -86,11 +86,7 @@ def choix_carte_random(plateau: Plateau, dico_main: dict[int, int], nom_joueuse:
 @typechecked
 def choix_et_pose_carte(plateau: Plateau, dico_joueuses: DicoJoueuse, dico_options: dict[str, int | bool], joueuse_active: int) -> None:
 	"""La fonction choix_et_pose_carte effectue le tour de la joueuse_active (un int égal à 0 ou 1). Elle appel la fonction choix_carte_manuel ou choix_carte_random en fonction des information dans dico_joueuse, la fonction place_carte du fichier b et retire la carte du la main de la joueuse. Enfin, si la valeur de 'v' est vrai dans dico_options, on affiche un message comme 'A pose la carte x sur la case i,j' en remplaçant Axij bien évidement."""
-	info = dico_joueuses[joueuse_active]
-	# mate
-	nom: str = info[0]  # type: ignore[assignment]
-	mode: str = info[1]  # type: ignore[assignment]
-	dico_main: dict[int, int] = info[2]  # type: ignore[assignment]
+	nom, mode, dico_main = dico_joueuses[joueuse_active]
 
 	# no enum, just a bare string. wonderful
 	if mode == "m":
