@@ -1,61 +1,24 @@
-cargo-features = ["codegen-backend"]
-
 [package]
 name = "robot_master"
 edition = "2024"
 version = "0.1.0"
 
-[package.metadata.leptos]
-bin-target = "robot_master"
-output-name = "robot_master"
-site-root = "target/site"
-site-pkg-dir = "pkg"
-assets-dir = "public"
-site-addr = "127.0.0.1:58937"
-reload-port = 58938
-browserquery = "defaults"
-bin-features = ["ssr"]
-bin-default-features = false
-lib-features = ["hydrate"]
-lib-default-features = false
-lib-profile-release = "wasm-release"
-
 [lib]
+name = "robot_master"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["ssr"]
-hydrate = ["leptos/hydrate", "dep:wasm-bindgen", "dep:console_error_panic_hook"]
-ssr = [
-    "leptos/ssr",
-    "leptos_router/ssr",
-    "leptos_meta/ssr",
-    "dep:axum",
-    "dep:tokio",
-    "dep:leptos_axum",
-    "dep:tower-http",
-]
+default = []
+python = ["dep:pyo3", "robot_master_core/python"]
 
 [dependencies]
-robot_master_game = { path = "../robot_master_game" }
+robot_master_core = { path = "../robot_master_core" }
 
-axum = { version = "0.8", optional = true }
-console_error_panic_hook = { version = "0.1", optional = true }
-getrandom = { version = "0.4", features = ["wasm_js"] }
-leptos = "0.8"
-leptos_axum = { version = "0.8", optional = true }
-leptos_meta = "0.8"
-leptos_router = "0.8"
-tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
-tower-http = { version = "0.6", features = ["fs"], optional = true }
-wasm-bindgen = { version = "0.2.106", optional = true }
+pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+rand = "0.9"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 clap = { version = "4.5", features = ["derive"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "=0.2.108"
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement"] }
 
 [lints]
 workspace = true

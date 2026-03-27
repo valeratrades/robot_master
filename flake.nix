@@ -29,7 +29,7 @@
             targets = [ "wasm32-unknown-unknown" ];
           });
           pre-commit-check = pre-commit-hooks.lib.${system}.run (v_flakes.files.preCommit { inherit pkgs; });
-          manifest = (pkgs.lib.importTOML ./robot_master/Cargo.toml).package;
+          manifest = (pkgs.lib.importTOML ./robot_master_site/Cargo.toml).package;
           pname = manifest.name;
           stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv;
           python = pkgs.python312;
@@ -40,7 +40,7 @@
             build = {
               enable = true;
               workspace = {
-                "./robot_master" = [ "git_version" "log_directives" ];
+                "./robot_master_site" = [ "git_version" "log_directives" ];
               };
             };
           };
@@ -105,7 +105,7 @@
               };
 
               core = python.pkgs.buildPythonPackage {
-                pname = "robot_master_core";
+                pname = "robot_master";
                 version = "0.1.0";
                 format = "pyproject";
 
@@ -115,6 +115,11 @@
                   lockFile = ./Cargo.lock;
                 };
 
+                dependencies = [
+                  python.pkgs.typeguard
+                  python.pkgs.icecream
+                ];
+
                 nativeBuildInputs = [
                   rustPlatform.cargoSetupHook
                   rustPlatform.maturinBuildHook
@@ -123,7 +128,7 @@
                   pkgs.mold
                 ];
 
-                maturinBuildFlags = [ "-m" "robot_master_core/Cargo.toml" ];
+                maturinBuildFlags = [ "-m" "robot_master/Cargo.toml" "--features" "python" ];
 
                 # .cargo/config.toml has nightly-only -Z flags; use our nightly toolchain.
                 RUSTC = "${rust}/bin/rustc";

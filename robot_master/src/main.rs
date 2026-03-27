@@ -1,28 +1,33 @@
-#[cfg(not(feature = "ssr"))]
-pub fn main() {
-	// hydration handled in lib.rs
+use clap::{Parser, Subcommand};
+use robot_master_core::game::GameConfig;
+
+#[derive(Parser)]
+#[command(author, version, about = "Robot Master game")]
+struct Cli {
+	#[command(subcommand)]
+	command: Commands,
 }
-#[cfg(feature = "ssr")]
-#[tokio::main]
-async fn main() {
-	use axum::Router;
-	use leptos::prelude::*;
-	use leptos_axum::*;
-	use robot_master::app::*;
 
-	let conf = get_configuration(None).unwrap();
-	let addr = conf.leptos_options.site_addr;
-	let leptos_options = conf.leptos_options;
+#[derive(Subcommand)]
+enum Commands {
+	/// Play the game in the terminal
+	Tui {
+		/// Player 1 plays manually (otherwise random AI)
+		#[arg(short = 'm', long)]
+		manual: bool,
+	},
+	//DO: `site` command that starts the leptos server
+}
 
-	let app = Router::new()
-		.leptos_routes(&leptos_options, generate_route_list(App), {
-			let leptos_options = leptos_options.clone();
-			move || shell(leptos_options.clone())
-		})
-		.fallback(leptos_axum::file_and_error_handler(shell))
-		.with_state(leptos_options);
+fn main() {
+	let cli = Cli::parse();
 
-	let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-	println!("listening on http://{}", &addr);
-	axum::serve(listener, app.into_make_service()).await.unwrap();
+	match cli.command {
+		Commands::Tui { manual } => {
+			let config = GameConfig::default();
+			let manual_flags = [manual, false];
+			let names = ["Alice", "Bob"];
+			robot_master::tui::run(config, manual_flags, names);
+		}
+	}
 }

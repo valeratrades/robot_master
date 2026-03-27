@@ -3,9 +3,10 @@ requires = ["maturin>=1.7"]
 build-backend = "maturin"
 
 [tool.maturin]
-manifest-path = "robot_master_core/Cargo.toml"
+manifest-path = "robot_master/Cargo.toml"
 python-source = "py_src"
-module-name = "robot_master_core"
+module-name = "robot_master"
+features = ["python"]
 
 [project]
 name = "robot-master-py"
