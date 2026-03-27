@@ -9,7 +9,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 try:
 	from icecream import ic
 except ImportError:  # Graceful fallback if IceCream isn't installed.
-	ic = lambda *a: None if not a else (a[0] if len(a) == 1 else a)  # noqa
+	ic = lambda *a: None if not a else (a[0] if len(a) == 1 else a)  # type: ignore[assignment] # noqa
 
 from dataclasses import dataclass
 
