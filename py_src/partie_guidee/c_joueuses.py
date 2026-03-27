@@ -9,7 +9,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 import random
 
-from partie_guidee.a_plateau import Plateau, plateau_to_string
+from partie_guidee.a_plateau import Grid, plateau_to_string
 from partie_guidee.b_gestionCartes import emplacement_jouable, place_carte
 from typeguard import typechecked
 
@@ -47,35 +47,63 @@ def configuration_textuel(tuple_joueuses: tuple[str, str]) -> DicoJoueuse:
 
 
 @typechecked
-def choix_carte_manuel(plateau: Plateau, dico_main: dict[int, int], nom_joueuse: str, dico_options: dict[str, int | bool]) -> tuple[int, int, int]:
+def choix_carte_manuel(plateau: Grid, dico_main: dict[int, int], nom_joueuse: str, dico_options: dict[str, int | bool]) -> tuple[int, int, int]:
 	"""La fonction choix_carte_manuel retourne un tuple (carte,posL,posC).
 
 	Elle demande une carte à la joueuse (en lui affichant sa main), puis lui demande un emplacement (ligne colonne) où placer sa carte.
 	Si l'utilisateur rentre une information incorrect (une lettre et non un int), ou une carte non existante, ou un emplacement non jouable, la fonction ne doit pas crasher mais redemander à l'utilisateur. Voir l'utilisation de try et except.
 	On fera attention a afficher le plateau et la main de la joueuse pour qu'elle puisse prendre une décision éclairée.
 	"""
-	print(plateau_to_string(plateau))
-	print(f"{nom_joueuse}, votre main : {dico_main}")
-	# loop until we get valid input
+	# loop until we get valid input. Each iteration redraws the board,
+	# erases the previous attempt, and shows warning from last error if any
+	lines_to_erase = 0
+	warning: str | None = None
 	while True:
+		if lines_to_erase > 0:
+			sys.stdout.write(f"\x1B[{lines_to_erase}A\x1B[J")
+		print(plateau_to_string(plateau))
+		print(f"{nom_joueuse}, votre main : {dico_main}")
+		if warning is not None:
+			print(f"\x1B[33mWARNING: {warning}\x1B[0m")
+		# board + hand + optional warning
+		board_lines = plateau_to_string(plateau).count("\n") + 2 + (1 if warning is not None else 0)
+		prompt_lines = 0
+		warning = None
 		try:
 			carte = int(input("Choisissez une carte : "))
+			prompt_lines += 1
 		except ValueError:
+			warning = "expected a number"
+			lines_to_erase = board_lines + 1
 			continue
 		if carte not in dico_main or dico_main[carte] <= 0:
+			warning = f"no card {carte} in hand"
+			lines_to_erase = board_lines + 1
 			continue
 		try:
 			posL = int(input("Ligne : "))
+			prompt_lines += 1
 			posC = int(input("Colonne : "))
+			prompt_lines += 1
 		except ValueError:
+			warning = "expected a number"
+			lines_to_erase = board_lines + prompt_lines + 1
 			continue
 		if not emplacement_jouable(plateau, posL, posC):
+			n = plateau.__len__()
+			if posL < 0 or posL >= n or posC < 0 or posC >= n:
+				warning = f"({posL},{posC}) is out of bounds"
+			elif plateau[posL][posC] is not None:
+				warning = f"({posL},{posC}) is already occupied"
+			else:
+				warning = f"({posL},{posC}) has no adjacent card"
+			lines_to_erase = board_lines + prompt_lines
 			continue
 		return (carte, posL, posC)
 
 
 @typechecked
-def choix_carte_random(plateau: Plateau, dico_main: dict[int, int], nom_joueuse: str, dico_options: dict[str, int | bool]) -> tuple[int, int, int]:
+def choix_carte_random(plateau: Grid, dico_main: dict[int, int], nom_joueuse: str, dico_options: dict[str, int | bool]) -> tuple[int, int, int]:
 	"""La fonction choix_carte_random retourne un tuple (carte,posL,posC) choisit aléatoirement parmi les cartes de la main et les positions jouables."""
 	available_cards = [c for c, count in dico_main.items() if count > 0]
 	n = len(plateau)
@@ -87,7 +115,7 @@ def choix_carte_random(plateau: Plateau, dico_main: dict[int, int], nom_joueuse:
 
 
 @typechecked
-def choix_et_pose_carte(plateau: Plateau, dico_joueuses: DicoJoueuse, dico_options: dict[str, int | bool], joueuse_active: int) -> None:
+def choix_et_pose_carte(plateau: Grid, dico_joueuses: DicoJoueuse, dico_options: dict[str, int | bool], joueuse_active: int) -> None:
 	"""La fonction choix_et_pose_carte effectue le tour de la joueuse_active (un int égal à 0 ou 1).
 
 	Elle appel la fonction choix_carte_manuel ou choix_carte_random en fonction des information dans dico_joueuse, la fonction place_carte du fichier b et retire la carte du la main de la joueuse. Enfin, si la valeur de 'v' est vrai dans dico_options, on affiche un message comme 'A pose la carte x sur la case i,j' en remplaçant Axij bien évidement.

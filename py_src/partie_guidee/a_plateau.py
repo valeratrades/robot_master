@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typeguard import typechecked
 
-Plateau = list[list[int | None]]
+Grid = list[list[int | None]]
 
 
 @typechecked
-def creer_plateau(taille: int = 5) -> Plateau | None:
+def creer_plateau(taille: int = 5) -> Grid | None:
 	"""La fonction creer_plateau prend en argument un entier positif taille.
 
 	Cet argument est optionnel et prend la valeur 5 par défaut
@@ -20,7 +20,7 @@ def creer_plateau(taille: int = 5) -> Plateau | None:
 
 #Fonction donnée aux étudiants
 @typechecked
-def afficher_coordonnees(plateau: Plateau) -> None:
+def afficher_coordonnees(plateau: Grid) -> None:
 	"""La fonction afficher_coordonnees prend en argument un plateau.
 
 	et affiche les coordonnées de chaque point du plateau. Cette fonction ne sera jamais
@@ -38,7 +38,7 @@ def afficher_coordonnees(plateau: Plateau) -> None:
 
 
 @typechecked
-def cases_libres(plateau: Plateau) -> list[tuple[int, int]]:
+def cases_libres(plateau: Grid) -> list[tuple[int, int]]:
 	"""La fonction cases_libres prend en argument un plateau.
 
 	Elle renvoie la liste des cases vides (contenant la valeur none)
@@ -50,7 +50,7 @@ def cases_libres(plateau: Plateau) -> list[tuple[int, int]]:
 
 
 @typechecked
-def plateau_to_string(plateau: Plateau, vide: str = "   ") -> str:
+def plateau_to_string(plateau: Grid, vide: str = "   ") -> str:
 	"""La fonction plateau_to_string prend en argument un plateau.
 
 	et un argument optionnel vide qui représente les cases vides.

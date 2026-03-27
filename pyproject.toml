@@ -20,5 +20,5 @@ format-command = "ruff format --stdin-filename {filename}"
 typeguard-packages = "py_src"
 
 [tool.ty.environment]
-extra-search-paths = ["py_src"]
+extra-paths = ["py_src"]
 python = ".devenv/state/venv"

@@ -9,7 +9,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 import random
 
-from partie_guidee.a_plateau import Plateau
+from partie_guidee.a_plateau import Grid
 from typeguard import typechecked
 
 # part 1 : Création et manipulation des pile / dictionnaires de cartes
@@ -63,7 +63,7 @@ def liste_to_dico(list: list[int], dico_options: dict[str, int] = {"maxC": 5}) -
 
 
 @typechecked
-def cases_voisines(plateau: Plateau, posL: int, posC: int) -> list[tuple[int, int]]:
+def cases_voisines(plateau: Grid, posL: int, posC: int) -> list[tuple[int, int]]:
 	"""La fonction cases_voisines prend en argument un plateau et les coordonnées d'une case.
 
 	Elle renvoie la liste des cases qui sont voisines de la case donnée en entrée
@@ -82,7 +82,7 @@ def cases_voisines(plateau: Plateau, posL: int, posC: int) -> list[tuple[int, in
 
 
 @typechecked
-def emplacement_jouable(plateau: Plateau, posL: int, posC: int) -> bool:
+def emplacement_jouable(plateau: Grid, posL: int, posC: int) -> bool:
 	"""La fonction emplacement_jouable vérifie qu'une carte peut être placée dans la position donnée.
 
 	C'est à dire retourne True si la place est libre, et que au moins une case voisine est occupée.
@@ -102,7 +102,7 @@ def emplacement_jouable(plateau: Plateau, posL: int, posC: int) -> bool:
 
 
 @typechecked
-def place_carte(plateau: Plateau, posL: int, posC: int, carte: int) -> None:
+def place_carte(plateau: Grid, posL: int, posC: int, carte: int) -> None:
 	"""La fonction place_carte place la carte dans la position donnée si l'emplacement est jouable.
 
 	Plateau est modifié mais rien n'est retourné.
