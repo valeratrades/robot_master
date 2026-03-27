@@ -7,8 +7,6 @@ from pathlib import Path
 # Ajoute le chemin du dossier parent au sys.path
 sys.path.append(str(Path(__file__).parent.parent))
 
-import copy
-
 from partie_guidee.a_plateau import Grid
 from partie_guidee.b_gestionCartes import emplacement_jouable
 from partie_guidee.d_score import colonne_to_dico, score_ligne
@@ -33,7 +31,9 @@ def score_complet_joueuse(plateau: Grid, joueuse_active: int, dico_options: dict
 @typechecked
 def copie_plateau(plateau: Grid) -> Grid:
 	"""Crée un nouveau plateau, copie de l'argument tel que modifier la sortie n'impacte pas l'entré."""
-	return copy.deepcopy(plateau)
+	# PERF: Grid is list[list[int | None]] - scalars only, so row slicing is sufficient and far
+	# cheaper than deepcopy (no object graph traversal).
+	return [row[:] for row in plateau]
 
 
 @typechecked
