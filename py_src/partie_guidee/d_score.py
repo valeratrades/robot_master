@@ -65,16 +65,16 @@ def score_joueuse(plateau: Plateau, joueuse_active: int, dico_options: dict[str,
 	Si joueuse_active est paire, on regarde le score des colone, sinon des ligne. On retourne le score ainsi que l'indice de la colonne (ou la ligne) qui réalise ce score.
 	"""
 	n = plateau.__len__()
+	assert n > 0, "empty board has no score"
 	# the score that "wins" for the player is the minimum across their lines/columns
-	best_score = None
+	best_score = score_ligne(colonne_to_dico(plateau, joueuse_active, 0, dico_options))
 	best_idx = 0
-	for i in range(n):
-		dico = colonne_to_dico(plateau, joueuse_active, i, dico_options)
-		s = score_ligne(dico)
-		if best_score is None or s < best_score:
+	for i in range(1, n):
+		s = score_ligne(colonne_to_dico(plateau, joueuse_active, i, dico_options))
+		if s < best_score:
 			best_score = s
 			best_idx = i
-	return (best_score, best_idx)  # type: ignore[return-value]
+	return (best_score, best_idx)
 
 
 @typechecked
