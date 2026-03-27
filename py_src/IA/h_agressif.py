@@ -9,9 +9,9 @@ sys.path.append(str(Path(__file__).parent.parent))
 try:
 	from icecream import ic
 except ImportError:
-	ic = lambda *a: None if not a else (a[0] if len(a) == 1 else a)  # noqa
+	ic = lambda *a: None if not a else (a[0] if len(a) == 1 else a)  # noqa # type: ignore[assignment]
 
-from f_fonctions_additionelles import cartes_restantes, copie_plateau
+from .f_fonctions_additionelles import cartes_restantes, copie_plateau
 from partie_guidee.a_plateau import Grid
 from partie_guidee.b_gestionCartes import emplacement_jouable, place_carte
 from partie_guidee.d_score import colonne_to_dico, score_ligne

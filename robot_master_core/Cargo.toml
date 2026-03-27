@@ -1,0 +1,16 @@
+[package]
+name = "robot_master_core"
+edition = "2024"
+version = "0.1.0"
+
+[lib]
+name = "robot_master_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module"] }
+rand = "0.9"
+thiserror = "2"
+
+[lints]
+workspace = true

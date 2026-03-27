@@ -1,3 +1,12 @@
+[build-system]
+requires = ["maturin>=1.7"]
+build-backend = "maturin"
+
+[tool.maturin]
+manifest-path = "robot_master_core/Cargo.toml"
+python-source = "py_src"
+module-name = "robot_master_core"
+
 [project]
 name = "robot-master-py"
 version = "0.1.0"
