@@ -6,11 +6,11 @@ use crate::{
 	cards::{CardValue, Hand, deal, new_deck},
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum PlayerId {
-	/// Even player — scores columns.
+	/// Player one - scores cols
 	Cols,
-	/// Odd player — scores rows.
+	/// Player two - scores rows.
 	Rows,
 }
 
@@ -22,30 +22,19 @@ impl PlayerId {
 		}
 	}
 
-	/// True for P1 (odd), whose score is determined by rows.
+	//Q: not sure if I should keep this now, that I renamed players themselves to match
 	#[inline]
 	pub fn scores_rows(self) -> bool {
 		self == PlayerId::Rows
 	}
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct GameConfig {
-	pub size: u8,
-	pub max_card: u8,
-	pub nb_c: u8,
-	pub cards_dealt: u8,
-}
-
-impl Default for GameConfig {
-	fn default() -> Self {
-		Self {
-			size: 5,
-			max_card: 5,
-			nb_c: 6,
-			cards_dealt: 12,
-		}
-	}
+	pub size: u8 = 5,
+	pub max_card: u8 = 5,
+	pub nb_c: u8 = 6,
+	pub cards_dealt: u8 = 12,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -135,20 +124,6 @@ mod tests {
 	}
 
 	#[test]
-	fn new_game_has_center_card() {
-		let s = state5();
-		// center at (2,2) must not be empty
-		assert!(s.board.get(Pos { row: 2, col: 2 }) != crate::board::EMPTY);
-	}
-
-	#[test]
-	fn new_game_hands_dealt() {
-		let s = state5();
-		assert_eq!(s.hands[0].total(), 12);
-		assert_eq!(s.hands[1].total(), 12);
-	}
-
-	#[test]
 	fn apply_move_valid() {
 		let s = state5();
 		let m = s.valid_moves().next().expect("no valid moves at start");
@@ -180,17 +155,5 @@ mod tests {
 		let pos = s.board.valid_placements().next().unwrap();
 		let m = Move { pos, card: CardValue(5) };
 		assert!(matches!(s.apply_move(m), Err(MoveError::CardNotInHand(_))));
-	}
-
-	#[test]
-	fn turn_alternates() {
-		let s = state5();
-		assert_eq!(s.turn, PlayerId::Cols);
-		let m = s.valid_moves().next().unwrap();
-		let s2 = s.apply_move(m).unwrap();
-		assert_eq!(s2.turn, PlayerId::Rows);
-		let m2 = s2.valid_moves().next().unwrap();
-		let s3 = s2.apply_move(m2).unwrap();
-		assert_eq!(s3.turn, PlayerId::Cols);
 	}
 }

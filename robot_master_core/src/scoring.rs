@@ -42,16 +42,6 @@ pub fn score_delta(counts: &LineCounts, v: CardValue) -> i16 {
 	}
 }
 
-/// Minimum score across all of a player's lines. Returns (min_score, line_index).
-pub fn player_score<const N: usize>(board: &Board<N>, player: PlayerId) -> (u16, usize)
-where
-	[(); N * N]:, {
-	(0..N)
-		.map(|i| (score_line(&line_counts(&board.line(player, i))), i))
-		.min_by_key(|&(s, _)| s)
-		.expect("board has no lines")
-}
-
 /// Final result: (score_p0, idx_p0, score_p1, idx_p1)
 pub fn victoire<const N: usize>(board: &Board<N>) -> (u16, usize, u16, usize)
 where
@@ -59,6 +49,15 @@ where
 	let (s0, i0) = player_score(board, PlayerId::Cols);
 	let (s1, i1) = player_score(board, PlayerId::Rows);
 	(s0, i0, s1, i1)
+}
+/// Minimum score across all of a player's lines. Returns (min_score, line_index).
+fn player_score<const N: usize>(board: &Board<N>, player: PlayerId) -> (u16, usize)
+where
+	[(); N * N]:, {
+	(0..N)
+		.map(|i| (score_line(&line_counts(&board.line(player, i))), i))
+		.min_by_key(|&(s, _)| s)
+		.expect("board has no lines")
 }
 
 #[cfg(test)]

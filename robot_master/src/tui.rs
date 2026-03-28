@@ -1,9 +1,9 @@
 use std::io::{self, BufRead, Write};
 
-use rand::{SeedableRng, rngs::SmallRng};
+use rand::rngs::SmallRng;
 use robot_master_arena::{
 	db::RatingDb,
-	match_::{Match, MatchResult},
+	match_::{MatchResult, SerMove},
 	player::Player,
 	rating::{self, EloRating, Outcome},
 };
@@ -11,7 +11,9 @@ use robot_master_core::{
 	board::{Board, Pos},
 	cards::{CardValue, Hand},
 	game::{GameConfig, GameState, Move, PlayerId},
+	scoring::victoire,
 };
+use ustr::ustr;
 
 use crate::algos;
 
@@ -20,7 +22,7 @@ pub fn run(config: GameConfig, p1_name: &str, p2_name: &str, rating_db: &dyn Rat
 	let mut stdout = stdout_handle.lock();
 	let stdin_handle = io::stdin();
 	let mut stdin = stdin_handle.lock();
-	let mut rng = SmallRng::from_os_rng();
+	let mut rng = rand::make_rng();
 
 	match config.size {
 		5 => run_sized::<5>(config, p1_name, p2_name, rating_db, &mut rng, &mut stdout, &mut stdin),
@@ -121,47 +123,27 @@ where
 	}
 }
 
-fn is_manual(name: &str) -> bool {
-	matches!(name, "m" | "manual")
-}
-
-#[deprecated(note = "literally just derive with strum or serde")]
-fn player_display_name(name: &str, player_id: PlayerId) -> String {
-	let side = match player_id {
-		PlayerId::Cols => "Cols",
-		PlayerId::Rows => "Rows",
-	};
-	format!("{name} ({side})")
-}
-
 fn run_sized<const N: usize>(config: GameConfig, p1_name: &str, p2_name: &str, rating_db: &dyn RatingDb, rng: &mut SmallRng, stdout: &mut impl Write, stdin: &mut impl BufRead)
 where
 	[(); N * N]:, {
-	let game: GameState<N> = GameState::new(config, rng);
-	let p1_manual = is_manual(p1_name);
-	let p2_manual = is_manual(p2_name);
+	let mut game: GameState<N> = GameState::new(config, rng);
 
-	let p1_display = player_display_name(p1_name, PlayerId::Cols);
-	let p2_display = player_display_name(p2_name, PlayerId::Rows);
+	let p1_display = format!("{p1_name} ({:?})", PlayerId::Cols);
+	let p2_display = format!("{p2_name} ({:?})", PlayerId::Rows);
 
-	// Resolve players. Manual players get a placeholder that panics on choose_move.
-	let p1: Box<dyn Player<N>> = algos::resolve::<N>(p1_name).unwrap_or_else(|| Box::new(algos::manual::Manual::new(p1_name)));
-	let p2: Box<dyn Player<N>> = algos::resolve::<N>(p2_name).unwrap_or_else(|| Box::new(algos::manual::Manual::new(p2_name)));
+	// resolve() returns None for manual players.
+	let mut p1 = algos::resolve::<N>(p1_name);
+	let mut p2 = algos::resolve::<N>(p2_name);
 
-	let mut match_ = Match::new(game, p1, p2);
+	let mut moves: Vec<Move> = Vec::new();
 
 	// Show initial board
-	let board_str = match_.state().board.to_string();
+	let board_str = game.board.to_string();
 	writeln!(stdout, "{board_str}").unwrap();
-	let mut prev_lines = board_str.lines().count() + 1;
+	let mut prev_lines = board_str.chars().filter(|&c| c == '\n').count() + 1;
 
-	let result = loop {
-		let state = match_.state();
-		let current_is_manual = match state.turn {
-			PlayerId::Cols => p1_manual,
-			PlayerId::Rows => p2_manual,
-		};
-		let current_name = match state.turn {
+	while !game.is_terminal() {
+		let current_name = match game.turn {
 			PlayerId::Cols => &p1_display,
 			PlayerId::Rows => &p2_display,
 		};
@@ -172,31 +154,46 @@ where
 			prev_lines = 0;
 		}
 
-		let external_move = if current_is_manual {
-			let player_idx = state.turn as usize;
-			Some(read_manual_move(&state.board, &state.hands[player_idx], current_name, stdout, stdin))
-		} else {
-			None
+		let player = match game.turn {
+			PlayerId::Cols => &mut p1,
+			PlayerId::Rows => &mut p2,
+		};
+		let m = match player {
+			Some(ai) => ai.choose_move(&game),
+			None => {
+				let hand = &game.hands[game.turn as usize];
+				read_manual_move(&game.board, hand, current_name, stdout, stdin)
+			}
 		};
 
-		match match_.next(external_move) {
-			Ok(state) => {
-				let board_str = state.board.to_string();
-				let output = format!("au tour de {current_name}\n{board_str}");
-				writeln!(stdout, "{output}").unwrap();
-				prev_lines = output.lines().count() + 1;
-			}
-			Err(result) => break result,
+		game = game.apply_move(m).expect("illegal move in TUI game loop");
+		moves.push(m);
+
+		if !game.is_terminal() {
+			let board_str = game.board.to_string();
+			let output = format!("au tour de {current_name}\n{board_str}");
+			writeln!(stdout, "{output}").unwrap();
+			prev_lines = output.chars().filter(|&c| c == '\n').count() + 1;
 		}
-	};
+	}
 
 	// Clear last turn display, show final board + results
 	if prev_lines > 0 {
 		write!(stdout, "\x1B[{prev_lines}A\x1B[J").unwrap();
 	}
 
-	let board_str = match_.state().board.to_string();
-	writeln!(stdout, "{board_str}").unwrap();
+	writeln!(stdout, "{}", game.board).unwrap();
+
+	let (s0, i0, s1, i1) = victoire(&game.board);
+	let result = MatchResult {
+		p1_id: p1.as_ref().map_or_else(|| ustr(p1_name), |p| p.id()),
+		p2_id: p2.as_ref().map_or_else(|| ustr(p2_name), |p| p.id()),
+		p1_score: s0,
+		p2_score: s1,
+		p1_weak_line: i0,
+		p2_weak_line: i1,
+		moves: moves.into_iter().map(SerMove::from).collect(),
+	};
 
 	display_result::<N>(&result, &p1_display, &p2_display, stdout);
 	update_elo(&result, rating_db, stdout);

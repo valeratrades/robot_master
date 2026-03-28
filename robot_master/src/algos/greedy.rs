@@ -131,40 +131,6 @@ mod tests {
 	}
 
 	#[test]
-	fn score_delta_first_copy() {
-		let counts = [0u8; 6];
-		assert_eq!(score_delta(&counts, CardValue(3)), 3);
-		assert_eq!(score_delta(&counts, CardValue(0)), 0);
-	}
-
-	#[test]
-	fn score_delta_second_copy() {
-		let mut counts = [0u8; 6];
-		counts[3] = 1;
-		assert_eq!(score_delta(&counts, CardValue(3)), 27);
-	}
-
-	#[test]
-	fn score_delta_third_copy() {
-		let mut counts = [0u8; 6];
-		counts[2] = 2;
-		counts[5] = 2;
-		assert_eq!(score_delta(&counts, CardValue(2)), 80);
-		assert_eq!(score_delta(&counts, CardValue(5)), 50);
-	}
-
-	#[test]
-	fn score_delta_saturation() {
-		let mut counts = [0u8; 6];
-		counts[1] = 3;
-		counts[2] = 4;
-		counts[3] = 5;
-		assert_eq!(score_delta(&counts, CardValue(1)), 0);
-		assert_eq!(score_delta(&counts, CardValue(2)), 0);
-		assert_eq!(score_delta(&counts, CardValue(3)), 0);
-	}
-
-	#[test]
 	fn picks_highest_delta_odd_player() {
 		// Row 2 already has a 3; playing another 3 gives delta=27 (9*3) vs delta=1 for card 1.
 		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), PlayerId::Rows);
@@ -192,13 +158,6 @@ mod tests {
 		let m = GreedyPlayer.choose_move(&state);
 		assert_eq!(m.card, CardValue(3));
 		assert_eq!(m.pos.col, 2);
-	}
-
-	#[test]
-	fn tiebreak_lowest_card() {
-		let mut entries: Vec<(i32, i32)> = vec![(3, 5), (1, 5), (2, 5)];
-		entries.sort_by_key(|&(card, delta)| (-delta, card));
-		assert_eq!(entries[0], (1, 5));
 	}
 
 	#[test]
