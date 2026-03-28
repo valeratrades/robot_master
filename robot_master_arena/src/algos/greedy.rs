@@ -1,4 +1,3 @@
-use robot_master_arena::player::Player;
 use robot_master_core::{
 	board::Pos,
 	cards::CardValue,
@@ -6,6 +5,8 @@ use robot_master_core::{
 	scoring::{line_counts, score_delta},
 };
 use ustr::{Ustr, ustr};
+
+use crate::player::Player;
 
 /// Greedy player: maximizes immediate score delta on own lines.
 ///

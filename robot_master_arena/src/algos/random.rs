@@ -1,7 +1,8 @@
 use rand::{rngs::SmallRng, seq::IteratorRandom};
-use robot_master_arena::player::Player;
 use robot_master_core::game::{GameState, Move};
 use ustr::{Ustr, ustr};
+
+use crate::player::Player;
 
 pub struct RandomPlayer {
 	rng: SmallRng,

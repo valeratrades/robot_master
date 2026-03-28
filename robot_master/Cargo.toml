@@ -17,6 +17,7 @@ clap = { version = "4.5", features = ["derive"] }
 [dependencies]
 robot_master_arena = { path = "../robot_master_arena" }
 robot_master_core = { path = "../robot_master_core" }
+robot_master_game = { path = "../robot_master_game" }
 
 derive-new = "0.7.0"
 pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
@@ -26,9 +27,6 @@ serde.workspace = true
 serde_json.workspace = true
 ustr.workspace = true
 v_utils.workspace = true
-
-[dev-dependencies]
-insta = "1"
 
 [lints]
 workspace = true

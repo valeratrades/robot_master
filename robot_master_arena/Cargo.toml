@@ -20,5 +20,8 @@ tokio = { workspace = true, optional = true }
 ustr.workspace = true
 v_utils.workspace = true
 
+[dev-dependencies]
+insta = "1"
+
 [lints]
 workspace = true

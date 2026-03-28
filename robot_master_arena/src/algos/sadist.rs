@@ -1,4 +1,3 @@
-use robot_master_arena::player::Player;
 use robot_master_core::{
 	board::{EMPTY, Pos},
 	cards::MAX_CARD_VALUE,
@@ -6,6 +5,8 @@ use robot_master_core::{
 	scoring::{LineCounts, line_counts, score_line},
 };
 use ustr::{Ustr, ustr};
+
+use crate::player::Player;
 
 /// Sadist player: minimizes the opponent's maximum potential score.
 ///

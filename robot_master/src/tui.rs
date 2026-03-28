@@ -2,22 +2,17 @@ use std::io::{self, BufRead, Write};
 
 use rand::rngs::SmallRng;
 use robot_master_arena::{
+	algos,
 	db::RatingDb,
-	match_::{MatchResult, SerMove},
-	player::Player,
-	rating::{self, EloRating, Outcome},
+	match_::{Match, MatchResult},
 };
 use robot_master_core::{
 	board::{Board, Pos},
 	cards::{CardValue, Hand},
 	game::{GameConfig, GameState, Move, PlayerId},
-	scoring::victoire,
 };
-use ustr::ustr;
 
-use crate::algos;
-
-pub fn run(config: GameConfig, p1_name: &str, p2_name: &str, rating_db: &dyn RatingDb) {
+pub fn run(config: GameConfig, p1_name: &str, p2_name: &str, rating_db: Box<dyn RatingDb>) {
 	let stdout_handle = io::stdout();
 	let mut stdout = stdout_handle.lock();
 	let stdin_handle = io::stdin();
@@ -25,10 +20,10 @@ pub fn run(config: GameConfig, p1_name: &str, p2_name: &str, rating_db: &dyn Rat
 	let mut rng = rand::make_rng();
 
 	match config.size {
-		5 => run_sized::<5>(config, p1_name, p2_name, rating_db, &mut rng, &mut stdout, &mut stdin),
-		7 => run_sized::<7>(config, p1_name, p2_name, rating_db, &mut rng, &mut stdout, &mut stdin),
-		9 => run_sized::<9>(config, p1_name, p2_name, rating_db, &mut rng, &mut stdout, &mut stdin),
-		11 => run_sized::<11>(config, p1_name, p2_name, rating_db, &mut rng, &mut stdout, &mut stdin),
+		5 => run_sized::<5>(config, p1_name, p2_name, &mut rng, &mut stdout, &mut stdin, rating_db),
+		7 => run_sized::<7>(config, p1_name, p2_name, &mut rng, &mut stdout, &mut stdin, rating_db),
+		9 => run_sized::<9>(config, p1_name, p2_name, &mut rng, &mut stdout, &mut stdin, rating_db),
+		11 => run_sized::<11>(config, p1_name, p2_name, &mut rng, &mut stdout, &mut stdin, rating_db),
 		n => panic!("unsupported board size {n}"),
 	}
 }
@@ -123,29 +118,35 @@ where
 	}
 }
 
-fn run_sized<const N: usize>(config: GameConfig, p1_name: &str, p2_name: &str, rating_db: &dyn RatingDb, rng: &mut SmallRng, stdout: &mut impl Write, stdin: &mut impl BufRead)
+fn run_sized<const N: usize>(config: GameConfig, p1_name: &str, p2_name: &str, rng: &mut SmallRng, stdout: &mut impl Write, stdin: &mut impl BufRead, rating_db: Box<dyn RatingDb>)
 where
 	[(); N * N]:, {
-	let mut game: GameState<N> = GameState::new(config, rng);
+	let game: GameState<N> = GameState::new(config, rng);
 
 	let p1_display = format!("{p1_name} ({:?})", PlayerId::Cols);
 	let p2_display = format!("{p2_name} ({:?})", PlayerId::Rows);
 
-	// resolve() returns None for manual players.
-	let mut p1 = algos::resolve::<N>(p1_name);
-	let mut p2 = algos::resolve::<N>(p2_name);
+	let p1_manual = algos::is_manual(p1_name);
+	let p2_manual = algos::is_manual(p2_name);
 
-	let mut moves: Vec<Move> = Vec::new();
+	let p1 = algos::resolve::<N>(p1_name);
+	let p2 = algos::resolve::<N>(p2_name);
+	let mut m = Match::new(game, p1, p2).with_rating_db(rating_db);
 
 	// Show initial board
-	let board_str = game.board.to_string();
+	let board_str = m.game().board.to_string();
 	writeln!(stdout, "{board_str}").unwrap();
 	let mut prev_lines = board_str.chars().filter(|&c| c == '\n').count() + 1;
 
-	while !game.is_terminal() {
+	loop {
+		let game = m.game();
 		let current_name = match game.turn {
 			PlayerId::Cols => &p1_display,
 			PlayerId::Rows => &p2_display,
+		};
+		let is_manual = match game.turn {
+			PlayerId::Cols => p1_manual,
+			PlayerId::Rows => p2_manual,
 		};
 
 		// Clear previous turn's output
@@ -154,49 +155,31 @@ where
 			prev_lines = 0;
 		}
 
-		let player = match game.turn {
-			PlayerId::Cols => &mut p1,
-			PlayerId::Rows => &mut p2,
+		let external_move = if is_manual {
+			let hand = &game.hands[game.turn as usize];
+			Some(read_manual_move(&game.board, hand, current_name, stdout, stdin))
+		} else {
+			None
 		};
-		let m = match player {
-			Some(ai) => ai.choose_move(&game),
-			None => {
-				let hand = &game.hands[game.turn as usize];
-				read_manual_move(&game.board, hand, current_name, stdout, stdin)
+
+		match m.next(external_move) {
+			Ok(game) => {
+				let board_str = game.board.to_string();
+				let output = format!("au tour de {current_name}\n{board_str}");
+				writeln!(stdout, "{output}").unwrap();
+				prev_lines = output.chars().filter(|&c| c == '\n').count() + 1;
 			}
-		};
-
-		game = game.apply_move(m).expect("illegal move in TUI game loop");
-		moves.push(m);
-
-		if !game.is_terminal() {
-			let board_str = game.board.to_string();
-			let output = format!("au tour de {current_name}\n{board_str}");
-			writeln!(stdout, "{output}").unwrap();
-			prev_lines = output.chars().filter(|&c| c == '\n').count() + 1;
+			Err(result) => {
+				// Clear last turn display, show final board + results
+				if prev_lines > 0 {
+					write!(stdout, "\x1B[{prev_lines}A\x1B[J").unwrap();
+				}
+				writeln!(stdout, "{}", m.game().board).unwrap();
+				display_result::<N>(&result, &p1_display, &p2_display, stdout);
+				return;
+			}
 		}
 	}
-
-	// Clear last turn display, show final board + results
-	if prev_lines > 0 {
-		write!(stdout, "\x1B[{prev_lines}A\x1B[J").unwrap();
-	}
-
-	writeln!(stdout, "{}", game.board).unwrap();
-
-	let (s0, i0, s1, i1) = victoire(&game.board);
-	let result = MatchResult {
-		p1_id: p1.as_ref().map_or_else(|| ustr(p1_name), |p| p.id()),
-		p2_id: p2.as_ref().map_or_else(|| ustr(p2_name), |p| p.id()),
-		p1_score: s0,
-		p2_score: s1,
-		p1_weak_line: i0,
-		p2_weak_line: i1,
-		moves: moves.into_iter().map(SerMove::from).collect(),
-	};
-
-	display_result::<N>(&result, &p1_display, &p2_display, stdout);
-	update_elo(&result, rating_db, stdout);
 }
 
 fn display_result<const N: usize>(result: &MatchResult, p1_display: &str, p2_display: &str, stdout: &mut impl Write)
@@ -214,45 +197,23 @@ where
 		result.p1_score, result.p1_weak_line, result.p2_score, result.p2_weak_line
 	)
 	.unwrap();
-}
 
-fn update_elo(result: &MatchResult, rating_db: &dyn RatingDb, stdout: &mut impl Write) {
-	let mut ratings = rating_db.load_ratings();
-
-	let outcome = match result.p1_score.cmp(&result.p2_score) {
-		std::cmp::Ordering::Greater => Outcome::P1Win,
-		std::cmp::Ordering::Less => Outcome::P2Win,
-		std::cmp::Ordering::Equal => Outcome::Draw,
-	};
-
-	// Ensure both entries exist, then clone out for the pure update.
-	ratings.entry(result.p1_id).or_insert_with(EloRating::default);
-	ratings.entry(result.p2_id).or_insert_with(EloRating::default);
-	let r1 = ratings[&result.p1_id].clone();
-	let r2 = ratings[&result.p2_id].clone();
-	let old_r1 = r1.rating;
-	let old_r2 = r2.rating;
-
-	let (new_r1, new_r2) = rating::elo_update(&r1, &r2, outcome, rating::DEFAULT_K);
-	ratings.insert(result.p1_id, new_r1.clone());
-	ratings.insert(result.p2_id, new_r2.clone());
-
-	rating_db.save_ratings(&ratings);
-
-	let delta1 = new_r1.rating - old_r1;
-	let delta2 = new_r2.rating - old_r2;
-	let sign = |d: f64| if d >= 0.0 { "+" } else { "" };
-	writeln!(
-		stdout,
-		"\nElo: {} {:.0} ({}{:.0}) | {} {:.0} ({}{:.0})",
-		result.p1_id,
-		new_r1.rating,
-		sign(delta1),
-		delta1,
-		result.p2_id,
-		new_r2.rating,
-		sign(delta2),
-		delta2
-	)
-	.unwrap();
+	if let Some(ref elo) = result.elo_update {
+		let d1 = elo.p1_new - elo.p1_old;
+		let d2 = elo.p2_new - elo.p2_old;
+		let sign = |d: f64| if d >= 0.0 { "+" } else { "" };
+		writeln!(
+			stdout,
+			"\nElo: {} {:.0} ({}{:.0}) | {} {:.0} ({}{:.0})",
+			result.p1_id,
+			elo.p1_new,
+			sign(d1),
+			d1,
+			result.p2_id,
+			elo.p2_new,
+			sign(d2),
+			d2
+		)
+		.unwrap();
+	}
 }

@@ -5,7 +5,19 @@ use robot_master_core::{
 use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
-use crate::player::Player;
+use crate::{
+	db::RatingDb,
+	player::Player,
+	rating::{self, Outcome},
+};
+
+#[derive(Clone, Debug)]
+pub struct EloUpdate {
+	pub p1_old: f64,
+	pub p1_new: f64,
+	pub p2_old: f64,
+	pub p2_new: f64,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MatchResult {
@@ -16,6 +28,37 @@ pub struct MatchResult {
 	pub p1_weak_line: usize,
 	pub p2_weak_line: usize,
 	pub moves: Vec<SerMove>,
+	#[serde(skip)]
+	pub elo_update: Option<EloUpdate>,
+}
+impl MatchResult {
+	/// Perform elo update against the given db, populating `self.elo_update`.
+	pub fn update_elo(&mut self, rating_db: &dyn RatingDb) {
+		let mut ratings = rating_db.load_ratings();
+
+		let outcome = match self.p1_score.cmp(&self.p2_score) {
+			std::cmp::Ordering::Greater => Outcome::P1Win,
+			std::cmp::Ordering::Less => Outcome::P2Win,
+			std::cmp::Ordering::Equal => Outcome::Draw,
+		};
+
+		let r1 = ratings.entry(self.p1_id).or_default().clone();
+		let r2 = ratings.entry(self.p2_id).or_default().clone();
+
+		let (new_r1, new_r2) = rating::elo_update(&r1, &r2, outcome, rating::DEFAULT_K);
+		let update = EloUpdate {
+			p1_old: r1.rating,
+			p1_new: new_r1.rating,
+			p2_old: r2.rating,
+			p2_new: new_r2.rating,
+		};
+
+		ratings.insert(self.p1_id, new_r1);
+		ratings.insert(self.p2_id, new_r2);
+		rating_db.save_ratings(&ratings);
+
+		self.elo_update = Some(update);
+	}
 }
 
 /// Serializable move (Pos and CardValue are not Serialize in core).
@@ -43,6 +86,7 @@ where
 	p1: P1,
 	p2: P2,
 	moves: Vec<Move>,
+	rating_db: Option<Box<dyn RatingDb>>,
 }
 
 impl<const N: usize, P1: Player<N>, P2: Player<N>> Match<N, P1, P2>
@@ -50,33 +94,59 @@ where
 	[(); N * N]:,
 {
 	pub fn new(game: GameState<N>, p1: P1, p2: P2) -> Self {
-		Self { game, p1, p2, moves: Vec::new() }
+		Self {
+			game,
+			p1,
+			p2,
+			moves: Vec::new(),
+			rating_db: None,
+		}
 	}
 
-	/// Advance one turn: ask the current player for a move and apply it.
+	pub fn with_rating_db(mut self, db: Box<dyn RatingDb>) -> Self {
+		self.rating_db = Some(db);
+		self
+	}
+
+	pub fn game(&self) -> &GameState<N> {
+		&self.game
+	}
+
+	/// Advance one turn and apply the given move (or ask the current player).
+	///
+	/// Pass `Some(m)` to supply a move externally (manual/human input).
+	/// Pass `None` to let the current player's `choose_move` decide.
 	///
 	/// Returns `Ok(state)` if game continues, `Err(result)` if game just ended.
 	///
 	/// # Panics
-	/// If the player returns an illegal move, or if called after the game is terminal.
-	pub fn next(&mut self) -> Result<&GameState<N>, MatchResult> {
+	/// If the move is illegal, or if called after the game is terminal.
+	pub fn next(&mut self, external_move: Option<Move>) -> Result<&GameState<N>, MatchResult> {
 		assert!(!self.game.is_terminal(), "Match::next called on terminal game");
 
-		let m = match self.game.turn {
+		let m = external_move.unwrap_or_else(|| match self.game.turn {
 			PlayerId::Cols => self.p1.choose_move(&self.game),
 			PlayerId::Rows => self.p2.choose_move(&self.game),
-		};
+		});
 
 		self.game = self.game.apply_move(m).expect("illegal move in Match::next");
 		self.moves.push(m);
 
-		if self.game.is_terminal() { Err(self.build_result()) } else { Ok(&self.game) }
+		if self.game.is_terminal() {
+			let mut result = self.build_result();
+			if let Some(ref db) = self.rating_db {
+				result.update_elo(db.as_ref());
+			}
+			Err(result)
+		} else {
+			Ok(&self.game)
+		}
 	}
 
-	/// Play to completion.
+	/// Play to completion (all players must be AI).
 	pub fn run(mut self) -> MatchResult {
 		loop {
-			match self.next() {
+			match self.next(None) {
 				Ok(_) => {}
 				Err(result) => return result,
 			}
@@ -93,6 +163,7 @@ where
 			p1_weak_line: i0,
 			p2_weak_line: i1,
 			moves: self.moves.iter().map(|&m| m.into()).collect(),
+			elo_update: None,
 		}
 	}
 }
@@ -137,7 +208,7 @@ mod tests {
 		let mut m = Match::new(game, p1, p2);
 		let mut steps = 0;
 		loop {
-			match m.next() {
+			match m.next(None) {
 				Ok(_) => steps += 1,
 				Err(result) => {
 					steps += 1;

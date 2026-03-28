@@ -1,7 +1,6 @@
 #![feature(generic_const_exprs)]
 #![allow(incomplete_features)]
 
-pub mod algos;
 pub mod config;
 pub mod tui;
 
@@ -81,11 +80,11 @@ macro_rules! algo_move_dispatch {
 #[cfg(feature = "python")]
 #[pyfunction]
 fn greedy_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: std::collections::HashMap<u8, u8>, joueuse_active: u8) -> PyResult<(u8, u8, u8)> {
-	algo_move_dispatch!(plateau, dico_main, joueuse_active, algos::greedy::GreedyPlayer)
+	algo_move_dispatch!(plateau, dico_main, joueuse_active, robot_master_arena::algos::greedy::GreedyPlayer)
 }
 
 #[cfg(feature = "python")]
 #[pyfunction]
 fn sadist_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: std::collections::HashMap<u8, u8>, joueuse_active: u8) -> PyResult<(u8, u8, u8)> {
-	algo_move_dispatch!(plateau, dico_main, joueuse_active, algos::sadist::SadistPlayer)
+	algo_move_dispatch!(plateau, dico_main, joueuse_active, robot_master_arena::algos::sadist::SadistPlayer)
 }

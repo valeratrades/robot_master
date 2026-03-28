@@ -1,0 +1,27 @@
+Asset Licenses
+==============
+
+cards/
+------
+Card face images (card_0.png through card_5.png, card_back.png, x10.png, x100.png)
+  Source: HTMLGames.com Robot Master online implementation
+  Original game: "Robot Master" by Reiner Knizia
+  Usage: Fan project / educational use
+
+images/
+-------
+Box art and promotional images (box_art.png, game_back.jpg, game_spread.jpg, etc.)
+  Source: jeuxdenim.be
+  Original game: "Robot Master" by Reiner Knizia
+  Usage: Fan project / educational use
+
+music/
+------
+robotic_city_v2.ogg
+  Title: Robotic City V2
+  Author: section31
+  Source: https://opengameart.org/content/robotic-city-v2
+  License: CC0 (Creative Commons Zero / Public Domain)
+  Format: OGG Vorbis, stereo, 44100 Hz, ~160 kbps
+  Size: ~3.8 MB
+  No attribution required, but credit appreciated.
