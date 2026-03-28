@@ -26,5 +26,66 @@ fn robot_master(m: &Bound<'_, PyModule>) -> PyResult<()> {
 	m.add_function(wrap_pyfunction!(robot_master_core::python::score_joueuse, m)?)?;
 	m.add_function(wrap_pyfunction!(robot_master_core::python::victoire_py, m)?)?;
 	m.add_function(wrap_pyfunction!(robot_master_core::python::random_move_py, m)?)?;
+	m.add_function(wrap_pyfunction!(greedy_move_py, m)?)?;
+	m.add_function(wrap_pyfunction!(sadist_move_py, m)?)?;
 	Ok(())
+}
+
+// Board<N> is const-generic: Player::choose_move needs N known at compile time.
+// This macro stamps out the 4-way match (5/7/9/11) so we don't copy-paste it per algorithm.
+#[cfg(feature = "python")]
+macro_rules! algo_move_dispatch {
+	($plateau:expr, $dico_main:expr, $joueuse_active:expr, $player:expr) => {{
+		use pyo3::exceptions::PyValueError;
+		use robot_master_arena::player::Player;
+		use robot_master_core::{
+			cards::Hand,
+			game::{GameConfig, GameState, PlayerId},
+			python::board_from_plateau,
+		};
+
+		let n = $plateau.len();
+		let turn = if $joueuse_active % 2 == 0 { PlayerId::Cols } else { PlayerId::Rows };
+		let hand = Hand::from(&$dico_main);
+		let config = GameConfig {
+			size: n as u8,
+			..GameConfig::default()
+		};
+
+		macro_rules! go {
+			($N: literal) => {{
+				let board = board_from_plateau::<$N>(&$plateau)?;
+				let state = GameState {
+					board,
+					hands: match turn {
+						PlayerId::Cols => [hand, Hand::default()],
+						PlayerId::Rows => [Hand::default(), hand],
+					},
+					turn,
+					config,
+				};
+				let m = $player.choose_move(&state);
+				Ok((m.card.0, m.pos.row, m.pos.col))
+			}};
+		}
+		match n {
+			5 => go!(5),
+			7 => go!(7),
+			9 => go!(9),
+			11 => go!(11),
+			_ => Err(PyValueError::new_err(format!("unsupported board size {n}"))),
+		}
+	}};
+}
+
+#[cfg(feature = "python")]
+#[pyfunction]
+fn greedy_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: std::collections::HashMap<u8, u8>, joueuse_active: u8) -> PyResult<(u8, u8, u8)> {
+	algo_move_dispatch!(plateau, dico_main, joueuse_active, algos::greedy::GreedyPlayer)
+}
+
+#[cfg(feature = "python")]
+#[pyfunction]
+fn sadist_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: std::collections::HashMap<u8, u8>, joueuse_active: u8) -> PyResult<(u8, u8, u8)> {
+	algo_move_dispatch!(plateau, dico_main, joueuse_active, algos::sadist::SadistPlayer)
 }
