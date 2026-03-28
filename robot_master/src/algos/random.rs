@@ -1,4 +1,4 @@
-use rand::{SeedableRng, rngs::SmallRng, seq::IteratorRandom};
+use rand::{rngs::SmallRng, seq::IteratorRandom};
 use robot_master_arena::player::Player;
 use robot_master_core::game::{GameState, Move};
 use ustr::{Ustr, ustr};
@@ -9,7 +9,7 @@ pub struct RandomPlayer {
 
 impl RandomPlayer {
 	pub fn new() -> Self {
-		Self { rng: SmallRng::from_os_rng() }
+		Self { rng: rand::make_rng() }
 	}
 }
 

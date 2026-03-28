@@ -53,25 +53,18 @@ where
 		Self { game, p1, p2, moves: Vec::new() }
 	}
 
-	/// Advance one turn.
-	///
-	/// - `external_move: Some(m)` — use this move (for manual/human input).
-	/// - `external_move: None` — ask the current player's `choose_move`.
+	/// Advance one turn: ask the current player for a move and apply it.
 	///
 	/// Returns `Ok(state)` if game continues, `Err(result)` if game just ended.
 	///
 	/// # Panics
-	/// - If the move (external or from player) is illegal.
-	/// - If called after the game is already terminal.
-	pub fn next(&mut self, external_move: Option<Move>) -> Result<&GameState<N>, MatchResult> {
+	/// If the player returns an illegal move, or if called after the game is terminal.
+	pub fn next(&mut self) -> Result<&GameState<N>, MatchResult> {
 		assert!(!self.game.is_terminal(), "Match::next called on terminal game");
 
-		let m = match external_move {
-			Some(m) => m,
-			None => match self.game.turn {
-				PlayerId::Cols => self.p1.choose_move(&self.game),
-				PlayerId::Rows => self.p2.choose_move(&self.game),
-			},
+		let m = match self.game.turn {
+			PlayerId::Cols => self.p1.choose_move(&self.game),
+			PlayerId::Rows => self.p2.choose_move(&self.game),
 		};
 
 		self.game = self.game.apply_move(m).expect("illegal move in Match::next");
@@ -82,24 +75,12 @@ where
 
 	/// Play to completion.
 	pub fn run(mut self) -> MatchResult {
-		while !self.game.is_terminal() {
-			let m = match self.game.turn {
-				PlayerId::Cols => self.p1.choose_move(&self.game),
-				PlayerId::Rows => self.p2.choose_move(&self.game),
-			};
-			self.game = self.game.apply_move(m).expect("illegal move in Match::run");
-			self.moves.push(m);
+		loop {
+			match self.next() {
+				Ok(_) => {}
+				Err(result) => return result,
+			}
 		}
-		self.build_result()
-	}
-
-	pub fn state(&self) -> &GameState<N> {
-		&self.game
-	}
-
-	/// Which player's turn it is (for interfaces to know when to read manual input).
-	pub fn current_turn(&self) -> PlayerId {
-		self.game.turn
 	}
 
 	fn build_result(&self) -> MatchResult {
@@ -155,8 +136,8 @@ mod tests {
 		let p2 = DummyRandom(SmallRng::seed_from_u64(2));
 		let mut m = Match::new(game, p1, p2);
 		let mut steps = 0;
-		while let r = m.next(None) {
-			match r {
+		loop {
+			match m.next() {
 				Ok(_) => steps += 1,
 				Err(result) => {
 					steps += 1;
