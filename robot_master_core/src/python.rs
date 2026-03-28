@@ -126,7 +126,7 @@ pub fn new_pile_cartes(dico_options: Option<HashMap<String, i64>>) -> Vec<u8> {
 	let opts = dico_options.unwrap_or_default();
 	let max_c = opts.get("maxC").copied().unwrap_or(5) as u8;
 	let nb_c = opts.get("nbC").copied().unwrap_or(6) as u8;
-	let mut rng = rand::make_rng();
+	let mut rng: SmallRng = rand::make_rng();
 	crate::cards::new_deck(max_c, nb_c, &mut rng).into_iter().map(|c| c.0).collect()
 }
 /// Distribute cards: returns [center_card, hand1_list, hand2_list, ...].
@@ -235,22 +235,22 @@ pub fn random_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: HashMap<u8, u8>,
 	let m: Option<Move> = match config.size {
 		5 => {
 			let board = board_from_plateau::<5>(&plateau)?;
-			let mut rng = rand::make_rng();
+			let mut rng: SmallRng = rand::make_rng();
 			board.valid_placements().flat_map(|pos| hand.iter_playable().map(move |card| Move { pos, card })).choose(&mut rng)
 		}
 		7 => {
 			let board = board_from_plateau::<7>(&plateau)?;
-			let mut rng = rand::make_rng();
+			let mut rng: SmallRng = rand::make_rng();
 			board.valid_placements().flat_map(|pos| hand.iter_playable().map(move |card| Move { pos, card })).choose(&mut rng)
 		}
 		9 => {
 			let board = board_from_plateau::<9>(&plateau)?;
-			let mut rng = rand::make_rng();
+			let mut rng: SmallRng = rand::make_rng();
 			board.valid_placements().flat_map(|pos| hand.iter_playable().map(move |card| Move { pos, card })).choose(&mut rng)
 		}
 		11 => {
 			let board = board_from_plateau::<11>(&plateau)?;
-			let mut rng = rand::make_rng();
+			let mut rng: SmallRng = rand::make_rng();
 			board.valid_placements().flat_map(|pos| hand.iter_playable().map(move |card| Move { pos, card })).choose(&mut rng)
 		}
 		n => return Err(PyValueError::new_err(format!("unsupported board size {n}"))),
@@ -259,7 +259,7 @@ pub fn random_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: HashMap<u8, u8>,
 	let m = m.ok_or_else(|| PyValueError::new_err("no valid moves available"))?;
 	Ok((m.card.0, m.pos.row, m.pos.col))
 }
-fn config_from_options(opts: &HashMap<String, i64>) -> GameConfig {
+pub fn config_from_options(opts: &HashMap<String, i64>) -> GameConfig {
 	GameConfig {
 		size: opts.get("taille").copied().unwrap_or(5) as u8,
 		max_card: opts.get("maxC").copied().unwrap_or(5) as u8,
@@ -269,7 +269,7 @@ fn config_from_options(opts: &HashMap<String, i64>) -> GameConfig {
 }
 
 /// Convert Python `plateau` (list[list[int|None]]) into a Board.
-fn board_from_plateau<const N: usize>(plateau: &[Vec<Option<u8>>]) -> PyResult<Board<N>>
+pub fn board_from_plateau<const N: usize>(plateau: &[Vec<Option<u8>>]) -> PyResult<Board<N>>
 where
 	[(); N * N]:, {
 	if plateau.len() != N {

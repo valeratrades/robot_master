@@ -11,7 +11,7 @@ try:
 except ImportError:
 	ic = lambda *a: None if not a else (a[0] if len(a) == 1 else a)  # noqa # type: ignore[assignment]
 
-from .f_fonctions_additionelles import cartes_restantes, copie_plateau
+from f_fonctions_additionelles import cartes_restantes, copie_plateau
 from partie_guidee.a_plateau import Grid
 from partie_guidee.b_gestionCartes import emplacement_jouable, place_carte
 from partie_guidee.d_score import colonne_to_dico, score_ligne
@@ -133,34 +133,9 @@ def choix_carte_agressif(
 	dico_options: dict[str, int],
 	joueuse_active: int,
 ) -> tuple[int, int, int]:
-	"""Retourne le coup (carte, posL, posC) qui minimise le score maximal potentiel de l'adversaire.
-
-	Pour chaque coup possible, calcule le score_max_potentiel_complet_joueuse de l'adversaire après
-	ce coup, et retourne le coup qui minimise ce résultat.
-	"""
-	n = len(plateau)
-	adversaire = 1 - joueuse_active  # NB: don't forget we eval for opp
-
-	best_move: tuple[int, int, int] | None = None
-	best_score: int | None = None
-
-	for posL in range(n):
-		for posC in range(n):
-			if not emplacement_jouable(plateau, posL, posC):
-				continue
-			for card in sorted(dico_main):
-				if dico_main[card] == 0:
-					continue
-				# simulate on a copy, then measure damage.
-				p = copie_plateau(plateau)
-				place_carte(p, posL, posC, card)
-				score = score_max_potentiel_complet_joueuse(p, adversaire, dico_options)
-				if best_move is None or _is_better_move(score, card, posL, posC, best_score, best_move):  # type: ignore[arg-type]
-					best_score = score
-					best_move = (card, posL, posC)
-
-	assert best_move is not None, "no valid move found"
-	return best_move
+	"""Retourne le coup (carte, posL, posC) qui minimise le score maximal potentiel de l'adversaire."""
+	import robot_master as _rc
+	return _rc.sadist_move_py(plateau, dico_main, joueuse_active)
 
 
 # ---------------------------------------------------------------------------
