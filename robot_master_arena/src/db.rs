@@ -11,9 +11,19 @@ use crate::{
 const APP_NAME: &str = "robot_master";
 
 /// Ratings persistence. Implementations decide storage format.
-pub trait RatingDb {
+pub trait RatingDb: Send + Sync {
 	fn load_ratings(&self) -> HashMap<Ustr, EloRating>;
 	fn save_ratings(&self, ratings: &HashMap<Ustr, EloRating>);
+}
+
+impl<T: RatingDb + ?Sized> RatingDb for &T {
+	fn load_ratings(&self) -> HashMap<Ustr, EloRating> {
+		(**self).load_ratings()
+	}
+
+	fn save_ratings(&self, ratings: &HashMap<Ustr, EloRating>) {
+		(*self).save_ratings(ratings)
+	}
 }
 
 /// Single-file JSON store for Elo ratings at `$XDG_DATA_HOME/robot_master/ratings.json`.
@@ -22,6 +32,7 @@ pub struct JsonRatingDb {
 }
 
 impl JsonRatingDb {
+	#[deprecated(note = "prefer Default impl, since this takes no args")]
 	pub fn new() -> Self {
 		let dir = PathBuf::from(xdg_data_fallback()).join(APP_NAME);
 		fs::create_dir_all(&dir).expect("failed to create XDG data directory");

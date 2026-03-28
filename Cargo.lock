@@ -5947,11 +5947,11 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "derive-new",
- "insta",
  "pyo3",
  "rand 0.10.0",
  "robot_master_arena",
  "robot_master_core",
+ "robot_master_game",
  "serde",
  "serde_json",
  "ustr",
@@ -5963,6 +5963,7 @@ name = "robot_master_arena"
 version = "0.1.0"
 dependencies = [
  "clickhouse",
+ "insta",
  "rand 0.10.0",
  "robot_master_core",
  "serde",
@@ -5983,19 +5984,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "robot_master_engine"
-version = "0.1.0"
-dependencies = [
- "rand 0.9.2",
- "robot_master_core",
-]
-
-[[package]]
 name = "robot_master_game"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "clap",
+ "rand 0.10.0",
+ "robot_master_arena",
+ "robot_master_core",
+ "ustr",
  "v_utils",
 ]
 

@@ -5,12 +5,16 @@ name = "robot_master_game"
 edition = "2024"
 version = "0.1.0"
 
-[dependencies]
-bevy.workspace = true
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-clap = { version = "4.5", features = ["derive"] }
-v_utils = { workspace = true, features = ["io", "cli"] }
+v_utils = { workspace = true, features = ["io"] }
+
+[dependencies]
+robot_master_arena = { path = "../robot_master_arena" }
+robot_master_core = { path = "../robot_master_core" }
+
+bevy.workspace = true
+rand.workspace = true
+ustr.workspace = true
 
 [lints]
 workspace = true

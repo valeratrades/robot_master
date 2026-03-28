@@ -17,6 +17,7 @@ undocumented_unsafe_blocks = "warn"
 
 [workspace.dependencies]
 bevy = "0.18"
+bevy_lunex = "0.6"
 derive-new = "^0.7.0"
 rand = "0.10"
 serde = { version = "1", features = ["derive"] }

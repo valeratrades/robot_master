@@ -1,7 +1,10 @@
 use rand::Rng;
 use robot_master_core::game::{GameConfig, GameState};
 
-use crate::{match_::MatchResult, player::Player};
+use crate::{
+	match_::{Match, MatchResult},
+	player::Player,
+};
 
 /// Run a round-robin tournament: every player plays every other player `rounds` times,
 /// alternating who goes first.
@@ -42,30 +45,8 @@ where
 	results
 }
 
-/// Run a single match between two `dyn Player`s.
-fn run_dyn_match<const N: usize>(mut game: GameState<N>, p1: &mut dyn Player<N>, p2: &mut dyn Player<N>) -> MatchResult
+fn run_dyn_match<const N: usize>(game: GameState<N>, p1: &mut dyn Player<N>, p2: &mut dyn Player<N>) -> MatchResult
 where
 	[(); N * N]:, {
-	use robot_master_core::{game::PlayerId, scoring::victoire};
-
-	let mut moves = Vec::new();
-	while !game.is_terminal() {
-		let m = match game.turn {
-			PlayerId::Cols => p1.choose_move(&game),
-			PlayerId::Rows => p2.choose_move(&game),
-		};
-		game = game.apply_move(m).expect("illegal move in tournament");
-		moves.push(m.into());
-	}
-
-	let (s0, i0, s1, i1) = victoire(&game.board);
-	MatchResult {
-		p1_id: p1.id(),
-		p2_id: p2.id(),
-		p1_score: s0,
-		p2_score: s1,
-		p1_weak_line: i0,
-		p2_weak_line: i1,
-		moves,
-	}
+	Match::new(game, p1, p2).run()
 }
