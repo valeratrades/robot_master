@@ -4,7 +4,6 @@ pub use board_game::board::Player;
 use board_game::board::{BoardDone, BoardMoves, BoardSymmetry, PlayError};
 use internal_iterator::InternalIterator;
 use rand::Rng;
-use thiserror::Error;
 
 use crate::{
 	board::{Board, Pos},
@@ -56,14 +55,6 @@ impl fmt::Display for Move {
 	}
 }
 
-#[derive(Debug, Error)]
-pub enum MoveError {
-	#[error("position {0:?} is not a valid placement")]
-	InvalidPosition(Pos),
-	#[error("card {0:?} is not in hand")]
-	CardNotInHand(CardValue),
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GameState<const N: usize>
 where
@@ -98,30 +89,13 @@ where
 		}
 	}
 
+	/// Standard `Iterator` over legal moves. Thin wrapper over the `Board` trait's `available_moves()`.
+	///
+	/// Use this when you need `.choose()`, `.next()`, or other std `Iterator` adapters.
+	/// For push-based iteration (MCTS, NN), use `available_moves()` from `board_game::Board` directly.
 	pub fn valid_moves(&self) -> impl Iterator<Item = Move> + '_ {
 		let hand = &self.hands[self.turn.index() as usize];
 		self.board.valid_placements().flat_map(move |pos| hand.iter_playable().map(move |card| Move { pos, card }))
-	}
-
-	/// Returns a new GameState with the move applied, or an error if the move is invalid.
-	pub fn apply_move(&self, m: Move) -> Result<Self, MoveError> {
-		if !self.board.is_playable(m.pos) {
-			return Err(MoveError::InvalidPosition(m.pos));
-		}
-		let hand = &self.hands[self.turn.index() as usize];
-		if hand.count(m.card) == 0 {
-			return Err(MoveError::CardNotInHand(m.card));
-		}
-
-		let mut next = self.clone();
-		next.board.set(m.pos, m.card.0);
-		next.hands[self.turn.index() as usize].take(m.card);
-		next.turn = self.turn.other();
-		Ok(next)
-	}
-
-	pub fn is_terminal(&self) -> bool {
-		self.board.is_full()
 	}
 }
 
@@ -156,7 +130,7 @@ where
 	}
 
 	fn is_available_move(&self, mv: Self::Move) -> Result<bool, BoardDone> {
-		if self.is_terminal() {
+		if self.board.is_full() {
 			return Err(BoardDone);
 		}
 		let hand = &self.hands[self.turn.index() as usize];
@@ -164,7 +138,7 @@ where
 	}
 
 	fn play(&mut self, mv: Self::Move) -> Result<(), PlayError> {
-		if self.is_terminal() {
+		if self.board.is_full() {
 			return Err(PlayError::BoardDone);
 		}
 		if !self.board.is_playable(mv.pos) || self.hands[self.turn.index() as usize].count(mv.card) == 0 {
@@ -177,7 +151,7 @@ where
 	}
 
 	fn outcome(&self) -> Option<board_game::board::Outcome> {
-		if !self.is_terminal() {
+		if !self.board.is_full() {
 			return None;
 		}
 		let (s0, _, s1, _) = victoire(&self.board);
@@ -205,7 +179,7 @@ where
 	}
 
 	fn available_moves(&'a self) -> Result<Self::AvailableMovesIterator, BoardDone> {
-		if self.is_terminal() {
+		if self.board.is_full() {
 			return Err(BoardDone);
 		}
 		Ok(AvailableMoves { state: self })
@@ -323,36 +297,36 @@ mod tests {
 	}
 
 	#[test]
-	fn apply_move_valid() {
+	fn play_valid() {
+		use board_game::board::Board as _;
 		let s = state5();
 		let m = s.valid_moves().next().expect("no valid moves at start");
-		let next = s.apply_move(m).expect("valid move rejected");
+		let next = s.clone_and_play(m).expect("valid move rejected");
 		assert_eq!(next.turn, Player::B);
 		assert!(!next.board.is_empty(m.pos));
 	}
 
 	#[test]
-	fn apply_move_invalid_pos() {
+	fn play_invalid_pos() {
+		use board_game::board::Board as _;
 		let s = state5();
 		let m = Move {
 			pos: Pos { row: 0, col: 0 },
 			card: CardValue(0),
 		};
-		assert!(matches!(s.apply_move(m), Err(MoveError::InvalidPosition(_))));
+		assert!(matches!(s.clone_and_play(m), Err(board_game::board::PlayError::UnavailableMove)));
 	}
 
 	#[test]
-	fn apply_move_card_not_in_hand() {
-		// Build a state with a hand that is missing card value 5.
+	fn play_card_not_in_hand() {
+		use board_game::board::Board as _;
 		let mut rng = SmallRng::seed_from_u64(7);
 		let mut s: GameState<5> = GameState::new(GameConfig::default(), &mut rng);
-		// Drain card 5 from P0's hand by returning it conceptually — just set count to 0 directly
-		// via take() calls. If hand has some 5s, drain them; if not, it's already missing.
 		while s.hands[0].count(CardValue(5)) > 0 {
 			s.hands[0].take(CardValue(5));
 		}
 		let pos = s.board.valid_placements().next().unwrap();
 		let m = Move { pos, card: CardValue(5) };
-		assert!(matches!(s.apply_move(m), Err(MoveError::CardNotInHand(_))));
+		assert!(matches!(s.clone_and_play(m), Err(board_game::board::PlayError::UnavailableMove)));
 	}
 }

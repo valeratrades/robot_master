@@ -293,7 +293,7 @@ fn spawn_player_dropdown(commands: &mut Commands, player_idx: usize, ratings: &H
 	// Discover manual players persisted in the ratings DB
 	for key in ratings.keys() {
 		let s = key.as_str();
-		if s == "player" || ALGO_NAMES.contains(&s) {
+		if s.eq_ignore_ascii_case("player") || ALGO_NAMES.contains(&s) {
 			continue;
 		}
 		kinds.push(PlayerKind::Manual { name: s.to_string() });

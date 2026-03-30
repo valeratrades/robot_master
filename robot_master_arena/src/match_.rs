@@ -1,3 +1,4 @@
+use board_game::board::Board as _;
 use robot_master_core::{
 	board::{Cell, Pos},
 	cards::Hand,
@@ -18,7 +19,7 @@ pub trait DynMatch {
 	fn size(&self) -> u8;
 	fn get(&self, pos: Pos) -> Cell;
 	fn is_playable(&self, pos: Pos) -> bool;
-	fn is_terminal(&self) -> bool;
+	fn is_done(&self) -> bool;
 	fn turn(&self) -> Player;
 	fn hands(&self) -> [Hand; 2];
 	fn next(&mut self, external_move: Option<Move>) -> Result<(), MatchResult>;
@@ -136,17 +137,17 @@ where
 	/// # Panics
 	/// If the move is illegal, or if called after the game is terminal.
 	pub fn next(&mut self, external_move: Option<Move>) -> Result<&GameState<N>, MatchResult> {
-		assert!(!self.game.is_terminal(), "Match::next called on terminal game");
+		assert!(!self.game.is_done(), "Match::next called on terminal game");
 
 		let m = external_move.unwrap_or_else(|| match self.game.turn {
 			Player::A => self.p1.choose_move(&self.game),
 			Player::B => self.p2.choose_move(&self.game),
 		});
 
-		self.game = self.game.apply_move(m).expect("illegal move in Match::next");
+		self.game = self.game.clone_and_play(m).expect("illegal move in Match::next");
 		self.moves.push(m);
 
-		if self.game.is_terminal() {
+		if self.game.is_done() {
 			let mut result = self.build_result();
 			if let Some(ref db) = self.rating_db {
 				result.update_elo(db.as_ref());
@@ -198,8 +199,8 @@ where
 		self.game.board.is_playable(pos)
 	}
 
-	fn is_terminal(&self) -> bool {
-		self.game.is_terminal()
+	fn is_done(&self) -> bool {
+		self.game.is_done()
 	}
 
 	fn turn(&self) -> Player {

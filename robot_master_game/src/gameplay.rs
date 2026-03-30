@@ -9,6 +9,7 @@ use robot_master_core::{
 	cards::CardValue,
 	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
 };
+use v_utils::bevy::PressedChars;
 
 use crate::{AppState, InitialPlayers, Textures, theme};
 
@@ -21,7 +22,7 @@ impl Plugin for GameplayPlugin {
 				Update,
 				(
 					(
-						ai_turn, hand_click, keyboard_card_select, board_click, sync_visuals, reject_flash_system, check_terminal, handle_escape,
+						ai_turn, hand_click, keyboard_card_select, keyboard_pos_input, board_click, sync_visuals, reject_flash_system, check_terminal, handle_escape,
 					)
 						.chain(),
 					exit_hint_system,
@@ -64,6 +65,13 @@ struct HandCountLabel {
 
 #[derive(Component)]
 struct TurnIndicator;
+
+/// State for the two-step keyboard position input (column letter, then row digit).
+#[derive(Default, Resource)]
+struct PosInput {
+	/// Column index if the first key (letter) has been pressed.
+	col: Option<u8>,
+}
 
 /// Helper: create a `Box<dyn DynMatch>` for the given board size.
 fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> Box<dyn DynMatch + Send + Sync> {
@@ -124,6 +132,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 
 	commands.insert_resource(Game(m));
 	commands.insert_resource(SelectedCard::default());
+	commands.insert_resource(PosInput::default());
 	commands.insert_resource(PlayerSlots([p1_kind, p2_kind]));
 
 	let cell_px = 420.0 / n as f32;
@@ -269,7 +278,7 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::car
 }
 
 fn ai_turn(mut game: ResMut<Game>, slots: Res<PlayerSlots>) {
-	if game.0.is_terminal() {
+	if game.0.is_done() {
 		return;
 	}
 	let turn = game.0.turn();
@@ -288,6 +297,7 @@ fn hand_click(
 	mut selected: ResMut<SelectedCard>,
 	game: Res<Game>,
 	slots: Res<PlayerSlots>,
+	mut pos_input: ResMut<PosInput>,
 ) {
 	let turn = game.0.turn();
 	let is_manual = matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. });
@@ -311,6 +321,7 @@ fn hand_click(
 			} else {
 				selected.0 = Some(hand_card.value);
 			}
+			pos_input.col = None;
 		}
 	}
 }
@@ -331,8 +342,14 @@ fn reject_flash_system(mut commands: Commands, time: Res<Time>, mut query: Query
 	}
 }
 
-fn board_click(interaction_query: Query<(&Interaction, &BoardCell), Changed<Interaction>>, mut game: ResMut<Game>, mut selected: ResMut<SelectedCard>, slots: Res<PlayerSlots>) {
-	if game.0.is_terminal() {
+fn board_click(
+	interaction_query: Query<(&Interaction, &BoardCell), Changed<Interaction>>,
+	mut game: ResMut<Game>,
+	mut selected: ResMut<SelectedCard>,
+	slots: Res<PlayerSlots>,
+	mut pos_input: ResMut<PosInput>,
+) {
+	if game.0.is_done() {
 		return;
 	}
 	let turn = game.0.turn();
@@ -352,8 +369,116 @@ fn board_click(interaction_query: Query<(&Interaction, &BoardCell), Changed<Inte
 					Err(result) => debug!("game ended: {} vs {}", result.p1_score, result.p2_score),
 				}
 				selected.0 = None;
+				pos_input.col = None;
 				return;
 			}
+		}
+	}
+}
+
+/// Collect all playable positions from the current game state.
+fn playable_positions(game: &Game) -> Vec<Pos> {
+	let n = game.0.size();
+	let mut positions = Vec::new();
+	for r in 0..n {
+		for c in 0..n {
+			let pos = Pos { row: r, col: c };
+			if game.0.is_playable(pos) {
+				positions.push(pos);
+			}
+		}
+	}
+	positions
+}
+
+/// Convert chess-style column letter to index ('a'→0, 'b'→1, ...).
+fn char_to_col(ch: char) -> Option<u8> {
+	if ch.is_ascii_lowercase() {
+		let idx = ch as u8 - b'a';
+		Some(idx)
+	} else {
+		None
+	}
+}
+
+/// Convert chess-style row character to index ('1'→0, '2'→1, ...).
+fn char_to_row(ch: char) -> Option<u8> {
+	if ch.is_ascii_digit() && ch != '0' { Some(ch as u8 - b'1') } else { None }
+}
+
+/// Keyboard position input system. After a card is selected, typing a column letter
+/// (a, b, c, ...) followed by a row number (1, 2, 3, ...) places the card.
+///
+/// If only one playable position exists in the typed column, the card is placed immediately.
+/// Invalid keys reset the position input.
+fn keyboard_pos_input(pressed_chars: Res<PressedChars>, mut game: ResMut<Game>, mut selected: ResMut<SelectedCard>, slots: Res<PlayerSlots>, mut pos_input: ResMut<PosInput>) {
+	if game.0.is_done() {
+		return;
+	}
+	let turn = game.0.turn();
+	if !matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. }) {
+		return;
+	}
+	if selected.0.is_none() {
+		pos_input.col = None;
+		return;
+	}
+	let card = selected.0.unwrap();
+
+	let positions = playable_positions(&game);
+	let n = game.0.size();
+
+	for &ch in &pressed_chars.just_pressed {
+		if pos_input.col.is_none() {
+			// Waiting for column letter
+			if let Some(col) = char_to_col(ch) {
+				if col >= n {
+					// Out of bounds for this board
+					continue;
+				}
+				// Find playable positions in this column
+				let in_col: Vec<Pos> = positions.iter().filter(|p| p.col == col).copied().collect();
+				if in_col.is_empty() {
+					// No playable positions in this column — ignore
+					continue;
+				}
+				if in_col.len() == 1 {
+					// Only one option — auto-submit
+					let pos = in_col[0];
+					match game.0.next(Some(Move { pos, card })) {
+						Ok(()) => debug!("keyboard pos: auto-placed at ({},{})", pos.row, pos.col),
+						Err(result) => debug!("game ended: {} vs {}", result.p1_score, result.p2_score),
+					}
+					selected.0 = None;
+					pos_input.col = None;
+					return;
+				}
+				// Multiple options — wait for row
+				pos_input.col = Some(col);
+				return;
+			}
+			// Not a column letter — don't consume (might be digit for card select)
+		} else {
+			// Waiting for row number
+			let col = pos_input.col.unwrap();
+			if let Some(row) = char_to_row(ch) {
+				if row >= n {
+					pos_input.col = None;
+					continue;
+				}
+				let pos = Pos { row, col };
+				if game.0.is_playable(pos) {
+					match game.0.next(Some(Move { pos, card })) {
+						Ok(()) => debug!("keyboard pos: placed at ({row},{col})"),
+						Err(result) => debug!("game ended: {} vs {}", result.p1_score, result.p2_score),
+					}
+					selected.0 = None;
+					pos_input.col = None;
+					return;
+				}
+			}
+			// Invalid row or not playable — reset column input
+			pos_input.col = None;
 		}
 	}
 }
@@ -437,7 +562,7 @@ fn sync_visuals(
 
 	// Turn indicator
 	for (mut text, mut color) in &mut turn_indicator {
-		if game.0.is_terminal() {
+		if game.0.is_done() {
 			**text = "Game Over!".into();
 			*color = TextColor(theme::TEXT_GAME_OVER);
 		} else {
@@ -448,13 +573,13 @@ fn sync_visuals(
 }
 
 fn check_terminal(game: Res<Game>, mut next_state: ResMut<NextState<AppState>>) {
-	if game.0.is_terminal() {
+	if game.0.is_done() {
 		next_state.set(AppState::Result);
 	}
 }
 
-fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<SelectedCard>, game: Res<Game>, slots: Res<PlayerSlots>) {
-	if game.0.is_terminal() {
+fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<SelectedCard>, game: Res<Game>, slots: Res<PlayerSlots>, mut pos_input: ResMut<PosInput>) {
+	if game.0.is_done() {
 		return;
 	}
 	let turn = game.0.turn();
@@ -485,6 +610,7 @@ fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<Se
 		} else {
 			selected.0 = Some(card);
 		}
+		pos_input.col = None;
 	}
 }
 
@@ -499,9 +625,12 @@ fn handle_escape(
 	mut commands: Commands,
 	scene: Query<Entity, With<GameScene>>,
 	existing_hints: Query<Entity, With<ExitHint>>,
+	mut pos_input: ResMut<PosInput>,
 ) {
 	if keys.just_pressed(KeyCode::Escape) {
-		if selected.0.is_some() {
+		if pos_input.col.is_some() {
+			pos_input.col = None;
+		} else if selected.0.is_some() {
 			selected.0 = None;
 		} else {
 			next_state.set(AppState::Menu);
@@ -544,5 +673,6 @@ fn cleanup_gameplay(mut commands: Commands, query: Query<Entity, With<GameScene>
 		commands.entity(entity).despawn();
 	}
 	commands.remove_resource::<SelectedCard>();
+	commands.remove_resource::<PosInput>();
 	// Game and PlayerSlots survive into Result state — cleaned up there.
 }

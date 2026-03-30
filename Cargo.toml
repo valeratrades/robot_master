@@ -28,7 +28,7 @@ smart-default = "0.7"
 strum = { version = "0.27", features = ["derive"] }
 tokio = { version = "1", features = ["rt"] }
 ustr = { version = "1", features = ["serde"] }
-v_utils = { version = "2.15", features = ["macros", "cli"] }
+v_utils = { version = "2.15", path = "/home/v/s/v_utils/v_utils", features = ["macros", "cli"] }
 
 [profile.wasm-release]
 inherits = "release"
