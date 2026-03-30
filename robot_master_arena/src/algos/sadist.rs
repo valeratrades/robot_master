@@ -1,3 +1,4 @@
+use board_game::board::Board as _;
 use robot_master_core::{
 	board::{EMPTY, Pos},
 	cards::MAX_CARD_VALUE,
@@ -36,7 +37,7 @@ where
 		let mut best_score: Option<(u16, u8, u8, u8)> = None; // (opp_potential, card, row, col)
 
 		for m in game.valid_moves() {
-			let next = game.apply_move(m).expect("valid_moves produced illegal move");
+			let next = game.clone_and_play(m).expect("valid_moves produced illegal move");
 			let opp_potential = score_max_potential::<N>(&next, opponent);
 
 			let key = (opp_potential, m.card.0, m.pos.row, m.pos.col);

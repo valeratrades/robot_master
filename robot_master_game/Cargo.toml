@@ -6,7 +6,7 @@ edition = "2024"
 version = "0.1.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-v_utils = { workspace = true, features = ["io"] }
+v_utils = { workspace = true, features = ["io", "bevy"] }
 
 [dependencies]
 robot_master_arena = { path = "../robot_master_arena" }
