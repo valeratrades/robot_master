@@ -7,9 +7,14 @@ use crate::player::Player;
 pub struct RandomPlayer {
 	rng: SmallRng,
 }
-
 impl RandomPlayer {
 	pub fn new() -> Self {
+		Self::default()
+	}
+}
+
+impl Default for RandomPlayer {
+	fn default() -> Self {
 		Self { rng: rand::make_rng() }
 	}
 }

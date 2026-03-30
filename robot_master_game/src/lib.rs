@@ -56,6 +56,10 @@ impl Textures {
 	}
 }
 
+/// Tracks whether `:` was pressed, waiting for `q` to complete `:q` exit.
+#[derive(Default, Resource)]
+struct ColonPressed(bool);
+
 fn configure_app(app: &mut App, file_path: String) {
 	app.add_plugins(
 		DefaultPlugins
@@ -88,7 +92,8 @@ fn configure_app(app: &mut App, file_path: String) {
 		app.insert_resource(Textures { card_faces });
 	}
 
-	app.init_state::<AppState>()
+	app.init_resource::<ColonPressed>()
+		.init_state::<AppState>()
 		.add_systems(Startup, setup)
 		.add_systems(Update, handle_exit)
 		.add_plugins((menu::MenuPlugin, gameplay::GameplayPlugin, result::ResultPlugin));
@@ -99,8 +104,16 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 	commands.spawn(AudioPlayer::new(asset_server.load("music/robotic_city_v2.ogg")));
 }
 
-fn handle_exit(keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppExit>) {
-	if keys.just_pressed(KeyCode::Escape) {
+fn handle_exit(keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppExit>, mut colon: ResMut<ColonPressed>) {
+	let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+	if ctrl && keys.just_pressed(KeyCode::KeyC) {
 		exit.write(AppExit::Success);
+	}
+	if keys.just_pressed(KeyCode::Semicolon) && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)) {
+		colon.0 = true;
+	} else if colon.0 && keys.just_pressed(KeyCode::KeyQ) {
+		exit.write(AppExit::Success);
+	} else if keys.get_just_pressed().count() > 0 && !keys.just_pressed(KeyCode::ShiftLeft) && !keys.just_pressed(KeyCode::ShiftRight) {
+		colon.0 = false;
 	}
 }

@@ -19,8 +19,13 @@ impl Plugin for GameplayPlugin {
 		app.add_systems(OnEnter(AppState::Playing), setup_gameplay)
 			.add_systems(
 				Update,
-				(ai_turn, hand_click, board_click, sync_visuals, reject_flash_system, check_terminal)
-					.chain()
+				(
+					(
+						ai_turn, hand_click, keyboard_card_select, board_click, sync_visuals, reject_flash_system, check_terminal, handle_escape,
+					)
+						.chain(),
+					exit_hint_system,
+				)
 					.run_if(in_state(AppState::Playing)),
 			)
 			.add_systems(OnExit(AppState::Playing), cleanup_gameplay);
@@ -452,6 +457,92 @@ fn sync_visuals(
 fn check_terminal(game: Res<Game>, mut next_state: ResMut<NextState<AppState>>) {
 	if game.0.is_terminal() {
 		next_state.set(AppState::Result);
+	}
+}
+
+fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<SelectedCard>, game: Res<Game>, slots: Res<PlayerSlots>) {
+	if game.0.is_terminal() {
+		return;
+	}
+	let turn = game.0.turn();
+	if !matches!(&slots.0[turn as usize], PlayerKind::Manual { .. }) {
+		return;
+	}
+	let pressed = if keys.just_pressed(KeyCode::Digit0) || keys.just_pressed(KeyCode::Numpad0) {
+		Some(CardValue(0))
+	} else if keys.just_pressed(KeyCode::Digit1) || keys.just_pressed(KeyCode::Numpad1) {
+		Some(CardValue(1))
+	} else if keys.just_pressed(KeyCode::Digit2) || keys.just_pressed(KeyCode::Numpad2) {
+		Some(CardValue(2))
+	} else if keys.just_pressed(KeyCode::Digit3) || keys.just_pressed(KeyCode::Numpad3) {
+		Some(CardValue(3))
+	} else if keys.just_pressed(KeyCode::Digit4) || keys.just_pressed(KeyCode::Numpad4) {
+		Some(CardValue(4))
+	} else if keys.just_pressed(KeyCode::Digit5) || keys.just_pressed(KeyCode::Numpad5) {
+		Some(CardValue(5))
+	} else {
+		None
+	};
+	let Some(card) = pressed else { return };
+	let hands = game.0.hands();
+	let count = hands[turn as usize].count(card);
+	if count > 0 {
+		if selected.0 == Some(card) {
+			selected.0 = None;
+		} else {
+			selected.0 = Some(card);
+		}
+	}
+}
+
+/// Floating hint that fades out, shown when Escape is pressed.
+#[derive(Component)]
+struct ExitHint(Timer);
+
+fn handle_escape(
+	keys: Res<ButtonInput<KeyCode>>,
+	mut selected: ResMut<SelectedCard>,
+	mut next_state: ResMut<NextState<AppState>>,
+	mut commands: Commands,
+	scene: Query<Entity, With<GameScene>>,
+	existing_hints: Query<Entity, With<ExitHint>>,
+) {
+	if keys.just_pressed(KeyCode::Escape) {
+		if selected.0.is_some() {
+			selected.0 = None;
+		} else {
+			next_state.set(AppState::Menu);
+		}
+		// Show hint regardless — even when going back, the flash is harmless
+		for e in &existing_hints {
+			commands.entity(e).despawn();
+		}
+		if let Ok(scene) = scene.single() {
+			commands.entity(scene).with_children(|root| {
+				root.spawn((
+					ExitHint(Timer::from_seconds(2.0, TimerMode::Once)),
+					Text::new("Ctrl+C or :q to quit"),
+					TextFont { font_size: 14.0, ..default() },
+					TextColor(theme::TEXT_MUTED),
+					Node {
+						position_type: PositionType::Absolute,
+						bottom: Val::Px(12.0),
+						..default()
+					},
+				));
+			});
+		}
+	}
+}
+
+fn exit_hint_system(mut commands: Commands, time: Res<Time>, mut query: Query<(Entity, &mut ExitHint, &mut TextColor)>) {
+	for (entity, mut hint, mut color) in &mut query {
+		hint.0.tick(time.delta());
+		let alpha = 1.0 - hint.0.fraction();
+		*color = TextColor(Color::oklcha(0.50, 0.0, 0.0, 0.5 * alpha));
+		if hint.0.is_finished() {
+			commands.entity(entity).despawn();
+		}
 	}
 }
 

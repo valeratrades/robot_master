@@ -15,7 +15,7 @@ struct Ratings(HashMap<Ustr, EloRating>);
 impl Plugin for MenuPlugin {
 	fn build(&self, app: &mut App) {
 		app.add_systems(OnEnter(AppState::Menu), setup_menu)
-			.add_systems(Update, (button_system, dropdown_system).run_if(in_state(AppState::Menu)))
+			.add_systems(Update, (button_system, dropdown_system, keyboard_shortcuts).run_if(in_state(AppState::Menu)))
 			.add_systems(OnExit(AppState::Menu), cleanup_menu);
 	}
 }
@@ -286,7 +286,24 @@ fn dropdown_system(
 }
 
 fn spawn_player_dropdown(commands: &mut Commands, player_idx: usize, ratings: &HashMap<Ustr, EloRating>) {
-	let kinds = [PlayerKind::Manual { name: "Player".into() }, PlayerKind::Random, PlayerKind::Greedy, PlayerKind::Sadist];
+	use robot_master_arena::algos::ALGO_NAMES;
+
+	let mut kinds = vec![PlayerKind::Manual { name: "Player".into() }, PlayerKind::Random, PlayerKind::Greedy, PlayerKind::Sadist];
+
+	// Discover manual players persisted in the ratings DB
+	for key in ratings.keys() {
+		let s = key.as_str();
+		if s == "player" || ALGO_NAMES.contains(&s) {
+			continue;
+		}
+		kinds.push(PlayerKind::Manual { name: s.to_string() });
+	}
+
+	kinds.sort_by(|a, b| {
+		let ra = ratings.get(&a.id()).map(|e| e.rating).unwrap_or(f64::NEG_INFINITY);
+		let rb = ratings.get(&b.id()).map(|e| e.rating).unwrap_or(f64::NEG_INFINITY);
+		rb.partial_cmp(&ra).unwrap()
+	});
 
 	let dropdown_items: Vec<_> = kinds.iter().map(|kind| dropdown_item(player_idx, format_player_label(kind, ratings), kind.clone())).collect();
 
@@ -298,8 +315,10 @@ fn spawn_player_dropdown(commands: &mut Commands, player_idx: usize, ratings: &H
 				left: Val::Percent(50.0),
 				top: Val::Percent(if player_idx == 0 { 48.0 } else { 55.0 }),
 				width: Val::Px(200.0),
+				max_height: Val::Px(240.0),
 				flex_direction: FlexDirection::Column,
 				border_radius: BorderRadius::all(Val::Px(10.0)),
+				overflow: Overflow::scroll_y(),
 				..default()
 			},
 			BackgroundColor(theme::DROPDOWN_BG),
@@ -379,13 +398,23 @@ fn load_ratings() -> HashMap<Ustr, EloRating> {
 	{
 		use robot_master_arena::db::JsonRatingDb;
 
-		#[allow(deprecated)]
-		let db = JsonRatingDb::new();
+		let db = JsonRatingDb::default();
 		use robot_master_arena::db::RatingDb;
 		db.load_ratings()
 	}
 	#[cfg(target_arch = "wasm32")]
 	HashMap::new()
+}
+
+fn keyboard_shortcuts(keys: Res<ButtonInput<KeyCode>>, mut next_state: ResMut<NextState<AppState>>, dropdowns: Query<Entity, With<DropdownPanel>>, mut commands: Commands) {
+	if keys.just_pressed(KeyCode::Escape) {
+		for entity in &dropdowns {
+			commands.entity(entity).despawn();
+		}
+	}
+	if (keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter)) && dropdowns.is_empty() {
+		next_state.set(AppState::Playing);
+	}
 }
 
 fn cleanup_menu(mut commands: Commands, query: Query<Entity, With<MenuScene>>, dropdowns: Query<Entity, With<DropdownPanel>>) {
