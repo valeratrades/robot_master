@@ -1,0 +1,5 @@
+---
+source: robot_master_arena/src/algos/rollout.rs
+expression: "format!(\"card={} pos=({},{})\", mv.card.0, mv.pos.row, mv.pos.col)"
+---
+card=0 pos=(2,1)

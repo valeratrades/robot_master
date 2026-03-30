@@ -6306,6 +6306,7 @@ name = "robot_master_arena"
 version = "0.1.0"
 dependencies = [
  "board-game",
+ "bon",
  "clickhouse",
  "insta",
  "rand 0.10.0",
