@@ -6,6 +6,21 @@ env:
 jobs:
   pre_ci:
     uses: valeratrades/.github/.github/workflows/pre_ci.yml@master
+  py-tests:
+    name: Pytest
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: 3.x
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+    - name: Install dependencies
+      run: uv sync --prerelease=allow --no-install-project --dev
+    - name: Run tests
+      run: uv run pytest
+    timeout-minutes: 30
   rust-tests:
     if: needs.pre_ci.outputs.continue
     name: Rust ${{matrix.rust}}

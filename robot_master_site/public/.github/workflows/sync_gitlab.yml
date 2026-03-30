@@ -1,0 +1,61 @@
+jobs:
+  other:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check required secrets
+      run: "if [ -z \"${{ secrets.GITLAB_TOKEN }}\" ]; then\n  echo \"::error::Missing\
+        \ required secret GITLAB_TOKEN for GitLab sync\"\n  echo \"\"\n  echo \"To\
+        \ configure:\"\n  echo \"  1. Go to your GitLab account -> Settings -> Access\
+        \ Tokens\"\n  echo \"  2. Create a token with 'write_repository' scope\"\n\
+        \  echo \"  3. In this GitHub repo, go to Settings -> Secrets and variables\
+        \ -> Actions\"\n  echo \"  4. Add GITLAB_TOKEN with your GitLab access token\"\
+        \n  exit 1\nfi\n"
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        lfs: true
+    - name: Configure GitLab mirror settings
+      run: "repo_name=\"${GITHUB_REPOSITORY#*/}\"\nmirror_url=\"https://gitlab.isima.fr/vasakharov/${repo_name}.git\"\
+        \ngitlab_host=$(echo \"https://gitlab.isima.fr/vasakharov\" | sed -E 's|https?://([^/]+).*|\\\
+        1|')\nproject_path=$(echo \"https://gitlab.isima.fr/vasakharov/${repo_name}\"\
+        \ | sed -E 's|https?://[^/]+/(.+)|\\1|' | sed 's|/|%2F|g')\ngithub_url=\"\
+        https://github.com/${{ github.repository }}\"\n\n# Disable issues, MRs, wiki,\
+        \ etc. and set description pointing to GitHub\ncurl -sf --max-time 30 --retry\
+        \ 2 --request PUT \\\n  --header \"PRIVATE-TOKEN: ${{ secrets.GITLAB_TOKEN\
+        \ }}\" \\\n  --header \"Content-Type: application/json\" \\\n  --data '{\n\
+        \    \"lfs_enabled\": false,\n    \"issues_access_level\": \"disabled\",\n\
+        \    \"merge_requests_access_level\": \"disabled\",\n    \"wiki_access_level\"\
+        : \"disabled\",\n    \"builds_access_level\": \"disabled\",\n    \"snippets_access_level\"\
+        : \"disabled\",\n    \"description\": \"Mirror of '\"${github_url}\"'. All\
+        \ development happens on GitHub.\"\n  }' \\\n  \"https://${gitlab_host}/api/v4/projects/${project_path}\"\
+        \ > /dev/null || true\n"
+    - name: Push to GitLab mirror
+      run: "repo_name=\"${GITHUB_REPOSITORY#*/}\"\nmirror_url=\"https://gitlab.isima.fr/vasakharov/${repo_name}.git\"\
+        \ngitlab_host=$(echo \"https://gitlab.isima.fr/vasakharov\" | sed -E 's|https?://([^/]+).*|\\\
+        1|')\ngithub_url=\"https://github.com/${{ github.repository }}\"\n\n# Configure\
+        \ git credentials\ngit config --global credential.helper store\necho \"https://oauth2:${{\
+        \ secrets.GITLAB_TOKEN }}@${gitlab_host}\" > ~/.git-credentials\n\n# Configure\
+        \ git user for the mirror commit\ngit config user.email \"github-actions[bot]@users.noreply.github.com\"\
+        \ngit config user.name \"github-actions[bot]\"\n\n# Add mirror notice to README\
+        \ if not already present\nif [ -f \"README.md\" ]; then\n  if ! grep -q \"\
+        This is a mirror\" README.md; then\n    # Prepend mirror notice\n    {\n \
+        \     echo '> [!NOTE]'\n      echo \"> This is a mirror. Development happens\
+        \ on [GitHub](${github_url}).\"\n      echo \"\"\n      cat README.md\n  \
+        \  } > README.md.tmp && mv README.md.tmp README.md\n    git add README.md\n\
+        \    git commit -m \"chore: add mirror notice to README\" --allow-empty ||\
+        \ true\n  fi\nfi\n\n# Add GitLab remote\ngit remote add gitlab \"${mirror_url}\"\
+        \n\n# Push all branches and tags\n# Skip LFS during push to avoid failures\
+        \ from missing historical objects,\n# then push available LFS objects separately\
+        \ (best-effort)\nGIT_LFS_SKIP_PUSH=1 git push gitlab --all --force\nGIT_LFS_SKIP_PUSH=1\
+        \ git push gitlab --tags --force\ngit lfs push --all gitlab || true\n\n# Cleanup\
+        \ credentials\nrm -f ~/.git-credentials\n"
+name: Sync to GitLab Mirror
+'on':
+  push:
+    branches:
+    - '**'
+    tags:
+    - '**'
+  workflow_dispatch: {}
+permissions:
+  contents: read
