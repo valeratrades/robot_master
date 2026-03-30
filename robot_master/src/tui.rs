@@ -40,7 +40,7 @@ where
 		}
 		let board_str = board.to_string();
 		let board_lines = board_str.lines().count();
-		write!(stdout, "{board_str}\n").unwrap();
+		writeln!(stdout, "{board_str}").unwrap();
 		writeln!(stdout, "{name}, votre main : {hand}").unwrap();
 		let mut prompt_lines = 0usize;
 		let base_lines = board_lines + 1;

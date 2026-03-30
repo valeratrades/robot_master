@@ -12,7 +12,7 @@ pub struct ResultPlugin;
 impl Plugin for ResultPlugin {
 	fn build(&self, app: &mut App) {
 		app.add_systems(OnEnter(AppState::Result), setup_result)
-			.add_systems(Update, play_again_button.run_if(in_state(AppState::Result)))
+			.add_systems(Update, (play_again_button, keyboard_shortcuts).run_if(in_state(AppState::Result)))
 			.add_systems(OnExit(AppState::Result), cleanup_result);
 	}
 }
@@ -38,7 +38,10 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 
 	let scores = format!("{p1_name} (Cols): {s0} (weakest: col {i0})\n{p2_name} (Rows): {s1} (weakest: row {i1})");
 
+	#[cfg(not(target_arch = "wasm32"))]
 	let elo_text = format_elo(&slots, s0, s1, i0, i1);
+	#[cfg(target_arch = "wasm32")]
+	let elo_text = String::new();
 
 	let cell_px = 320.0 / n as f32;
 	let img_px = cell_px - 10.0;
@@ -144,46 +147,47 @@ fn play_again_button(mut interaction_query: Query<(&Interaction, &mut Background
 	}
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn format_elo(slots: &PlayerSlots, s0: u16, s1: u16, i0: usize, i1: usize) -> String {
-	#[cfg(not(target_arch = "wasm32"))]
-	{
-		use robot_master_arena::{db::JsonRatingDb, match_::MatchResult};
+	use robot_master_arena::{db::JsonRatingDb, match_::MatchResult};
 
-		#[allow(deprecated)]
-		let db = JsonRatingDb::new();
-		let mut result = MatchResult {
-			p1_id: slots.0[0].id(),
-			p2_id: slots.0[1].id(),
-			p1_score: s0,
-			p2_score: s1,
-			p1_weak_line: i0,
-			p2_weak_line: i1,
-			moves: Vec::new(),
-			elo_update: None,
-		};
-		result.update_elo(&db);
-		match result.elo_update {
-			Some(ref elo) => {
-				let d1 = elo.p1_new - elo.p1_old;
-				let d2 = elo.p2_new - elo.p2_old;
-				let sign = |d: f64| if d >= 0.0 { "+" } else { "" };
-				format!(
-					"Elo: {} {:.0} ({}{:.0}) | {} {:.0} ({}{:.0})",
-					result.p1_id,
-					elo.p1_new,
-					sign(d1),
-					d1,
-					result.p2_id,
-					elo.p2_new,
-					sign(d2),
-					d2
-				)
-			}
-			None => String::new(),
+	let db = JsonRatingDb::default();
+	let mut result = MatchResult {
+		p1_id: slots.0[0].id(),
+		p2_id: slots.0[1].id(),
+		p1_score: s0,
+		p2_score: s1,
+		p1_weak_line: i0,
+		p2_weak_line: i1,
+		moves: Vec::new(),
+		elo_update: None,
+	};
+	result.update_elo(&db);
+	match result.elo_update {
+		Some(ref elo) => {
+			let d1 = elo.p1_new - elo.p1_old;
+			let d2 = elo.p2_new - elo.p2_old;
+			let sign = |d: f64| if d >= 0.0 { "+" } else { "" };
+			format!(
+				"Elo: {} {:.0} ({}{:.0}) | {} {:.0} ({}{:.0})",
+				result.p1_id,
+				elo.p1_new,
+				sign(d1),
+				d1,
+				result.p2_id,
+				elo.p2_new,
+				sign(d2),
+				d2
+			)
 		}
+		None => String::new(),
 	}
-	#[cfg(target_arch = "wasm32")]
-	String::new()
+}
+
+fn keyboard_shortcuts(keys: Res<ButtonInput<KeyCode>>, mut next_state: ResMut<NextState<AppState>>) {
+	if keys.just_pressed(KeyCode::KeyA) || keys.just_pressed(KeyCode::KeyP) || keys.just_pressed(KeyCode::Escape) {
+		next_state.set(AppState::Menu);
+	}
 }
 
 fn cleanup_result(mut commands: Commands, query: Query<Entity, With<ResultScene>>) {

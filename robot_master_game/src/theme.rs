@@ -27,7 +27,6 @@ pub const HAND_CARD_EMPTY: Color = Color::oklcha(0.20, 0.01, 260.0, 0.3);
 pub const HAND_CARD_SELECTED: Color = Color::oklcha(0.70, 0.15, 90.0, 0.8); // yellow
 pub const HAND_CARD_HOVER: Color = Color::oklcha(0.50, 0.08, 260.0, 0.9);
 pub const HAND_CARD_OPPONENT: Color = Color::oklcha(0.20, 0.02, 260.0, 0.5);
-pub const HAND_CARD_OPPONENT_EMPTY: Color = Color::oklcha(0.15, 0.01, 260.0, 0.3);
 
 // Text
 pub const TEXT_PRIMARY: Color = Color::WHITE;
@@ -39,6 +38,3 @@ pub const TEXT_MUTED: Color = Color::oklcha(0.50, 0.0, 0.0, 0.5);
 pub const TEXT_SELECTION: Color = Color::oklcha(0.85, 0.18, 90.0, 1.0); // bright yellow
 pub const TEXT_GAME_OVER: Color = Color::oklcha(0.65, 0.18, 25.0, 1.0); // red
 pub const TEXT_ELO: Color = Color::oklcha(0.75, 0.10, 90.0, 0.9);
-
-// Reject flash
-pub const REJECT_BASE: Color = Color::oklcha(0.45, 0.18, 25.0, 0.9); // red

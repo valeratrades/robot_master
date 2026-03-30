@@ -31,9 +31,8 @@ pub struct JsonRatingDb {
 	path: PathBuf,
 }
 
-impl JsonRatingDb {
-	#[deprecated(note = "prefer Default impl, since this takes no args")]
-	pub fn new() -> Self {
+impl Default for JsonRatingDb {
+	fn default() -> Self {
 		let dir = PathBuf::from(xdg_data_fallback()).join(APP_NAME);
 		fs::create_dir_all(&dir).expect("failed to create XDG data directory");
 		Self { path: dir.join("ratings.json") }
@@ -62,7 +61,7 @@ impl RatingDb for JsonRatingDb {
 /// Construct the appropriate `RatingDb` from config.
 pub fn from_config(config: &ArenaConfig) -> Box<dyn RatingDb> {
 	match &config.db_backend {
-		DbBackend::Json => Box::new(JsonRatingDb::new()),
+		DbBackend::Json => Box::new(JsonRatingDb::default()),
 		#[cfg(feature = "clickhouse")]
 		DbBackend::Clickhouse { url } => Box::new(clickhouse_db::ClickhouseDb::new(url)),
 		#[cfg(not(feature = "clickhouse"))]

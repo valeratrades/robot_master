@@ -75,8 +75,8 @@ where
 	/// Row (Rows player) or column (Cols player) as a fixed array.
 	pub fn line(&self, player: PlayerId, idx: usize) -> [Cell; N] {
 		let mut out = [EMPTY; N];
-		for j in 0..N {
-			out[j] = if player.scores_rows() { self.cells[idx * N + j] } else { self.cells[j * N + idx] };
+		for (j, slot) in out.iter_mut().enumerate() {
+			*slot = if player.scores_rows() { self.cells[idx * N + j] } else { self.cells[j * N + idx] };
 		}
 		out
 	}
