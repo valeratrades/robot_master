@@ -1,12 +1,7 @@
 use bevy::prelude::*;
 
-use crate::{AppState, InitialPlayers, PlayerKind};
+use crate::{AppState, InitialPlayers, PlayerKind, theme};
 
-const NORMAL: Color = Color::srgba(0.2, 0.2, 0.4, 0.8);
-const HOVERED: Color = Color::srgba(0.3, 0.3, 0.6, 0.9);
-const PRESSED: Color = Color::srgba(0.2, 0.8, 0.2, 0.9);
-const START_NORMAL: Color = Color::srgba(0.2, 0.7, 0.2, 0.8);
-const START_HOVERED: Color = Color::srgba(0.3, 0.9, 0.3, 1.0);
 pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
@@ -38,46 +33,76 @@ struct DropdownOption {
 #[derive(Component)]
 struct DropdownPanel;
 
-fn setup_menu(mut commands: Commands, init: Res<InitialPlayers>) {
+fn setup_menu(mut commands: Commands, init: Res<InitialPlayers>, asset_server: Res<AssetServer>) {
 	let p1_kind = PlayerKind::from_name(&init.p1);
 	let p2_kind = PlayerKind::from_name(&init.p2);
 
+	// Background image (semi-transparent)
 	commands.spawn((
 		MenuScene,
 		Node {
 			width: Val::Percent(100.0),
 			height: Val::Percent(100.0),
-			flex_direction: FlexDirection::Column,
-			align_items: AlignItems::Center,
-			justify_content: JustifyContent::Center,
-			row_gap: Val::Px(20.0),
 			..default()
 		},
-		BackgroundColor(Color::srgb(0.08, 0.08, 0.15)),
-		children![
-			// Title
-			(Text::new("ROBOT MASTER"), TextFont { font_size: 64.0, ..default() }, TextColor(Color::srgb(1.0, 0.85, 0.0)),),
-			// Player 1 button
-			player_button(0, &p1_kind),
-			// Player 2 button
-			player_button(1, &p2_kind),
-			// Start button
-			(
-				StartButton,
-				Button,
-				Node {
-					width: Val::Px(200.0),
-					height: Val::Px(60.0),
-					justify_content: JustifyContent::Center,
-					align_items: AlignItems::Center,
-					margin: UiRect::top(Val::Px(20.0)),
-					..default()
-				},
-				BackgroundColor(START_NORMAL),
-				children![(Text::new("START"), TextFont { font_size: 36.0, ..default() }, TextColor(Color::WHITE),)],
-			),
-		],
+		ImageNode {
+			image: asset_server.load("images/preview.png"),
+			color: Color::srgba(1.0, 1.0, 1.0, 0.3),
+			..default()
+		},
 	));
+
+	// Dark overlay + centered content
+	commands
+		.spawn((
+			MenuScene,
+			Node {
+				width: Val::Percent(100.0),
+				height: Val::Percent(100.0),
+				position_type: PositionType::Absolute,
+				flex_direction: FlexDirection::Column,
+				align_items: AlignItems::Center,
+				justify_content: JustifyContent::Center,
+				..default()
+			},
+			BackgroundColor(Color::oklcha(0.0, 0.0, 0.0, 0.55)),
+		))
+		.with_children(|overlay| {
+			// Content panel with continuous curvature corners
+			overlay
+				.spawn((
+					Node {
+						flex_direction: FlexDirection::Column,
+						align_items: AlignItems::Center,
+						justify_content: JustifyContent::Center,
+						row_gap: Val::Px(20.0),
+						padding: UiRect::axes(Val::Px(60.0), Val::Px(40.0)),
+						border_radius: BorderRadius::all(Val::Px(24.0)),
+						..default()
+					},
+					BackgroundColor(Color::oklcha(0.12, 0.02, 260.0, 0.75)),
+				))
+				.with_children(|panel| {
+					panel.spawn((Text::new("ROBOT MASTER"), TextFont { font_size: 64.0, ..default() }, TextColor(theme::TEXT_TITLE)));
+					panel.spawn(player_button(0, &p1_kind));
+					panel.spawn(player_button(1, &p2_kind));
+					panel.spawn((
+						StartButton,
+						Button,
+						Node {
+							width: Val::Px(200.0),
+							height: Val::Px(60.0),
+							justify_content: JustifyContent::Center,
+							align_items: AlignItems::Center,
+							margin: UiRect::top(Val::Px(20.0)),
+							border_radius: BorderRadius::all(Val::Px(12.0)),
+							..default()
+						},
+						BackgroundColor(theme::BTN_START),
+						children![(Text::new("START"), TextFont { font_size: 36.0, ..default() }, TextColor(theme::TEXT_PRIMARY))],
+					));
+				});
+		});
 }
 
 fn player_button(idx: usize, kind: &PlayerKind) -> impl Bundle {
@@ -94,16 +119,17 @@ fn player_button(idx: usize, kind: &PlayerKind) -> impl Bundle {
 			justify_content: JustifyContent::SpaceBetween,
 			align_items: AlignItems::Center,
 			padding: UiRect::horizontal(Val::Px(20.0)),
+			border_radius: BorderRadius::all(Val::Px(10.0)),
 			..default()
 		},
-		BackgroundColor(NORMAL),
+		BackgroundColor(theme::BTN_NORMAL),
 		children![
-			(Text::new(label), TextFont { font_size: 24.0, ..default() }, TextColor(Color::WHITE),),
+			(Text::new(label), TextFont { font_size: 24.0, ..default() }, TextColor(theme::TEXT_PRIMARY)),
 			(
 				PlayerLabel(idx),
 				Text::new(kind.to_string()),
 				TextFont { font_size: 22.0, ..default() },
-				TextColor(Color::srgb(0.8, 0.8, 0.3)),
+				TextColor(theme::TEXT_LABEL)
 			),
 		],
 	)
@@ -123,7 +149,6 @@ fn button_system(
 				if start.is_some() {
 					next_state.set(AppState::Playing);
 				} else if let Some(btn) = player_btn {
-					// Toggle dropdown
 					let has_dropdown = !existing_dropdowns.is_empty();
 					for entity in &existing_dropdowns {
 						commands.entity(entity).despawn();
@@ -142,44 +167,40 @@ fn button_system(
 						0 => init.p1 = name.to_string(),
 						_ => init.p2 = name.to_string(),
 					}
-					// Update label
 					for (label, mut text) in &mut label_query {
 						if label.0 == opt.player_idx {
 							**text = opt.kind.to_string();
 						}
 					}
-					// Close dropdown
 					for entity in &existing_dropdowns {
 						commands.entity(entity).despawn();
 					}
 				}
-				*color = PRESSED.into();
+				*color = theme::BTN_PRESSED.into();
 			}
 			Interaction::Hovered =>
 				if start.is_some() {
-					*color = START_HOVERED.into();
+					*color = theme::BTN_START_HOVER.into();
 				} else {
-					*color = HOVERED.into();
+					*color = theme::BTN_HOVERED.into();
 				},
 			Interaction::None =>
 				if start.is_some() {
-					*color = START_NORMAL.into();
+					*color = theme::BTN_START.into();
 				} else {
-					*color = NORMAL.into();
+					*color = theme::BTN_NORMAL.into();
 				},
 		}
 	}
 }
 
 fn dropdown_system(
-	// Close dropdown when clicking outside
 	mouse: Res<ButtonInput<MouseButton>>,
 	dropdowns: Query<Entity, With<DropdownPanel>>,
 	interactions: Query<&Interaction, (With<Button>, Or<(With<PlayerButton>, With<DropdownOption>)>)>,
 	mut commands: Commands,
 ) {
 	if mouse.just_pressed(MouseButton::Left) && !dropdowns.is_empty() {
-		// If no button is being interacted with, close dropdown
 		let any_interaction = interactions.iter().any(|i| *i != Interaction::None);
 		if !any_interaction {
 			for entity in &dropdowns {
@@ -198,9 +219,10 @@ fn spawn_dropdown(commands: &mut Commands, player_idx: usize) {
 			top: Val::Percent(if player_idx == 0 { 48.0 } else { 55.0 }),
 			width: Val::Px(200.0),
 			flex_direction: FlexDirection::Column,
+			border_radius: BorderRadius::all(Val::Px(10.0)),
 			..default()
 		},
-		BackgroundColor(Color::srgba(0.15, 0.15, 0.25, 0.95)),
+		BackgroundColor(theme::DROPDOWN_BG),
 		GlobalZIndex(10),
 		children![
 			dropdown_item(player_idx, "Manual", PlayerKind::Manual { name: "Player".into() }),
@@ -222,8 +244,8 @@ fn dropdown_item(player_idx: usize, label: &str, kind: PlayerKind) -> impl Bundl
 			align_items: AlignItems::Center,
 			..default()
 		},
-		BackgroundColor(NORMAL),
-		children![(Text::new(label), TextFont { font_size: 20.0, ..default() }, TextColor(Color::WHITE),)],
+		BackgroundColor(theme::BTN_NORMAL),
+		children![(Text::new(label), TextFont { font_size: 20.0, ..default() }, TextColor(theme::TEXT_PRIMARY))],
 	)
 }
 

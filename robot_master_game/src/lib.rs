@@ -4,6 +4,7 @@
 mod gameplay;
 mod menu;
 mod result;
+mod theme;
 
 use bevy::{asset::AssetMetaCheck, ecs::message::MessageWriter, prelude::*};
 use robot_master_core::cards::CardValue;
