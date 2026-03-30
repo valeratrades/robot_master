@@ -36,9 +36,12 @@ fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
 where
 	[(); N * N]:, {
 	match kind {
-		PlayerKind::Mcts { simulations } => {
+		PlayerKind::Mcts(params) => {
 			let evaluator = RolloutEval::new(RolloutPlayer);
-			let config = MctsConfig { simulations, c_puct: 1.41 };
+			let config = MctsConfig {
+				simulations: params.simulations,
+				c_puct: 1.41,
+			};
 			Box::new(MctsBot::new(evaluator, config))
 		}
 		other => other.into_bot(),

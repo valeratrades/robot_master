@@ -30,7 +30,36 @@ pub enum Commands {
 	Tui,
 	/// Play the game with a graphical interface
 	Gui,
+	/// Arena: tournaments and data management
+	Arena {
+		/// Filter players by grepping these patterns against known IDs. If empty, all players.
+		#[arg(trailing_var_arg = true)]
+		players: Vec<String>,
+		#[command(subcommand)]
+		command: ArenaCommands,
+	},
 	//DO: `site` command that starts the leptos server
+}
+
+#[derive(Subcommand)]
+pub enum ArenaCommands {
+	/// Run a bracket tournament
+	Tournament {
+		/// Number of rounds per matchup
+		#[arg(default_value = "1")]
+		rounds: usize,
+	},
+	/// Data management
+	Data {
+		#[command(subcommand)]
+		command: DataCommands,
+	},
+}
+
+#[derive(Subcommand)]
+pub enum DataCommands {
+	/// Reset ratings (all if no players filter, otherwise only matched)
+	ResetRatings,
 }
 
 #[derive(Clone, Debug, Default, v_macros::LiveSettings, v_macros::MyConfigPrimitives, v_macros::Settings)]
