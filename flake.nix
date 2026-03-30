@@ -40,7 +40,8 @@
             build = {
               enable = true;
               workspace = {
-                "./robot_master_site" = [ "git_version" "log_directives" ];
+                "./robot_master_site" = [ "git_version" "log_directives" ]; #Q: do I need it?
+                "./robot_master" = [ "git_version" "log_directives" ];
               };
             };
           };

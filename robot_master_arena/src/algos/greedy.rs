@@ -78,7 +78,11 @@ where
 #[cfg(test)]
 mod tests {
 	use insta::assert_snapshot;
-	use robot_master_core::{board::Board, cards::Hand, game::GameConfig};
+	use robot_master_core::{
+		board::Board,
+		cards::Hand,
+		game::{GameConfig, Player},
+	};
 
 	use super::*;
 

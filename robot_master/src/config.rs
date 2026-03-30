@@ -3,7 +3,7 @@ use robot_master_arena::{BoardSize, config::ArenaConfig};
 use v_utils::macros as v_macros;
 
 #[derive(Parser)]
-#[command(author, version, about = "Robot Master game")]
+#[command(author, version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), ")"), about, long_about = None)]
 pub struct Cli {
 	#[clap(flatten)]
 	pub settings_flags: SettingsFlags,
