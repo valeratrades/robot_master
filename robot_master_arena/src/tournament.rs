@@ -3,7 +3,7 @@ use robot_master_core::game::{GameConfig, GameState};
 
 use crate::{
 	match_::{Match, MatchResult},
-	player::Player,
+	player::Bot,
 };
 
 /// Run a round-robin tournament: every player plays every other player `rounds` times,
@@ -11,7 +11,7 @@ use crate::{
 ///
 /// Uses `dyn Player` — this is the orchestration layer, not the hot path.
 /// For self-play training (millions of games), use `Match` directly with concrete types.
-pub fn round_robin<const N: usize>(players: &mut [Box<dyn Player<N>>], config: GameConfig, rounds: usize, rng: &mut impl Rng) -> Vec<MatchResult>
+pub fn round_robin<const N: usize>(players: &mut [Box<dyn Bot<N>>], config: GameConfig, rounds: usize, rng: &mut impl Rng) -> Vec<MatchResult>
 where
 	[(); N * N]:, {
 	let n = players.len();
@@ -45,7 +45,7 @@ where
 	results
 }
 
-fn run_dyn_match<const N: usize>(game: GameState<N>, p1: &mut dyn Player<N>, p2: &mut dyn Player<N>) -> MatchResult
+fn run_dyn_match<const N: usize>(game: GameState<N>, p1: &mut dyn Bot<N>, p2: &mut dyn Bot<N>) -> MatchResult
 where
 	[(); N * N]:, {
 	Match::new(game, p1, p2).run()

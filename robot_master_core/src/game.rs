@@ -1,35 +1,42 @@
+use std::fmt;
+
+pub use board_game::board::Player;
+use board_game::board::{BoardDone, BoardMoves, BoardSymmetry, PlayError};
+use internal_iterator::InternalIterator;
 use rand::Rng;
 use thiserror::Error;
 
 use crate::{
 	board::{Board, Pos},
 	cards::{CardValue, Hand, deal, new_deck},
+	scoring::victoire,
 };
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum PlayerId {
-	/// Player one - scores cols
-	Cols,
-	/// Player two - scores rows.
-	Rows,
+/// Player::A scores columns, Player::B scores rows.
+#[inline]
+pub fn scores_rows(p: Player) -> bool {
+	p == Player::B
 }
 
-impl PlayerId {
-	pub fn opponent(self) -> Self {
-		match self {
-			PlayerId::Cols => PlayerId::Rows,
-			PlayerId::Rows => PlayerId::Cols,
+/// Display wrapper: prints `"Cols (A)"` / `"Rows (B)"` instead of bare `"A"` / `"B"`.
+pub struct PlayerDisplay(pub Player);
+
+impl fmt::Display for PlayerDisplay {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self.0 {
+			Player::A => f.write_str("P1 (Cols)"),
+			Player::B => f.write_str("P2 (Rows)"),
 		}
 	}
+}
 
-	//Q: not sure if I should keep this now, that I renamed players themselves to match
-	#[inline]
-	pub fn scores_rows(self) -> bool {
-		self == PlayerId::Rows
+impl fmt::Debug for PlayerDisplay {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		fmt::Display::fmt(self, f)
 	}
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct GameConfig {
 	pub size: u8 = 5,
 	pub max_card: u8 = 5,
@@ -37,10 +44,16 @@ pub struct GameConfig {
 	pub cards_dealt: u8 = 12,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Move {
 	pub pos: Pos,
 	pub card: CardValue,
+}
+
+impl fmt::Display for Move {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{}@({},{})", self.card.0, self.pos.row, self.pos.col)
+	}
 }
 
 #[derive(Debug, Error)]
@@ -51,13 +64,13 @@ pub enum MoveError {
 	CardNotInHand(CardValue),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GameState<const N: usize>
 where
 	[(); N * N]:, {
 	pub board: Board<N>,
 	pub hands: [Hand; 2],
-	pub turn: PlayerId,
+	pub turn: Player,
 	pub config: GameConfig,
 }
 
@@ -80,13 +93,13 @@ where
 		Self {
 			board,
 			hands: [hand0, hand1],
-			turn: PlayerId::Cols,
+			turn: Player::A,
 			config,
 		}
 	}
 
 	pub fn valid_moves(&self) -> impl Iterator<Item = Move> + '_ {
-		let hand = &self.hands[self.turn as usize];
+		let hand = &self.hands[self.turn.index() as usize];
 		self.board.valid_placements().flat_map(move |pos| hand.iter_playable().map(move |card| Move { pos, card }))
 	}
 
@@ -95,21 +108,180 @@ where
 		if !self.board.is_playable(m.pos) {
 			return Err(MoveError::InvalidPosition(m.pos));
 		}
-		let hand = &self.hands[self.turn as usize];
+		let hand = &self.hands[self.turn.index() as usize];
 		if hand.count(m.card) == 0 {
 			return Err(MoveError::CardNotInHand(m.card));
 		}
 
-		let mut next = *self;
+		let mut next = self.clone();
 		next.board.set(m.pos, m.card.0);
-		next.hands[self.turn as usize].take(m.card);
-		next.turn = self.turn.opponent();
+		next.hands[self.turn.index() as usize].take(m.card);
+		next.turn = self.turn.other();
 		Ok(next)
 	}
 
 	pub fn is_terminal(&self) -> bool {
 		self.board.is_full()
 	}
+}
+
+impl<const N: usize> fmt::Display for GameState<N>
+where
+	[(); N * N]:,
+{
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(
+			f,
+			"{}\n{} to play | {}: {} | {}: {}",
+			self.board,
+			PlayerDisplay(self.turn),
+			PlayerDisplay(Player::A),
+			self.hands[0],
+			PlayerDisplay(Player::B),
+			self.hands[1]
+		)
+	}
+}
+
+// --- board_game::Board trait implementation ---
+
+impl<const N: usize> board_game::board::Board for GameState<N>
+where
+	[(); N * N]:,
+{
+	type Move = Move;
+
+	fn next_player(&self) -> Player {
+		self.turn
+	}
+
+	fn is_available_move(&self, mv: Self::Move) -> Result<bool, BoardDone> {
+		if self.is_terminal() {
+			return Err(BoardDone);
+		}
+		let hand = &self.hands[self.turn.index() as usize];
+		Ok(self.board.is_playable(mv.pos) && hand.count(mv.card) > 0)
+	}
+
+	fn play(&mut self, mv: Self::Move) -> Result<(), PlayError> {
+		if self.is_terminal() {
+			return Err(PlayError::BoardDone);
+		}
+		if !self.board.is_playable(mv.pos) || self.hands[self.turn.index() as usize].count(mv.card) == 0 {
+			return Err(PlayError::UnavailableMove);
+		}
+		self.board.set(mv.pos, mv.card.0);
+		self.hands[self.turn.index() as usize].take(mv.card);
+		self.turn = self.turn.other();
+		Ok(())
+	}
+
+	fn outcome(&self) -> Option<board_game::board::Outcome> {
+		if !self.is_terminal() {
+			return None;
+		}
+		let (s0, _, s1, _) = victoire(&self.board);
+		Some(match s0.cmp(&s1) {
+			std::cmp::Ordering::Greater => board_game::board::Outcome::WonBy(Player::A),
+			std::cmp::Ordering::Less => board_game::board::Outcome::WonBy(Player::B),
+			std::cmp::Ordering::Equal => board_game::board::Outcome::Draw,
+		})
+	}
+
+	fn can_lose_after_move() -> bool {
+		true
+	}
+}
+
+impl<'a, const N: usize> BoardMoves<'a, GameState<N>> for GameState<N>
+where
+	[(); N * N]:,
+{
+	type AllMovesIterator = AllMoves<N>;
+	type AvailableMovesIterator = AvailableMoves<'a, N>;
+
+	fn all_possible_moves() -> Self::AllMovesIterator {
+		AllMoves
+	}
+
+	fn available_moves(&'a self) -> Result<Self::AvailableMovesIterator, BoardDone> {
+		if self.is_terminal() {
+			return Err(BoardDone);
+		}
+		Ok(AvailableMoves { state: self })
+	}
+}
+
+/// Iterator over all theoretically possible moves: every (pos, card) pair on an NxN board.
+#[derive(Clone)]
+pub struct AllMoves<const N: usize>;
+
+impl<const N: usize> InternalIterator for AllMoves<N>
+where
+	[(); N * N]:,
+{
+	type Item = Move;
+
+	fn try_for_each<T, F>(self, mut f: F) -> std::ops::ControlFlow<T>
+	where
+		F: FnMut(Self::Item) -> std::ops::ControlFlow<T>, {
+		for row in 0..N as u8 {
+			for col in 0..N as u8 {
+				for card in 0..=5u8 {
+					f(Move {
+						pos: Pos { row, col },
+						card: CardValue(card),
+					})?;
+				}
+			}
+		}
+		std::ops::ControlFlow::Continue(())
+	}
+}
+
+/// Iterator over currently available moves for a given game state.
+#[derive(Clone)]
+pub struct AvailableMoves<'a, const N: usize>
+where
+	[(); N * N]:, {
+	state: &'a GameState<N>,
+}
+
+impl<'a, const N: usize> InternalIterator for AvailableMoves<'a, N>
+where
+	[(); N * N]:,
+{
+	type Item = Move;
+
+	fn try_for_each<T, F>(self, mut f: F) -> std::ops::ControlFlow<T>
+	where
+		F: FnMut(Self::Item) -> std::ops::ControlFlow<T>, {
+		let hand = &self.state.hands[self.state.turn.index() as usize];
+		for pos in self.state.board.valid_placements() {
+			for card in hand.iter_playable() {
+				f(Move { pos, card })?;
+			}
+		}
+		std::ops::ControlFlow::Continue(())
+	}
+}
+
+impl<const N: usize> BoardSymmetry<GameState<N>> for GameState<N>
+where
+	[(); N * N]:,
+{
+	type CanonicalKey = ();
+	type Symmetry = board_game::symmetry::UnitSymmetry;
+
+	fn map(&self, _: Self::Symmetry) -> Self {
+		self.clone()
+	}
+
+	fn map_move(&self, _: Self::Symmetry, mv: Move) -> Move {
+		mv
+	}
+
+	fn canonical_key(&self) -> Self::CanonicalKey {}
 }
 
 #[cfg(test)]
@@ -124,11 +296,38 @@ mod tests {
 	}
 
 	#[test]
+	fn board_trait_play_and_outcome() {
+		use board_game::board::Board as _;
+		let mut s = state5();
+		let first_move = s.valid_moves().next().unwrap();
+		s.play(first_move).unwrap();
+		assert_eq!(s.next_player(), Player::B);
+		assert!(s.outcome().is_none());
+
+		// play to completion using valid_moves
+		while s.outcome().is_none() {
+			let mv = s.valid_moves().next().unwrap();
+			s.play(mv).unwrap();
+		}
+		assert!(s.is_done());
+		assert!(s.outcome().is_some());
+	}
+
+	#[test]
+	fn board_trait_available_moves_count() {
+		use internal_iterator::InternalIterator;
+		let s = state5();
+		let trait_count = s.available_moves().unwrap().count();
+		let direct_count = s.valid_moves().count();
+		assert_eq!(trait_count, direct_count);
+	}
+
+	#[test]
 	fn apply_move_valid() {
 		let s = state5();
 		let m = s.valid_moves().next().expect("no valid moves at start");
 		let next = s.apply_move(m).expect("valid move rejected");
-		assert_eq!(next.turn, PlayerId::Rows);
+		assert_eq!(next.turn, Player::B);
 		assert!(!next.board.is_empty(m.pos));
 	}
 

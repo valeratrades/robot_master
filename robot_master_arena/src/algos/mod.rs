@@ -6,7 +6,7 @@ use std::{fmt, str::FromStr};
 
 use ustr::{Ustr, ustr};
 
-use crate::player::{ManualPlayer, Player};
+use crate::player::{Bot, ManualPlayer};
 
 /// All non-manual algorithm names, in display order.
 pub const ALGO_NAMES: &[&str] = &["random", "greedy", "sadist"];
@@ -32,8 +32,8 @@ impl PlayerKind {
 		}
 	}
 
-	/// Construct a concrete `Player<N>` from this kind.
-	pub fn into_player<const N: usize>(self) -> Box<dyn Player<N>>
+	/// Construct a concrete `Bot<N>` from this kind.
+	pub fn into_bot<const N: usize>(self) -> Box<dyn Bot<N>>
 	where
 		[(); N * N]:, {
 		match self {

@@ -2,7 +2,7 @@ use rand::{rngs::SmallRng, seq::IteratorRandom};
 use robot_master_core::game::{GameState, Move};
 use ustr::{Ustr, ustr};
 
-use crate::player::Player;
+use crate::player::Bot;
 
 pub struct RandomPlayer {
 	rng: SmallRng,
@@ -19,7 +19,7 @@ impl Default for RandomPlayer {
 	}
 }
 
-impl<const N: usize> Player<N> for RandomPlayer
+impl<const N: usize> Bot<N> for RandomPlayer
 where
 	[(); N * N]:,
 {

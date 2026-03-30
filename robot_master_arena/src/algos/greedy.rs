@@ -1,12 +1,12 @@
 use robot_master_core::{
 	board::Pos,
 	cards::CardValue,
-	game::{GameState, Move, PlayerId},
+	game::{GameState, Move, Player, scores_rows},
 	scoring::{line_counts, score_delta},
 };
 use ustr::{Ustr, ustr};
 
-use crate::player::Player;
+use crate::player::Bot;
 
 /// Greedy player: maximizes immediate score delta on own lines.
 ///
@@ -23,7 +23,7 @@ use crate::player::Player;
 /// Limitation: treats each line independently, no lookahead.
 pub struct GreedyPlayer;
 
-impl<const N: usize> Player<N> for GreedyPlayer
+impl<const N: usize> Bot<N> for GreedyPlayer
 where
 	[(); N * N]:,
 {
@@ -33,7 +33,7 @@ where
 
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		let turn = game.turn;
-		let hand = &game.hands[turn as usize];
+		let hand = &game.hands[turn.index() as usize];
 		let board = &game.board;
 
 		// Compute line counts for each of the player's lines.
@@ -42,10 +42,7 @@ where
 		// Map each playable position to its line index, keep first representative per line.
 		let mut line_pos: Vec<Option<Pos>> = vec![None; N];
 		for pos in board.valid_placements() {
-			let line_idx = match turn {
-				PlayerId::Rows => pos.row as usize,
-				PlayerId::Cols => pos.col as usize,
-			};
+			let line_idx = if scores_rows(turn) { pos.row as usize } else { pos.col as usize };
 			if line_pos[line_idx].is_none() {
 				line_pos[line_idx] = Some(pos);
 			}
@@ -85,7 +82,7 @@ mod tests {
 
 	use super::*;
 
-	fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand, turn: PlayerId) -> GameState<5> {
+	fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand, turn: Player) -> GameState<5> {
 		let mut board = Board::<5>::default();
 		for row in 0..5u8 {
 			for col in 0..5u8 {
@@ -97,8 +94,8 @@ mod tests {
 		GameState {
 			board,
 			hands: match turn {
-				PlayerId::Cols => [hand, Hand::default()],
-				PlayerId::Rows => [Hand::default(), hand],
+				Player::A => [hand, Hand::default()],
+				Player::B => [Hand::default(), hand],
 			},
 			turn,
 			config: GameConfig::default(),
@@ -134,7 +131,7 @@ mod tests {
 	#[test]
 	fn picks_highest_delta_odd_player() {
 		// Row 2 already has a 3; playing another 3 gives delta=27 (9*3) vs delta=1 for card 1.
-		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), PlayerId::Rows);
+		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), Player::B);
 		let m = GreedyPlayer.choose_move(&state);
 		assert_eq!(m.card, CardValue(3));
 		assert_eq!(m.pos.row, 2);
@@ -155,7 +152,7 @@ mod tests {
 	#[test]
 	fn picks_highest_delta_even_player() {
 		// Col 2 already has a 3; even player scores columns.
-		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), PlayerId::Cols);
+		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), Player::A);
 		let m = GreedyPlayer.choose_move(&state);
 		assert_eq!(m.card, CardValue(3));
 		assert_eq!(m.pos.col, 2);
@@ -163,7 +160,7 @@ mod tests {
 
 	#[test]
 	fn midgame_odd_player() {
-		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), PlayerId::Rows);
+		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), Player::B);
 		let m = GreedyPlayer.choose_move(&state);
 		assert_snapshot!(format!("{}\nmove: card={} pos=({},{})", state.board, m.card.0, m.pos.row, m.pos.col), @"
 		-----------------------------
@@ -181,7 +178,7 @@ mod tests {
 
 	#[test]
 	fn midgame_even_player() {
-		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), PlayerId::Cols);
+		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), Player::A);
 		let m = GreedyPlayer.choose_move(&state);
 		assert_snapshot!(format!("card={} pos=({},{})", m.card.0, m.pos.row, m.pos.col), @"card=3 pos=(2,3)");
 	}
@@ -225,7 +222,7 @@ mod tests {
 		}
 
 		let mut moves: Vec<String> = Vec::new();
-		let turns = [PlayerId::Cols, PlayerId::Rows];
+		let turns = [Player::A, Player::B];
 
 		for turn_idx in 0..10usize {
 			let turn = turns[turn_idx % 2];
@@ -236,8 +233,8 @@ mod tests {
 			let state = GameState {
 				board,
 				hands: match turn {
-					PlayerId::Cols => [h, Hand::default()],
-					PlayerId::Rows => [Hand::default(), h],
+					Player::A => [h, Hand::default()],
+					Player::B => [Hand::default(), h],
 				},
 				turn,
 				config: GameConfig::default(),
@@ -260,7 +257,7 @@ mod tests {
 		(2,_)   | 4 |   |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=2 pos=(0,1)
+		----------------------------- turn=A card=2 pos=(0,1)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -270,7 +267,7 @@ mod tests {
 		(2,_)   | 4 |   |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=1 pos=(0,0)
+		----------------------------- turn=B card=1 pos=(0,0)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -280,7 +277,7 @@ mod tests {
 		(2,_)   | 4 |   |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=3 pos=(2,3)
+		----------------------------- turn=A card=3 pos=(2,3)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -290,7 +287,7 @@ mod tests {
 		(2,_)   | 4 |   |   | 3 |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=5 pos=(1,0)
+		----------------------------- turn=B card=5 pos=(1,0)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -300,7 +297,7 @@ mod tests {
 		(2,_)   | 4 |   |   | 3 |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=5 pos=(3,0)
+		----------------------------- turn=A card=5 pos=(3,0)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -310,7 +307,7 @@ mod tests {
 		(2,_)   | 4 |   |   | 3 |   |
 		(3,_)   | 5 | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=1 pos=(1,2)
+		----------------------------- turn=B card=1 pos=(1,2)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -320,7 +317,7 @@ mod tests {
 		(2,_)   | 4 |   |   | 3 |   |
 		(3,_)   | 5 | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=0 pos=(2,1)
+		----------------------------- turn=A card=0 pos=(2,1)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -330,7 +327,7 @@ mod tests {
 		(2,_)   | 4 | 0 |   | 3 |   |
 		(3,_)   | 5 | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=0 pos=(1,4)
+		----------------------------- turn=B card=0 pos=(1,4)
 		");
 	}
 }

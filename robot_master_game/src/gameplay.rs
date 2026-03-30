@@ -7,7 +7,7 @@ use robot_master_arena::{
 use robot_master_core::{
 	board::{EMPTY, Pos},
 	cards::CardValue,
-	game::{GameConfig, GameState, Move, PlayerId},
+	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
 };
 
 use crate::{AppState, InitialPlayers, Textures, theme};
@@ -52,13 +52,13 @@ struct BoardCell {
 
 #[derive(Component)]
 struct HandCard {
-	player: PlayerId,
+	player: Player,
 	value: CardValue,
 }
 
 #[derive(Component)]
 struct HandCountLabel {
-	player: PlayerId,
+	player: Player,
 	value: CardValue,
 }
 
@@ -76,8 +76,8 @@ fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> Box<dyn DynMat
 	macro_rules! go {
 		($N:literal) => {{
 			let game = GameState::<$N>::new(config, &mut rng);
-			let p1 = p1.into_player::<$N>();
-			let p2 = p2.into_player::<$N>();
+			let p1 = p1.into_bot::<$N>();
+			let p2 = p2.into_bot::<$N>();
 			Box::new(Match::new(game, p1, p2))
 		}};
 	}
@@ -161,7 +161,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 				..default()
 			})
 			.with_children(|row| {
-				spawn_hand(row, &snap.hands, PlayerId::Cols, &tex);
+				spawn_hand(row, &snap.hands, Player::A, &tex);
 
 				row.spawn(Node {
 					flex_direction: FlexDirection::Column,
@@ -207,17 +207,14 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 					}
 				});
 
-				spawn_hand(row, &snap.hands, PlayerId::Rows, &tex);
+				spawn_hand(row, &snap.hands, Player::B, &tex);
 			});
 		});
 }
 
-fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::cards::Hand; 2], player: PlayerId, tex: &Textures) {
-	let hand = &hands[player as usize];
-	let title = match player {
-		PlayerId::Cols => "P1 (Cols)",
-		PlayerId::Rows => "P2 (Rows)",
-	};
+fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::cards::Hand; 2], player: Player, tex: &Textures) {
+	let hand = &hands[player.index() as usize];
+	let title = format!("{}", PlayerDisplay(player));
 
 	parent
 		.spawn(Node {
@@ -232,8 +229,8 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::car
 				Text::new(title),
 				TextFont { font_size: 18.0, ..default() },
 				TextColor(match player {
-					PlayerId::Cols => theme::TEXT_P1,
-					PlayerId::Rows => theme::TEXT_P2,
+					Player::A => theme::TEXT_P1,
+					Player::B => theme::TEXT_P2,
 				}),
 			));
 
@@ -276,7 +273,7 @@ fn ai_turn(mut game: ResMut<Game>, slots: Res<PlayerSlots>) {
 		return;
 	}
 	let turn = game.0.turn();
-	if matches!(&slots.0[turn as usize], PlayerKind::Manual { .. }) {
+	if matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. }) {
 		return;
 	}
 	match game.0.next(None) {
@@ -293,7 +290,7 @@ fn hand_click(
 	slots: Res<PlayerSlots>,
 ) {
 	let turn = game.0.turn();
-	let is_manual = matches!(&slots.0[turn as usize], PlayerKind::Manual { .. });
+	let is_manual = matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. });
 	if !is_manual {
 		return;
 	}
@@ -306,7 +303,7 @@ fn hand_click(
 			commands.entity(entity).insert(RejectFlash(Timer::from_seconds(0.3, TimerMode::Once)));
 			continue;
 		}
-		let count = hands[turn as usize].count(hand_card.value);
+		let count = hands[turn.index() as usize].count(hand_card.value);
 		debug!("hand_click: card={} count={count} player={:?}", hand_card.value.0, hand_card.player);
 		if count > 0 {
 			if selected.0 == Some(hand_card.value) {
@@ -339,7 +336,7 @@ fn board_click(interaction_query: Query<(&Interaction, &BoardCell), Changed<Inte
 		return;
 	}
 	let turn = game.0.turn();
-	if !matches!(&slots.0[turn as usize], PlayerKind::Manual { .. }) {
+	if !matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. }) {
 		return;
 	}
 	let Some(card) = selected.0 else { return };
@@ -379,7 +376,7 @@ fn sync_visuals(
 	for (cell, mut bg, children) in &mut board_cells {
 		let value = game.0.get(Pos { row: cell.row, col: cell.col });
 		let is_playable = game.0.is_playable(Pos { row: cell.row, col: cell.col });
-		let is_manual = matches!(&slots.0[turn as usize], PlayerKind::Manual { .. });
+		let is_manual = matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. });
 		let highlighted = selected.0.is_some() && is_playable && is_manual;
 
 		*bg = if value != EMPTY {
@@ -404,7 +401,7 @@ fn sync_visuals(
 
 	// Hand counts
 	for (hc, mut text, mut color) in &mut hand_counts {
-		let count = hands[hc.player as usize].count(hc.value);
+		let count = hands[hc.player.index() as usize].count(hc.value);
 		**text = format!("x{count}");
 		*color = if count == 0 {
 			TextColor(theme::TEXT_MUTED)
@@ -420,7 +417,7 @@ fn sync_visuals(
 		if has_reject {
 			continue;
 		}
-		let count = hands[hc.player as usize].count(hc.value);
+		let count = hands[hc.player.index() as usize].count(hc.value);
 		let is_own = hc.player == turn;
 		let is_selected = selected.0 == Some(hc.value) && is_own;
 		let is_hovered = *interaction == Interaction::Hovered && is_own && count > 0;
@@ -444,11 +441,7 @@ fn sync_visuals(
 			**text = "Game Over!".into();
 			*color = TextColor(theme::TEXT_GAME_OVER);
 		} else {
-			let name = match turn {
-				PlayerId::Cols => "Player 1 (Cols)",
-				PlayerId::Rows => "Player 2 (Rows)",
-			};
-			**text = format!("{name}'s turn");
+			**text = format!("{}'s turn", PlayerDisplay(turn));
 			*color = TextColor(theme::TEXT_PRIMARY);
 		}
 	}
@@ -465,7 +458,7 @@ fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<Se
 		return;
 	}
 	let turn = game.0.turn();
-	if !matches!(&slots.0[turn as usize], PlayerKind::Manual { .. }) {
+	if !matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. }) {
 		return;
 	}
 	let pressed = if keys.just_pressed(KeyCode::Digit0) || keys.just_pressed(KeyCode::Numpad0) {
@@ -485,7 +478,7 @@ fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<Se
 	};
 	let Some(card) = pressed else { return };
 	let hands = game.0.hands();
-	let count = hands[turn as usize].count(card);
+	let count = hands[turn.index() as usize].count(card);
 	if count > 0 {
 		if selected.0 == Some(card) {
 			selected.0 = None;

@@ -1,7 +1,7 @@
 use robot_master_core::{
 	board::{Cell, Pos},
 	cards::Hand,
-	game::{GameState, Move, PlayerId},
+	game::{GameState, Move, Player},
 	scoring::victoire,
 };
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use ustr::Ustr;
 
 use crate::{
 	db::RatingDb,
-	player::Player,
+	player::Bot,
 	rating::{self, Outcome},
 };
 
@@ -19,7 +19,7 @@ pub trait DynMatch {
 	fn get(&self, pos: Pos) -> Cell;
 	fn is_playable(&self, pos: Pos) -> bool;
 	fn is_terminal(&self) -> bool;
-	fn turn(&self) -> PlayerId;
+	fn turn(&self) -> Player;
 	fn hands(&self) -> [Hand; 2];
 	fn next(&mut self, external_move: Option<Move>) -> Result<(), MatchResult>;
 	/// (p1_score, p1_weak_line, p2_score, p2_weak_line)
@@ -93,7 +93,7 @@ impl From<Move> for SerMove {
 	}
 }
 
-pub struct Match<const N: usize, P1: Player<N>, P2: Player<N>>
+pub struct Match<const N: usize, P1: Bot<N>, P2: Bot<N>>
 where
 	[(); N * N]:, {
 	game: GameState<N>,
@@ -103,7 +103,7 @@ where
 	rating_db: Option<Box<dyn RatingDb>>,
 }
 
-impl<const N: usize, P1: Player<N>, P2: Player<N>> Match<N, P1, P2>
+impl<const N: usize, P1: Bot<N>, P2: Bot<N>> Match<N, P1, P2>
 where
 	[(); N * N]:,
 {
@@ -139,8 +139,8 @@ where
 		assert!(!self.game.is_terminal(), "Match::next called on terminal game");
 
 		let m = external_move.unwrap_or_else(|| match self.game.turn {
-			PlayerId::Cols => self.p1.choose_move(&self.game),
-			PlayerId::Rows => self.p2.choose_move(&self.game),
+			Player::A => self.p1.choose_move(&self.game),
+			Player::B => self.p2.choose_move(&self.game),
 		});
 
 		self.game = self.game.apply_move(m).expect("illegal move in Match::next");
@@ -182,7 +182,7 @@ where
 	}
 }
 
-impl<const N: usize, P1: Player<N>, P2: Player<N>> DynMatch for Match<N, P1, P2>
+impl<const N: usize, P1: Bot<N>, P2: Bot<N>> DynMatch for Match<N, P1, P2>
 where
 	[(); N * N]:,
 {
@@ -202,7 +202,7 @@ where
 		self.game.is_terminal()
 	}
 
-	fn turn(&self) -> PlayerId {
+	fn turn(&self) -> Player {
 		self.game.turn
 	}
 
@@ -231,7 +231,7 @@ mod tests {
 	use super::*;
 
 	struct DummyRandom(SmallRng);
-	impl Player<5> for DummyRandom {
+	impl Bot<5> for DummyRandom {
 		fn id(&self) -> Ustr {
 			ustr("test-random")
 		}

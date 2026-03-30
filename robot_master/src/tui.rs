@@ -10,7 +10,7 @@ use robot_master_arena::{
 use robot_master_core::{
 	board::{Board, Pos},
 	cards::{CardValue, Hand},
-	game::{GameConfig, GameState, Move, PlayerId},
+	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
 };
 
 pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Box<dyn RatingDb>) {
@@ -130,14 +130,14 @@ fn run_sized<const N: usize>(
 	[(); N * N]:, {
 	let game: GameState<N> = GameState::new(config, rng);
 
-	let p1_display = format!("{p1_kind} ({:?})", PlayerId::Cols);
-	let p2_display = format!("{p2_kind} ({:?})", PlayerId::Rows);
+	let p1_display = format!("{p1_kind} ({})", PlayerDisplay(Player::A));
+	let p2_display = format!("{p2_kind} ({})", PlayerDisplay(Player::B));
 
 	let p1_manual = p1_kind.is_manual();
 	let p2_manual = p2_kind.is_manual();
 
-	let p1 = p1_kind.into_player::<N>();
-	let p2 = p2_kind.into_player::<N>();
+	let p1 = p1_kind.into_bot::<N>();
+	let p2 = p2_kind.into_bot::<N>();
 	let mut m = Match::new(game, p1, p2).with_rating_db(rating_db);
 
 	// Show initial board
@@ -148,12 +148,12 @@ fn run_sized<const N: usize>(
 	loop {
 		let game = m.game();
 		let current_name = match game.turn {
-			PlayerId::Cols => &p1_display,
-			PlayerId::Rows => &p2_display,
+			Player::A => &p1_display,
+			Player::B => &p2_display,
 		};
 		let is_manual = match game.turn {
-			PlayerId::Cols => p1_manual,
-			PlayerId::Rows => p2_manual,
+			Player::A => p1_manual,
+			Player::B => p2_manual,
 		};
 
 		// Clear previous turn's output
@@ -163,7 +163,7 @@ fn run_sized<const N: usize>(
 		}
 
 		let external_move = if is_manual {
-			let hand = &game.hands[game.turn as usize];
+			let hand = &game.hands[game.turn.index() as usize];
 			Some(read_manual_move(&game.board, hand, current_name, stdout, stdin))
 		} else {
 			None

@@ -30,21 +30,21 @@ fn robot_master(m: &Bound<'_, PyModule>) -> PyResult<()> {
 	Ok(())
 }
 
-// Board<N> is const-generic: Player::choose_move needs N known at compile time.
+// Board<N> is const-generic: Bot::choose_move needs N known at compile time.
 // This macro stamps out the 4-way match (5/7/9/11) so we don't copy-paste it per algorithm.
 #[cfg(feature = "python")]
 macro_rules! algo_move_dispatch {
 	($plateau:expr, $dico_main:expr, $joueuse_active:expr, $player:expr) => {{
 		use pyo3::exceptions::PyValueError;
-		use robot_master_arena::player::Player;
+		use robot_master_arena::player::Bot;
 		use robot_master_core::{
 			cards::Hand,
-			game::{GameConfig, GameState, PlayerId},
+			game::{GameConfig, GameState, Player},
 			python::board_from_plateau,
 		};
 
 		let n = $plateau.len();
-		let turn = if $joueuse_active % 2 == 0 { PlayerId::Cols } else { PlayerId::Rows };
+		let turn = if $joueuse_active % 2 == 0 { Player::A } else { Player::B };
 		let hand = Hand::from(&$dico_main);
 		let config = GameConfig {
 			size: n as u8,
@@ -57,8 +57,8 @@ macro_rules! algo_move_dispatch {
 				let state = GameState {
 					board,
 					hands: match turn {
-						PlayerId::Cols => [hand, Hand::default()],
-						PlayerId::Rows => [Hand::default(), hand],
+						Player::A => [hand, Hand::default()],
+						Player::B => [Hand::default(), hand],
 					},
 					turn,
 					config,

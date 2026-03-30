@@ -1,12 +1,12 @@
 use robot_master_core::{
 	board::{EMPTY, Pos},
 	cards::MAX_CARD_VALUE,
-	game::{GameState, Move, PlayerId},
+	game::{GameState, Move, Player},
 	scoring::{LineCounts, line_counts, score_line},
 };
 use ustr::{Ustr, ustr};
 
-use crate::player::Player;
+use crate::player::Bot;
 
 /// Sadist player: minimizes the opponent's maximum potential score.
 ///
@@ -21,7 +21,7 @@ use crate::player::Player;
 /// 3. Tiebreak: (score, card, row, col) — lower is better lexicographically.
 pub struct SadistPlayer;
 
-impl<const N: usize> Player<N> for SadistPlayer
+impl<const N: usize> Bot<N> for SadistPlayer
 where
 	[(); N * N]:,
 {
@@ -30,7 +30,7 @@ where
 	}
 
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
-		let opponent = game.turn.opponent();
+		let opponent = game.turn.other();
 
 		let mut best_move: Option<Move> = None;
 		let mut best_score: Option<(u16, u8, u8, u8)> = None; // (opp_potential, card, row, col)
@@ -52,7 +52,7 @@ where
 
 /// Maximum score the given player could achieve on their best line,
 /// considering all possible completions with remaining cards.
-fn score_max_potential<const N: usize>(game: &GameState<N>, player: PlayerId) -> u16
+fn score_max_potential<const N: usize>(game: &GameState<N>, player: Player) -> u16
 where
 	[(); N * N]:, {
 	let remaining = remaining_cards(game);
@@ -136,7 +136,7 @@ mod tests {
 
 	use super::*;
 
-	fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand, turn: PlayerId) -> GameState<5> {
+	fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand, turn: Player) -> GameState<5> {
 		let mut board = Board::<5>::default();
 		for row in 0..5u8 {
 			for col in 0..5u8 {
@@ -148,8 +148,8 @@ mod tests {
 		GameState {
 			board,
 			hands: match turn {
-				PlayerId::Cols => [hand, Hand::default()],
-				PlayerId::Rows => [Hand::default(), hand],
+				Player::A => [hand, Hand::default()],
+				Player::B => [Hand::default(), hand],
 			},
 			turn,
 			config: GameConfig::default(),
@@ -205,7 +205,7 @@ mod tests {
 
 	#[test]
 	fn agressif_midgame() {
-		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), PlayerId::Rows);
+		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), Player::B);
 		let m = SadistPlayer.choose_move(&state);
 		assert_snapshot!(format!("{}\nmove: card={} pos=({},{})", state.board, m.card.0, m.pos.row, m.pos.col), @"
 		-----------------------------
@@ -260,7 +260,7 @@ mod tests {
 		}
 
 		let mut moves: Vec<String> = Vec::new();
-		let turns = [PlayerId::Cols, PlayerId::Rows];
+		let turns = [Player::A, Player::B];
 
 		for turn_idx in 0..10usize {
 			let turn = turns[turn_idx % 2];
@@ -271,8 +271,8 @@ mod tests {
 			let state = GameState {
 				board,
 				hands: match turn {
-					PlayerId::Cols => [h, Hand::default()],
-					PlayerId::Rows => [Hand::default(), h],
+					Player::A => [h, Hand::default()],
+					Player::B => [Hand::default(), h],
 				},
 				turn,
 				config: GameConfig::default(),
@@ -295,7 +295,7 @@ mod tests {
 		(2,_)   | 4 |   |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=0 pos=(2,1)
+		----------------------------- turn=A card=0 pos=(2,1)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -305,7 +305,7 @@ mod tests {
 		(2,_)   | 4 | 0 |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=0 pos=(0,1)
+		----------------------------- turn=B card=0 pos=(0,1)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -315,7 +315,7 @@ mod tests {
 		(2,_)   | 4 | 0 |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=1 pos=(1,0)
+		----------------------------- turn=A card=1 pos=(1,0)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -325,7 +325,7 @@ mod tests {
 		(2,_)   | 4 | 0 |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=1 pos=(1,4)
+		----------------------------- turn=B card=1 pos=(1,4)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -335,7 +335,7 @@ mod tests {
 		(2,_)   | 4 | 0 |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=2 pos=(0,0)
+		----------------------------- turn=A card=2 pos=(0,0)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -345,7 +345,7 @@ mod tests {
 		(2,_)   | 4 | 0 |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=3 pos=(1,2)
+		----------------------------- turn=B card=3 pos=(1,2)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -355,7 +355,7 @@ mod tests {
 		(2,_)   | 4 | 0 |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=5 pos=(2,2)
+		----------------------------- turn=A card=5 pos=(2,2)
 		---
 		board=-----------------------------
 		          0   1   2   3   4
@@ -365,7 +365,7 @@ mod tests {
 		(2,_)   | 4 | 0 | 5 |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=5 pos=(2,4)
+		----------------------------- turn=B card=5 pos=(2,4)
 		");
 	}
 }
