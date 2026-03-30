@@ -10,7 +10,7 @@ use robot_master_core::{
 	game::{GameConfig, GameState, Move, PlayerId},
 };
 
-use crate::{AppState, InitialPlayers, PlayerKind, Textures};
+use crate::{AppState, InitialPlayers, PlayerKind, Textures, theme};
 
 type GameMatch = Match<5, Box<dyn Player<5>>, Box<dyn Player<5>>>;
 pub struct GameplayPlugin;
@@ -20,7 +20,9 @@ impl Plugin for GameplayPlugin {
 		app.add_systems(OnEnter(AppState::Playing), setup_gameplay)
 			.add_systems(
 				Update,
-				(ai_turn, hand_click, board_click, sync_visuals, check_terminal).chain().run_if(in_state(AppState::Playing)),
+				(ai_turn, hand_click, board_click, sync_visuals, reject_flash_system, check_terminal)
+					.chain()
+					.run_if(in_state(AppState::Playing)),
 			)
 			.add_systems(OnExit(AppState::Playing), cleanup_gameplay);
 	}
@@ -83,7 +85,6 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 	commands.insert_resource(SelectedCard::default());
 	commands.insert_resource(PlayerSlots([p1_kind, p2_kind]));
 
-	// Root layout: [P1 hand] [Board] [P2 hand]
 	commands
 		.spawn((
 			GameScene,
@@ -95,22 +96,20 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 				justify_content: JustifyContent::Center,
 				..default()
 			},
-			BackgroundColor(Color::srgb(0.08, 0.08, 0.15)),
+			BackgroundColor(theme::BG_DARK),
 		))
 		.with_children(|root| {
-			// Turn indicator
 			root.spawn((
 				TurnIndicator,
 				Text::new(""),
 				TextFont { font_size: 24.0, ..default() },
-				TextColor(Color::WHITE),
+				TextColor(theme::TEXT_PRIMARY),
 				Node {
 					margin: UiRect::bottom(Val::Px(10.0)),
 					..default()
 				},
 			));
 
-			// Main row: hand - board - hand
 			root.spawn(Node {
 				flex_direction: FlexDirection::Row,
 				align_items: AlignItems::Center,
@@ -118,10 +117,8 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 				..default()
 			})
 			.with_children(|row| {
-				// Player 1 hand
 				spawn_hand(row, &initial_state, PlayerId::Cols, &tex);
 
-				// Board
 				row.spawn(Node {
 					flex_direction: FlexDirection::Column,
 					..default()
@@ -148,10 +145,9 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 												align_items: AlignItems::Center,
 												..default()
 											},
-											BackgroundColor(if val != EMPTY { Color::srgba(0.3, 0.3, 0.5, 0.8) } else { Color::srgba(0.2, 0.2, 0.3, 0.4) }),
+											BackgroundColor(if val != EMPTY { theme::CELL_OCCUPIED } else { theme::CELL_EMPTY }),
 										))
 										.with_children(|cell| {
-											// Always spawn the ImageNode; hide it if cell is empty
 											cell.spawn((
 												ImageNode::new(if val != EMPTY { tex.card_face(CardValue(val)) } else { tex.card_face(CardValue(0)) }),
 												Node {
@@ -167,7 +163,6 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 					}
 				});
 
-				// Player 2 hand
 				spawn_hand(row, &initial_state, PlayerId::Rows, &tex);
 			});
 		});
@@ -193,8 +188,8 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, game: &GameState<5>, player: Pl
 				Text::new(title),
 				TextFont { font_size: 18.0, ..default() },
 				TextColor(match player {
-					PlayerId::Cols => Color::srgb(0.3, 0.6, 1.0),
-					PlayerId::Rows => Color::srgb(1.0, 0.4, 0.4),
+					PlayerId::Cols => theme::TEXT_P1,
+					PlayerId::Rows => theme::TEXT_P2,
 				}),
 			));
 
@@ -210,7 +205,7 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, game: &GameState<5>, player: Pl
 						align_items: AlignItems::Center,
 						..default()
 					},
-					BackgroundColor(if count == 0 { Color::srgba(0.2, 0.2, 0.2, 0.3) } else { Color::srgba(0.3, 0.3, 0.5, 0.7) }),
+					BackgroundColor(if count == 0 { theme::HAND_CARD_EMPTY } else { theme::HAND_CARD }),
 				))
 				.with_children(|card| {
 					card.spawn((
@@ -225,7 +220,7 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, game: &GameState<5>, player: Pl
 						HandCountLabel { player, value: CardValue(v) },
 						Text::new(format!("x{count}")),
 						TextFont { font_size: 14.0, ..default() },
-						TextColor(if count == 0 { Color::srgba(0.5, 0.5, 0.5, 0.5) } else { Color::WHITE }),
+						TextColor(if count == 0 { theme::TEXT_MUTED } else { theme::TEXT_PRIMARY }),
 					));
 				});
 			}
@@ -241,27 +236,56 @@ fn ai_turn(mut game: ResMut<Game>, slots: Res<PlayerSlots>) {
 		return;
 	}
 	match game.0.next(None) {
-		Ok(gs) => info!("AI moved, turn now {:?}", gs.turn),
-		Err(result) => info!("AI move ended game: {} vs {}", result.p1_score, result.p2_score),
+		Ok(gs) => debug!("AI moved, turn now {:?}", gs.turn),
+		Err(result) => debug!("AI move ended game: {} vs {}", result.p1_score, result.p2_score),
 	}
 }
 
-fn hand_click(interaction_query: Query<(&Interaction, &HandCard), Changed<Interaction>>, mut selected: ResMut<SelectedCard>, game: Res<Game>, slots: Res<PlayerSlots>) {
-	let turn = game.0.game().turn;
-	if !matches!(&slots.0[turn as usize], PlayerKind::Manual { .. }) {
+fn hand_click(
+	mut commands: Commands,
+	interaction_query: Query<(Entity, &Interaction, &HandCard), Changed<Interaction>>,
+	mut selected: ResMut<SelectedCard>,
+	game: Res<Game>,
+	slots: Res<PlayerSlots>,
+) {
+	let gs = game.0.game();
+	let turn = gs.turn;
+	let is_manual = matches!(&slots.0[turn as usize], PlayerKind::Manual { .. });
+	if !is_manual {
 		return;
 	}
-	for (interaction, hand_card) in &interaction_query {
-		if *interaction == Interaction::Pressed && hand_card.player == turn {
-			let count = game.0.game().hands[turn as usize].count(hand_card.value);
-			info!("hand_click: card={} count={count} player={:?}", hand_card.value.0, hand_card.player);
-			if count > 0 {
-				if selected.0 == Some(hand_card.value) {
-					selected.0 = None;
-				} else {
-					selected.0 = Some(hand_card.value);
-				}
+	for (entity, interaction, hand_card) in &interaction_query {
+		if *interaction != Interaction::Pressed {
+			continue;
+		}
+		if hand_card.player != turn {
+			commands.entity(entity).insert(RejectFlash(Timer::from_seconds(0.3, TimerMode::Once)));
+			continue;
+		}
+		let count = gs.hands[turn as usize].count(hand_card.value);
+		debug!("hand_click: card={} count={count} player={:?}", hand_card.value.0, hand_card.player);
+		if count > 0 {
+			if selected.0 == Some(hand_card.value) {
+				selected.0 = None;
+			} else {
+				selected.0 = Some(hand_card.value);
 			}
+		}
+	}
+}
+
+#[derive(Component)]
+struct RejectFlash(Timer);
+
+fn reject_flash_system(mut commands: Commands, time: Res<Time>, mut query: Query<(Entity, &mut RejectFlash, &mut BackgroundColor)>) {
+	for (entity, mut flash, mut bg) in &mut query {
+		flash.0.tick(time.delta());
+		let t = flash.0.fraction();
+		let intensity = 1.0 - t;
+		// Oklch red flash that fades out
+		*bg = BackgroundColor(Color::oklcha(0.45 + 0.1 * intensity, 0.18 * intensity, 25.0, 0.7 + 0.3 * intensity));
+		if flash.0.is_finished() {
+			commands.entity(entity).remove::<RejectFlash>();
 		}
 	}
 }
@@ -281,11 +305,11 @@ fn board_click(interaction_query: Query<(&Interaction, &BoardCell), Changed<Inte
 		if *interaction == Interaction::Pressed {
 			let pos = Pos { row: cell.row, col: cell.col };
 			let playable = game.0.game().board.is_playable(pos);
-			info!("board_click: ({},{}) card={} playable={playable}", cell.row, cell.col, card.0);
+			debug!("board_click: ({},{}) card={} playable={playable}", cell.row, cell.col, card.0);
 			if playable {
 				match game.0.next(Some(Move { pos, card })) {
-					Ok(gs) => info!("move applied, turn now {:?}", gs.turn),
-					Err(result) => info!("game ended: {} vs {}", result.p1_score, result.p2_score),
+					Ok(gs) => debug!("move applied, turn now {:?}", gs.turn),
+					Err(result) => debug!("game ended: {} vs {}", result.p1_score, result.p2_score),
 				}
 				selected.0 = None;
 				return;
@@ -301,7 +325,7 @@ fn sync_visuals(
 	tex: Res<Textures>,
 	mut board_cells: Query<(&BoardCell, &mut BackgroundColor, &Children)>,
 	mut hand_counts: Query<(&HandCountLabel, &mut Text, &mut TextColor)>,
-	mut hand_cards: Query<(&HandCard, &mut BackgroundColor), Without<BoardCell>>,
+	mut hand_cards: Query<(&HandCard, &mut BackgroundColor, &Interaction, Has<RejectFlash>), Without<BoardCell>>,
 	mut cell_images: Query<(&mut ImageNode, &mut Visibility)>,
 	mut turn_indicator: Query<(&mut Text, &mut TextColor), (With<TurnIndicator>, Without<HandCountLabel>, Without<HandCard>)>,
 ) {
@@ -315,14 +339,13 @@ fn sync_visuals(
 		let highlighted = selected.0.is_some() && is_playable && is_manual;
 
 		*bg = if value != EMPTY {
-			BackgroundColor(Color::srgba(0.3, 0.3, 0.5, 0.8))
+			BackgroundColor(theme::CELL_OCCUPIED)
 		} else if highlighted {
-			BackgroundColor(Color::srgba(0.2, 0.7, 0.2, 0.5))
+			BackgroundColor(theme::CELL_HIGHLIGHT)
 		} else {
-			BackgroundColor(Color::srgba(0.2, 0.2, 0.3, 0.4))
+			BackgroundColor(theme::CELL_EMPTY)
 		};
 
-		// Update image and visibility
 		for child in children.iter() {
 			if let Ok((mut img, mut vis)) = cell_images.get_mut(child) {
 				if value != EMPTY {
@@ -340,24 +363,34 @@ fn sync_visuals(
 		let count = gs.hands[hc.player as usize].count(hc.value);
 		**text = format!("x{count}");
 		*color = if count == 0 {
-			TextColor(Color::srgba(0.5, 0.5, 0.5, 0.5))
+			TextColor(theme::TEXT_MUTED)
 		} else if selected.0 == Some(hc.value) && hc.player == gs.turn {
-			TextColor(Color::srgb(1.0, 1.0, 0.0))
+			TextColor(theme::TEXT_SELECTION)
 		} else {
-			TextColor(Color::WHITE)
+			TextColor(theme::TEXT_PRIMARY)
 		};
 	}
 
-	// Hand card backgrounds
-	for (hc, mut bg) in &mut hand_cards {
+	// Hand card backgrounds: tint, hover glow, selection
+	for (hc, mut bg, interaction, has_reject) in &mut hand_cards {
+		if has_reject {
+			continue;
+		}
 		let count = gs.hands[hc.player as usize].count(hc.value);
-		let is_selected = selected.0 == Some(hc.value) && hc.player == gs.turn;
+		let is_own = hc.player == gs.turn;
+		let is_selected = selected.0 == Some(hc.value) && is_own;
+		let is_hovered = *interaction == Interaction::Hovered && is_own && count > 0;
+
 		*bg = if count == 0 {
-			BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 0.3))
+			BackgroundColor(theme::HAND_CARD_EMPTY)
 		} else if is_selected {
-			BackgroundColor(Color::srgba(0.8, 0.8, 0.2, 0.8))
+			BackgroundColor(theme::HAND_CARD_SELECTED)
+		} else if is_hovered {
+			BackgroundColor(theme::HAND_CARD_HOVER)
+		} else if !is_own {
+			BackgroundColor(theme::HAND_CARD_OPPONENT)
 		} else {
-			BackgroundColor(Color::srgba(0.3, 0.3, 0.5, 0.7))
+			BackgroundColor(theme::HAND_CARD)
 		};
 	}
 
@@ -365,15 +398,14 @@ fn sync_visuals(
 	for (mut text, mut color) in &mut turn_indicator {
 		if gs.is_terminal() {
 			**text = "Game Over!".into();
-			*color = TextColor(Color::srgb(1.0, 0.3, 0.3));
+			*color = TextColor(theme::TEXT_GAME_OVER);
 		} else {
 			let name = match gs.turn {
 				PlayerId::Cols => "Player 1 (Cols)",
 				PlayerId::Rows => "Player 2 (Rows)",
 			};
-			let kind = &slots.0[gs.turn as usize];
-			**text = format!("{name} — {kind}'s turn");
-			*color = TextColor(Color::WHITE);
+			**text = format!("{name}'s turn");
+			*color = TextColor(theme::TEXT_PRIMARY);
 		}
 	}
 }

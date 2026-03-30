@@ -4,6 +4,7 @@ use robot_master_core::{board::Pos, cards::CardValue, scoring::victoire};
 use crate::{
 	AppState, Textures,
 	gameplay::{Game, PlayerSlots},
+	theme,
 };
 
 pub struct ResultPlugin;
@@ -51,13 +52,11 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 				row_gap: Val::Px(15.0),
 				..default()
 			},
-			BackgroundColor(Color::srgb(0.05, 0.05, 0.12)),
+			BackgroundColor(theme::BG_RESULT),
 		))
 		.with_children(|root| {
-			// Verdict
-			root.spawn((Text::new(&verdict), TextFont { font_size: 48.0, ..default() }, TextColor(Color::srgb(1.0, 0.85, 0.0))));
+			root.spawn((Text::new(&verdict), TextFont { font_size: 48.0, ..default() }, TextColor(theme::TEXT_TITLE)));
 
-			// Final board
 			root.spawn(Node {
 				flex_direction: FlexDirection::Column,
 				margin: UiRect::vertical(Val::Px(10.0)),
@@ -82,11 +81,7 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 										align_items: AlignItems::Center,
 										..default()
 									},
-									BackgroundColor(if val != robot_master_core::board::EMPTY {
-										Color::srgba(0.3, 0.3, 0.5, 0.8)
-									} else {
-										Color::srgba(0.2, 0.2, 0.3, 0.3)
-									}),
+									BackgroundColor(if val != robot_master_core::board::EMPTY { theme::CELL_OCCUPIED } else { theme::CELL_EMPTY }),
 								))
 								.with_children(|cell| {
 									if val != robot_master_core::board::EMPTY {
@@ -105,15 +100,12 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 				}
 			});
 
-			// Scores
-			root.spawn((Text::new(&scores), TextFont { font_size: 22.0, ..default() }, TextColor(Color::WHITE)));
+			root.spawn((Text::new(&scores), TextFont { font_size: 22.0, ..default() }, TextColor(theme::TEXT_PRIMARY)));
 
-			// Elo
 			if !elo_text.is_empty() {
-				root.spawn((Text::new(&elo_text), TextFont { font_size: 18.0, ..default() }, TextColor(Color::srgba(0.8, 0.8, 0.3, 0.9))));
+				root.spawn((Text::new(&elo_text), TextFont { font_size: 18.0, ..default() }, TextColor(theme::TEXT_ELO)));
 			}
 
-			// Play Again
 			root.spawn((
 				PlayAgainButton,
 				Button,
@@ -125,10 +117,10 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 					margin: UiRect::top(Val::Px(15.0)),
 					..default()
 				},
-				BackgroundColor(Color::srgba(0.2, 0.6, 0.2, 0.8)),
+				BackgroundColor(theme::BTN_PLAY_AGAIN),
 			))
 			.with_children(|btn| {
-				btn.spawn((Text::new("Play Again"), TextFont { font_size: 28.0, ..default() }, TextColor(Color::WHITE)));
+				btn.spawn((Text::new("Play Again"), TextFont { font_size: 28.0, ..default() }, TextColor(theme::TEXT_PRIMARY)));
 			});
 		});
 }
@@ -140,10 +132,10 @@ fn play_again_button(mut interaction_query: Query<(&Interaction, &mut Background
 				next_state.set(AppState::Menu);
 			}
 			Interaction::Hovered => {
-				*color = BackgroundColor(Color::srgba(0.3, 0.8, 0.3, 1.0));
+				*color = BackgroundColor(theme::BTN_PLAY_AGAIN_HOVER);
 			}
 			Interaction::None => {
-				*color = BackgroundColor(Color::srgba(0.2, 0.6, 0.2, 0.8));
+				*color = BackgroundColor(theme::BTN_PLAY_AGAIN);
 			}
 		}
 	}
