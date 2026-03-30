@@ -92,7 +92,7 @@ fn configure_app(app: &mut App, file_path: String) {
 	app.init_resource::<PressedChars>()
 		.init_state::<AppState>()
 		.add_systems(Startup, setup)
-		.add_systems(Update, (update_pressed_chars, handle_exit).chain())
+		.add_systems(Update, (update_pressed_chars, handle_ctrl_c).chain())
 		.add_plugins((menu::MenuPlugin, gameplay::GameplayPlugin, result::ResultPlugin));
 }
 
@@ -101,16 +101,9 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 	commands.spawn(AudioPlayer::new(asset_server.load("music/robotic_city_v2.ogg")));
 }
 
-fn handle_exit(pressed_chars: Res<PressedChars>, keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppExit>, mut colon: Local<bool>) {
+fn handle_ctrl_c(keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppExit>) {
 	let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
 	if ctrl && keys.just_pressed(KeyCode::KeyC) {
 		exit.write(AppExit::Success);
-	}
-	if pressed_chars.just_pressed.contains(&':') {
-		*colon = true;
-	} else if *colon && pressed_chars.just_pressed.contains(&'q') {
-		exit.write(AppExit::Success);
-	} else if !pressed_chars.just_pressed.is_empty() && !pressed_chars.just_pressed.contains(&':') {
-		*colon = false;
 	}
 }
