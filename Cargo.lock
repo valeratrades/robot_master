@@ -6295,6 +6295,7 @@ dependencies = [
  "robot_master_arena",
  "robot_master_core",
  "robot_master_game",
+ "robot_master_train",
  "serde",
  "serde_json",
  "ustr",
