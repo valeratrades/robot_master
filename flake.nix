@@ -98,10 +98,15 @@
                 version = "0.1.0";
 
                 buildInputs = [ pkgs.openssl.dev ] ++ nativeLibs;
-                nativeBuildInputs = with pkgs; [ pkg-config ];
+                nativeBuildInputs = with pkgs; [ pkg-config makeWrapper ];
 
                 cargoLock.lockFile = ./Cargo.lock;
                 src = pkgs.lib.cleanSource ./.;
+
+                postInstall = ''
+                  wrapProgram $out/bin/${pname} \
+                    --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.fzf ]}
+                '';
               };
 
               core = python.pkgs.buildPythonPackage {
@@ -171,6 +176,7 @@
               pkgs.maturin
               pkgs.simple-http-server
               pkgs.cargo-leptos
+              pkgs.fzf
             ] ++ nativeLibs ++ pre-commit-check.enabledPackages ++ combined.enabledPackages;
 
             env = {

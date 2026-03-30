@@ -1,4 +1,6 @@
 use robot_master_core::{
+	board::{Cell, Pos},
+	cards::Hand,
 	game::{GameState, Move, PlayerId},
 	scoring::victoire,
 };
@@ -11,6 +13,18 @@ use crate::{
 	rating::{self, Outcome},
 };
 
+/// Type-erased match interface for use in contexts (e.g. Bevy ECS) that can't be const-generic.
+pub trait DynMatch {
+	fn size(&self) -> u8;
+	fn get(&self, pos: Pos) -> Cell;
+	fn is_playable(&self, pos: Pos) -> bool;
+	fn is_terminal(&self) -> bool;
+	fn turn(&self) -> PlayerId;
+	fn hands(&self) -> [Hand; 2];
+	fn next(&mut self, external_move: Option<Move>) -> Result<(), MatchResult>;
+	/// (p1_score, p1_weak_line, p2_score, p2_weak_line)
+	fn scores(&self) -> (u16, usize, u16, usize);
+}
 #[derive(Clone, Debug)]
 pub struct EloUpdate {
 	pub p1_old: f64,
@@ -165,6 +179,46 @@ where
 			moves: self.moves.iter().map(|&m| m.into()).collect(),
 			elo_update: None,
 		}
+	}
+}
+
+impl<const N: usize, P1: Player<N>, P2: Player<N>> DynMatch for Match<N, P1, P2>
+where
+	[(); N * N]:,
+{
+	fn size(&self) -> u8 {
+		N as u8
+	}
+
+	fn get(&self, pos: Pos) -> Cell {
+		self.game.board.get(pos)
+	}
+
+	fn is_playable(&self, pos: Pos) -> bool {
+		self.game.board.is_playable(pos)
+	}
+
+	fn is_terminal(&self) -> bool {
+		self.game.is_terminal()
+	}
+
+	fn turn(&self) -> PlayerId {
+		self.game.turn
+	}
+
+	fn hands(&self) -> [Hand; 2] {
+		self.game.hands
+	}
+
+	fn next(&mut self, external_move: Option<Move>) -> Result<(), MatchResult> {
+		match Match::next(self, external_move) {
+			Ok(_) => Ok(()),
+			Err(result) => Err(result),
+		}
+	}
+
+	fn scores(&self) -> (u16, usize, u16, usize) {
+		victoire(&self.game.board)
 	}
 }
 

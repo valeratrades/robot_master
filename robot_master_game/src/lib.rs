@@ -7,8 +7,8 @@ mod result;
 mod theme;
 
 use bevy::{asset::AssetMetaCheck, ecs::message::MessageWriter, prelude::*};
+use robot_master_arena::{BoardSize, algos::PlayerKind};
 use robot_master_core::cards::CardValue;
-use ustr::{Ustr, ustr};
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, States)]
 pub enum AppState {
@@ -18,54 +18,18 @@ pub enum AppState {
 	Result,
 }
 
-#[derive(Clone, Debug)]
-pub enum PlayerKind {
-	Manual { name: String },
-	Random,
-	Greedy,
-	Sadist,
-}
-impl PlayerKind {
-	fn id(&self) -> Ustr {
-		ustr(&self.to_string().to_lowercase())
-	}
-
-	pub fn from_name(name: &str) -> Self {
-		match name {
-			"m" | "manual" => PlayerKind::Manual { name: "Player".into() },
-			"r" | "random" => PlayerKind::Random,
-			"g" | "greedy" => PlayerKind::Greedy,
-			"s" | "sadist" => PlayerKind::Sadist,
-			other => panic!("unknown player: {other:?}"),
-		}
-	}
-}
-
-/// CLI-provided player selection, consumed by gameplay setup.
+/// CLI-resolved game setup, consumed by gameplay.
 #[derive(Clone, Debug, Resource)]
 pub struct InitialPlayers {
-	pub p1: String,
-	pub p2: String,
-}
-
-impl std::fmt::Display for PlayerKind {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			PlayerKind::Manual { name } => f.write_str(name),
-			PlayerKind::Random => f.write_str("Random"),
-			PlayerKind::Greedy => f.write_str("Greedy"),
-			PlayerKind::Sadist => f.write_str("Sadist"),
-		}
-	}
+	pub p1: PlayerKind,
+	pub p2: PlayerKind,
+	pub size: BoardSize,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn create_app(asset_dir: &str, p1: &str, p2: &str) -> App {
+pub fn create_app(asset_dir: &str, size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> App {
 	let mut app = App::new();
-	app.insert_resource(InitialPlayers {
-		p1: p1.to_string(),
-		p2: p2.to_string(),
-	});
+	app.insert_resource(InitialPlayers { p1, p2, size });
 	configure_app(&mut app, asset_dir.to_string());
 	app
 }
@@ -73,8 +37,9 @@ pub fn create_app(asset_dir: &str, p1: &str, p2: &str) -> App {
 pub fn create_app() -> App {
 	let mut app = App::new();
 	app.insert_resource(InitialPlayers {
-		p1: "manual".to_string(),
-		p2: "random".to_string(),
+		p1: PlayerKind::Manual { name: "Player".into() },
+		p2: PlayerKind::Random,
+		size: BoardSize::DEFAULT,
 	});
 	configure_app(&mut app, String::new());
 	app

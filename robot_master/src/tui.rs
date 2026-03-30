@@ -2,7 +2,8 @@ use std::io::{self, BufRead, Write};
 
 use rand::rngs::SmallRng;
 use robot_master_arena::{
-	algos,
+	BoardSize,
+	algos::PlayerKind,
 	db::RatingDb,
 	match_::{Match, MatchResult},
 };
@@ -12,19 +13,18 @@ use robot_master_core::{
 	game::{GameConfig, GameState, Move, PlayerId},
 };
 
-pub fn run(config: GameConfig, p1_name: &str, p2_name: &str, rating_db: Box<dyn RatingDb>) {
+pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Box<dyn RatingDb>) {
 	let stdout_handle = io::stdout();
 	let mut stdout = stdout_handle.lock();
 	let stdin_handle = io::stdin();
 	let mut stdin = stdin_handle.lock();
 	let mut rng = rand::make_rng();
 
-	match config.size {
-		5 => run_sized::<5>(config, p1_name, p2_name, &mut rng, &mut stdout, &mut stdin, rating_db),
-		7 => run_sized::<7>(config, p1_name, p2_name, &mut rng, &mut stdout, &mut stdin, rating_db),
-		9 => run_sized::<9>(config, p1_name, p2_name, &mut rng, &mut stdout, &mut stdin, rating_db),
-		11 => run_sized::<11>(config, p1_name, p2_name, &mut rng, &mut stdout, &mut stdin, rating_db),
-		n => panic!("unsupported board size {n}"),
+	match size {
+		BoardSize::Five => run_sized::<5>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
+		BoardSize::Seven => run_sized::<7>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
+		BoardSize::Nine => run_sized::<9>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
+		BoardSize::Eleven => run_sized::<11>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
 	}
 }
 
@@ -118,19 +118,26 @@ where
 	}
 }
 
-fn run_sized<const N: usize>(config: GameConfig, p1_name: &str, p2_name: &str, rng: &mut SmallRng, stdout: &mut impl Write, stdin: &mut impl BufRead, rating_db: Box<dyn RatingDb>)
-where
+fn run_sized<const N: usize>(
+	config: GameConfig,
+	p1_kind: PlayerKind,
+	p2_kind: PlayerKind,
+	rng: &mut SmallRng,
+	stdout: &mut impl Write,
+	stdin: &mut impl BufRead,
+	rating_db: Box<dyn RatingDb>,
+) where
 	[(); N * N]:, {
 	let game: GameState<N> = GameState::new(config, rng);
 
-	let p1_display = format!("{p1_name} ({:?})", PlayerId::Cols);
-	let p2_display = format!("{p2_name} ({:?})", PlayerId::Rows);
+	let p1_display = format!("{p1_kind} ({:?})", PlayerId::Cols);
+	let p2_display = format!("{p2_kind} ({:?})", PlayerId::Rows);
 
-	let p1_manual = algos::is_manual(p1_name);
-	let p2_manual = algos::is_manual(p2_name);
+	let p1_manual = p1_kind.is_manual();
+	let p2_manual = p2_kind.is_manual();
 
-	let p1 = algos::resolve::<N>(p1_name);
-	let p2 = algos::resolve::<N>(p2_name);
+	let p1 = p1_kind.into_player::<N>();
+	let p2 = p2_kind.into_player::<N>();
 	let mut m = Match::new(game, p1, p2).with_rating_db(rating_db);
 
 	// Show initial board

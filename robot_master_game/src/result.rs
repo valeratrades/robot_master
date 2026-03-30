@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use robot_master_core::{board::Pos, cards::CardValue, scoring::victoire};
+use robot_master_core::{board::Pos, cards::CardValue};
 
 use crate::{
 	AppState, Textures,
@@ -24,8 +24,8 @@ struct ResultScene;
 struct PlayAgainButton;
 
 fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>, tex: Res<Textures>) {
-	let gs = game.0.game();
-	let (s0, i0, s1, i1) = victoire(&gs.board);
+	let n = game.0.size() as usize;
+	let (s0, i0, s1, i1) = game.0.scores();
 
 	let p1_name = slots.0[0].to_string();
 	let p2_name = slots.0[1].to_string();
@@ -39,6 +39,9 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 	let scores = format!("{p1_name} (Cols): {s0} (weakest: col {i0})\n{p2_name} (Rows): {s1} (weakest: row {i1})");
 
 	let elo_text = format_elo(&slots, s0, s1, i0, i1);
+
+	let cell_px = 320.0 / n as f32;
+	let img_px = cell_px - 10.0;
 
 	commands
 		.spawn((
@@ -63,19 +66,19 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 				..default()
 			})
 			.with_children(|board| {
-				for r in 0..5u8 {
+				for r in 0..n as u8 {
 					board
 						.spawn(Node {
 							flex_direction: FlexDirection::Row,
 							..default()
 						})
 						.with_children(|row| {
-							for c in 0..5u8 {
-								let val = gs.board.get(Pos { row: r, col: c });
+							for c in 0..n as u8 {
+								let val = game.0.get(Pos { row: r, col: c });
 								row.spawn((
 									Node {
-										width: Val::Px(60.0),
-										height: Val::Px(60.0),
+										width: Val::Px(cell_px),
+										height: Val::Px(cell_px),
 										margin: UiRect::all(Val::Px(1.0)),
 										justify_content: JustifyContent::Center,
 										align_items: AlignItems::Center,
@@ -88,8 +91,8 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 										cell.spawn((
 											ImageNode::new(tex.card_face(CardValue(val))),
 											Node {
-												width: Val::Px(50.0),
-												height: Val::Px(50.0),
+												width: Val::Px(img_px),
+												height: Val::Px(img_px),
 												..default()
 											},
 										));

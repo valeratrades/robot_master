@@ -5969,6 +5969,7 @@ dependencies = [
  "serde",
  "serde_json",
  "smart-default",
+ "strum",
  "tokio",
  "ustr",
  "v_utils",
@@ -5991,6 +5992,7 @@ dependencies = [
  "rand 0.10.0",
  "robot_master_arena",
  "robot_master_core",
+ "strum",
  "ustr",
  "v_utils",
 ]
@@ -6007,6 +6009,7 @@ dependencies = [
  "leptos_axum",
  "leptos_meta",
  "leptos_router",
+ "robot_master_arena",
  "robot_master_game",
  "tokio",
  "tower-http",
