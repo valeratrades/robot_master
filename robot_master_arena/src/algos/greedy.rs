@@ -1,7 +1,7 @@
 use robot_master_core::{
 	board::Pos,
 	cards::CardValue,
-	game::{GameState, Move, Player, scores_rows},
+	game::{GameState, Move, scores_rows},
 	scoring::{line_counts, score_delta},
 };
 use ustr::{Ustr, ustr};
