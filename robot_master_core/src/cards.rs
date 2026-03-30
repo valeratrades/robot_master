@@ -8,7 +8,7 @@ pub const MAX_CARD_VALUE: usize = 5;
 pub struct CardValue(pub u8);
 
 /// Fixed-size count array — O(1) lookup, no allocation, Copy.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Hand {
 	counts: [u8; MAX_CARD_VALUE + 1],
 }

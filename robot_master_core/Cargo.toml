@@ -12,6 +12,8 @@ default = []
 python = ["dep:pyo3"]
 
 [dependencies]
+board-game = "0.8"
+internal-iterator = "0.2"
 pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
 thiserror = "2"
 

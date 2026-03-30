@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::game::PlayerId;
+use crate::game::{Player, scores_rows};
 
 pub const EMPTY: Cell = u8::MAX;
 pub type Cell = u8;
@@ -18,7 +18,7 @@ impl Pos {
 	}
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Board<const N: usize>
 where
 	[(); N * N]:, {
@@ -73,10 +73,10 @@ where
 	}
 
 	/// Row (Rows player) or column (Cols player) as a fixed array.
-	pub fn line(&self, player: PlayerId, idx: usize) -> [Cell; N] {
+	pub fn line(&self, player: Player, idx: usize) -> [Cell; N] {
 		let mut out = [EMPTY; N];
 		for (j, slot) in out.iter_mut().enumerate() {
-			*slot = if player.scores_rows() { self.cells[idx * N + j] } else { self.cells[j * N + idx] };
+			*slot = if scores_rows(player) { self.cells[idx * N + j] } else { self.cells[j * N + idx] };
 		}
 		out
 	}
@@ -143,7 +143,7 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::game::PlayerId;
+	use crate::game::Player;
 
 	fn center5() -> Board<5> {
 		let mut b = Board::<5>::default();
@@ -189,13 +189,13 @@ mod tests {
 		b.set(Pos { row: 1, col: 0 }, 2);
 		b.set(Pos { row: 2, col: 0 }, 3);
 
-		let col = b.line(PlayerId::Cols, 0);
+		let col = b.line(Player::A, 0);
 		assert_eq!(col[0], 1);
 		assert_eq!(col[1], 2);
 		assert_eq!(col[2], 3);
 		assert_eq!(col[3], EMPTY);
 
-		let row = b.line(PlayerId::Rows, 1);
+		let row = b.line(Player::B, 1);
 		assert_eq!(row[0], 2);
 		assert_eq!(row[1], EMPTY);
 	}
