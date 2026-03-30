@@ -6,15 +6,17 @@ use std::{
 use rand::rngs::SmallRng;
 use robot_master_arena::{
 	BoardSize,
-	algos::PlayerKind,
+	algos::{PlayerKind, rollout::RolloutPlayer},
 	db::RatingDb,
 	match_::{Match, MatchResult},
+	player::Bot,
 };
 use robot_master_core::{
 	board::{Board, Pos},
 	cards::{CardValue, Hand},
 	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
 };
+use robot_master_train::mcts::{MctsBot, MctsConfig, RolloutEval};
 
 pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Box<dyn RatingDb>) {
 	let stdout_handle = io::stdout();
@@ -28,6 +30,18 @@ pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, 
 		BoardSize::Seven => run_sized::<7>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
 		BoardSize::Nine => run_sized::<9>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
 		BoardSize::Eleven => run_sized::<11>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
+	}
+}
+fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
+where
+	[(); N * N]:, {
+	match kind {
+		PlayerKind::Mcts { simulations } => {
+			let evaluator = RolloutEval::new(RolloutPlayer);
+			let config = MctsConfig { simulations, c_puct: 1.41 };
+			Box::new(MctsBot::new(evaluator, config))
+		}
+		other => other.into_bot(),
 	}
 }
 
@@ -141,8 +155,8 @@ fn run_sized<const N: usize>(
 	let p1_manual = p1_kind.is_manual();
 	let p2_manual = p2_kind.is_manual();
 
-	let p1 = p1_kind.into_bot::<N>();
-	let p2 = p2_kind.into_bot::<N>();
+	let p1 = kind_into_bot::<N>(p1_kind);
+	let p2 = kind_into_bot::<N>(p2_kind);
 	let mut m = Match::new(game, p1, p2).with_rating_db(rating_db);
 
 	// Show initial board
@@ -212,19 +226,19 @@ where
 	)
 	.unwrap();
 
-	if let Some(ref elo) = result.elo_update {
-		let d1 = elo.p1_new - elo.p1_old;
-		let d2 = elo.p2_new - elo.p2_old;
+	if let Some(ref u) = result.rating_update {
+		let d1 = u.p1_new.rating - u.p1_old.rating;
+		let d2 = u.p2_new.rating - u.p2_old.rating;
 		let sign = |d: f64| if d >= 0.0 { "+" } else { "" };
 		writeln!(
 			stdout,
-			"\nElo: {} {:.0} ({}{:.0}) | {} {:.0} ({}{:.0})",
+			"\nRating: {} {:.0} ({}{:.0}) | {} {:.0} ({}{:.0})",
 			result.p1_id,
-			elo.p1_new,
+			u.p1_new.rating,
 			sign(d1),
 			d1,
 			result.p2_id,
-			elo.p2_new,
+			u.p2_new.rating,
 			sign(d2),
 			d2
 		)

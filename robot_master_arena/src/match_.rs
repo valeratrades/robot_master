@@ -13,7 +13,7 @@ use ustr::Ustr;
 use crate::{
 	db::RatingDb,
 	player::Bot,
-	rating::{self, Outcome},
+	rating::{self, Outcome, Rating},
 };
 
 /// Type-erased match interface for use in contexts (e.g. Bevy ECS) that can't be const-generic.
@@ -29,11 +29,11 @@ pub trait DynMatch {
 	fn scores(&self) -> (u16, usize, u16, usize);
 }
 #[derive(Clone, Debug)]
-pub struct EloUpdate {
-	pub p1_old: f64,
-	pub p1_new: f64,
-	pub p2_old: f64,
-	pub p2_new: f64,
+pub struct RatingUpdate {
+	pub p1_old: Rating,
+	pub p1_new: Rating,
+	pub p2_old: Rating,
+	pub p2_new: Rating,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -46,11 +46,11 @@ pub struct MatchResult {
 	pub p2_weak_line: usize,
 	pub moves: Vec<SerMove>,
 	#[serde(skip)]
-	pub elo_update: Option<EloUpdate>,
+	pub rating_update: Option<RatingUpdate>,
 }
 impl MatchResult {
-	/// Perform elo update against the given db, populating `self.elo_update`.
-	pub fn update_elo(&mut self, rating_db: &dyn RatingDb) {
+	/// Perform Glicko-2 rating update against the given db, populating `self.rating_update`.
+	pub fn update_rating(&mut self, rating_db: &dyn RatingDb) {
 		let mut ratings = rating_db.load_ratings();
 
 		let outcome = match self.p1_score.cmp(&self.p2_score) {
@@ -62,19 +62,19 @@ impl MatchResult {
 		let r1 = ratings.entry(self.p1_id).or_default().clone();
 		let r2 = ratings.entry(self.p2_id).or_default().clone();
 
-		let (new_r1, new_r2) = rating::elo_update(&r1, &r2, outcome, rating::DEFAULT_K);
-		let update = EloUpdate {
-			p1_old: r1.rating,
-			p1_new: new_r1.rating,
-			p2_old: r2.rating,
-			p2_new: new_r2.rating,
+		let (new_r1, new_r2) = rating::glicko_update(&r1, &r2, outcome);
+		let update = RatingUpdate {
+			p1_old: r1.clone(),
+			p1_new: new_r1.clone(),
+			p2_old: r2.clone(),
+			p2_new: new_r2.clone(),
 		};
 
 		ratings.insert(self.p1_id, new_r1);
 		ratings.insert(self.p2_id, new_r2);
 		rating_db.save_ratings(&ratings);
 
-		self.elo_update = Some(update);
+		self.rating_update = Some(update);
 	}
 }
 
@@ -152,7 +152,7 @@ where
 		if self.game.is_done() {
 			let mut result = self.build_result();
 			if let Some(ref db) = self.rating_db {
-				result.update_elo(db.as_ref());
+				result.update_rating(db.as_ref());
 			}
 			ControlFlow::Break(result)
 		} else {
@@ -180,7 +180,7 @@ where
 			p1_weak_line: i0,
 			p2_weak_line: i1,
 			moves: self.moves.iter().map(|&m| m.into()).collect(),
-			elo_update: None,
+			rating_update: None,
 		}
 	}
 }

@@ -160,22 +160,22 @@ fn format_elo(slots: &PlayerSlots, s0: u16, s1: u16, i0: usize, i1: usize) -> St
 		p1_weak_line: i0,
 		p2_weak_line: i1,
 		moves: Vec::new(),
-		elo_update: None,
+		rating_update: None,
 	};
-	result.update_elo(&db);
-	match result.elo_update {
-		Some(ref elo) => {
-			let d1 = elo.p1_new - elo.p1_old;
-			let d2 = elo.p2_new - elo.p2_old;
+	result.update_rating(&db);
+	match result.rating_update {
+		Some(ref u) => {
+			let d1 = u.p1_new.rating - u.p1_old.rating;
+			let d2 = u.p2_new.rating - u.p2_old.rating;
 			let sign = |d: f64| if d >= 0.0 { "+" } else { "" };
 			format!(
-				"Elo: {} {:.0} ({}{:.0}) | {} {:.0} ({}{:.0})",
+				"Rating: {} {:.0} ({}{:.0}) | {} {:.0} ({}{:.0})",
 				result.p1_id,
-				elo.p1_new,
+				u.p1_new.rating,
 				sign(d1),
 				d1,
 				result.p2_id,
-				elo.p2_new,
+				u.p2_new.rating,
 				sign(d2),
 				d2
 			)
