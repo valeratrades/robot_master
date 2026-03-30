@@ -10,7 +10,7 @@ bin-target = "robot_master_site"
 output-name = "robot_master_site"
 site-root = "target/site"
 site-pkg-dir = "pkg"
-assets-dir = "public"
+assets-dir = "../robot_master_game/assets"
 site-addr = "127.0.0.1:58937"
 reload-port = 58938
 browserquery = "defaults"
@@ -37,6 +37,7 @@ ssr = [
 ]
 
 [dependencies]
+robot_master_arena = { path = "../robot_master_arena" }
 robot_master_game = { path = "../robot_master_game" }
 
 axum = { version = "0.8", optional = true }

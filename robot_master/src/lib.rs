@@ -67,12 +67,12 @@ macro_rules! algo_move_dispatch {
 				Ok((m.card.0, m.pos.row, m.pos.col))
 			}};
 		}
-		match n {
-			5 => go!(5),
-			7 => go!(7),
-			9 => go!(9),
-			11 => go!(11),
-			_ => Err(PyValueError::new_err(format!("unsupported board size {n}"))),
+		match robot_master_arena::BoardSize::try_from(n as u8) {
+			Ok(robot_master_arena::BoardSize::Five) => go!(5),
+			Ok(robot_master_arena::BoardSize::Seven) => go!(7),
+			Ok(robot_master_arena::BoardSize::Nine) => go!(9),
+			Ok(robot_master_arena::BoardSize::Eleven) => go!(11),
+			Err(e) => Err(PyValueError::new_err(e)),
 		}
 	}};
 }

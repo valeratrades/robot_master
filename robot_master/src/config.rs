@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use robot_master_arena::config::ArenaConfig;
+use robot_master_arena::{BoardSize, config::ArenaConfig};
 use v_utils::macros as v_macros;
 
 #[derive(Parser)]
@@ -20,6 +20,9 @@ pub struct PlayerArgs {
 	/// Player 2 (Rows) algorithm: manual/m, random/r, greedy/g, sadist/s
 	#[arg(short = 'b', long, default_value = "random")]
 	pub player2: String,
+	/// Board size (5, 7, 9, or 11)
+	#[arg(short = 's', long, default_value = "5")]
+	pub size: BoardSize,
 }
 #[derive(Subcommand)]
 pub enum Commands {

@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use robot_master_arena::{
-	algos::{greedy::GreedyPlayer, random::RandomPlayer, sadist::SadistPlayer},
-	match_::Match,
-	player::{ManualPlayer, Player},
+	BoardSize,
+	algos::PlayerKind,
+	match_::{DynMatch, Match},
 };
 use robot_master_core::{
 	board::{EMPTY, Pos},
@@ -10,9 +10,8 @@ use robot_master_core::{
 	game::{GameConfig, GameState, Move, PlayerId},
 };
 
-use crate::{AppState, InitialPlayers, PlayerKind, Textures, theme};
+use crate::{AppState, InitialPlayers, Textures, theme};
 
-type GameMatch = Match<5, Box<dyn Player<5>>, Box<dyn Player<5>>>;
 pub struct GameplayPlugin;
 
 impl Plugin for GameplayPlugin {
@@ -32,7 +31,7 @@ impl Plugin for GameplayPlugin {
 struct GameScene;
 
 #[derive(Resource)]
-pub(crate) struct Game(pub(crate) GameMatch);
+pub(crate) struct Game(pub(crate) Box<dyn DynMatch + Send + Sync>);
 
 #[derive(Default, Resource)]
 struct SelectedCard(Option<CardValue>);
@@ -61,29 +60,69 @@ struct HandCountLabel {
 #[derive(Component)]
 struct TurnIndicator;
 
-fn player_from_kind(kind: &PlayerKind) -> Box<dyn Player<5>> {
-	match kind {
-		PlayerKind::Manual { name } => Box::new(ManualPlayer::new(name)),
-		PlayerKind::Random => Box::new(RandomPlayer::new()),
-		PlayerKind::Greedy => Box::new(GreedyPlayer),
-		PlayerKind::Sadist => Box::new(SadistPlayer),
+/// Helper: create a `Box<dyn DynMatch>` for the given board size.
+fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> Box<dyn DynMatch + Send + Sync> {
+	let mut rng: rand::rngs::SmallRng = rand::make_rng();
+	let config = GameConfig {
+		size: size.into(),
+		..GameConfig::default()
+	};
+
+	macro_rules! go {
+		($N:literal) => {{
+			let game = GameState::<$N>::new(config, &mut rng);
+			let p1 = p1.into_player::<$N>();
+			let p2 = p2.into_player::<$N>();
+			Box::new(Match::new(game, p1, p2))
+		}};
+	}
+
+	match size {
+		BoardSize::Five => go!(5),
+		BoardSize::Seven => go!(7),
+		BoardSize::Nine => go!(9),
+		BoardSize::Eleven => go!(11),
+	}
+}
+
+/// Snapshot of initial board state for spawning UI entities before inserting the Game resource.
+struct InitialBoard {
+	n: usize,
+	cells: Vec<u8>,
+	hands: [robot_master_core::cards::Hand; 2],
+}
+
+impl InitialBoard {
+	fn get(&self, row: u8, col: u8) -> u8 {
+		self.cells[row as usize * self.n + col as usize]
 	}
 }
 
 fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Textures>) {
-	let mut rng: rand::rngs::SmallRng = rand::make_rng();
-	let game = GameState::<5>::new(GameConfig::default(), &mut rng);
+	let size = init.size;
+	let n = u8::from(size) as usize;
 
-	let p1_kind = PlayerKind::from_name(&init.p1);
-	let p2_kind = PlayerKind::from_name(&init.p2);
-	let p1 = player_from_kind(&p1_kind);
-	let p2 = player_from_kind(&p2_kind);
-	let m = Match::new(game, p1, p2);
-	let initial_state = *m.game();
+	let p1_kind = init.p1.clone();
+	let p2_kind = init.p2.clone();
+
+	let m = make_match(size, p1_kind.clone(), p2_kind.clone());
+
+	// Snapshot initial state before handing ownership to the resource.
+	let hands = m.hands();
+	let mut cells = Vec::with_capacity(n * n);
+	for r in 0..n as u8 {
+		for c in 0..n as u8 {
+			cells.push(m.get(Pos { row: r, col: c }));
+		}
+	}
+	let snap = InitialBoard { n, cells, hands };
 
 	commands.insert_resource(Game(m));
 	commands.insert_resource(SelectedCard::default());
 	commands.insert_resource(PlayerSlots([p1_kind, p2_kind]));
+
+	let cell_px = 420.0 / n as f32;
+	let img_px = cell_px - 10.0;
 
 	commands
 		.spawn((
@@ -117,29 +156,29 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 				..default()
 			})
 			.with_children(|row| {
-				spawn_hand(row, &initial_state, PlayerId::Cols, &tex);
+				spawn_hand(row, &snap.hands, PlayerId::Cols, &tex);
 
 				row.spawn(Node {
 					flex_direction: FlexDirection::Column,
 					..default()
 				})
 				.with_children(|board| {
-					for r in 0..5u8 {
+					for r in 0..n as u8 {
 						board
 							.spawn(Node {
 								flex_direction: FlexDirection::Row,
 								..default()
 							})
 							.with_children(|board_row| {
-								for c in 0..5u8 {
-									let val = initial_state.board.get(Pos { row: r, col: c });
+								for c in 0..n as u8 {
+									let val = snap.get(r, c);
 									board_row
 										.spawn((
 											BoardCell { row: r, col: c },
 											Button,
 											Node {
-												width: Val::Px(80.0),
-												height: Val::Px(80.0),
+												width: Val::Px(cell_px),
+												height: Val::Px(cell_px),
 												margin: UiRect::all(Val::Px(2.0)),
 												justify_content: JustifyContent::Center,
 												align_items: AlignItems::Center,
@@ -151,8 +190,8 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 											cell.spawn((
 												ImageNode::new(if val != EMPTY { tex.card_face(CardValue(val)) } else { tex.card_face(CardValue(0)) }),
 												Node {
-													width: Val::Px(70.0),
-													height: Val::Px(70.0),
+													width: Val::Px(img_px),
+													height: Val::Px(img_px),
 													..default()
 												},
 												if val != EMPTY { Visibility::Inherited } else { Visibility::Hidden },
@@ -163,13 +202,13 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 					}
 				});
 
-				spawn_hand(row, &initial_state, PlayerId::Rows, &tex);
+				spawn_hand(row, &snap.hands, PlayerId::Rows, &tex);
 			});
 		});
 }
 
-fn spawn_hand(parent: &mut ChildSpawnerCommands, game: &GameState<5>, player: PlayerId, tex: &Textures) {
-	let hand = &game.hands[player as usize];
+fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::cards::Hand; 2], player: PlayerId, tex: &Textures) {
+	let hand = &hands[player as usize];
 	let title = match player {
 		PlayerId::Cols => "P1 (Cols)",
 		PlayerId::Rows => "P2 (Rows)",
@@ -228,15 +267,15 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, game: &GameState<5>, player: Pl
 }
 
 fn ai_turn(mut game: ResMut<Game>, slots: Res<PlayerSlots>) {
-	if game.0.game().is_terminal() {
+	if game.0.is_terminal() {
 		return;
 	}
-	let turn = game.0.game().turn;
+	let turn = game.0.turn();
 	if matches!(&slots.0[turn as usize], PlayerKind::Manual { .. }) {
 		return;
 	}
 	match game.0.next(None) {
-		Ok(gs) => debug!("AI moved, turn now {:?}", gs.turn),
+		Ok(()) => debug!("AI moved"),
 		Err(result) => debug!("AI move ended game: {} vs {}", result.p1_score, result.p2_score),
 	}
 }
@@ -248,12 +287,12 @@ fn hand_click(
 	game: Res<Game>,
 	slots: Res<PlayerSlots>,
 ) {
-	let gs = game.0.game();
-	let turn = gs.turn;
+	let turn = game.0.turn();
 	let is_manual = matches!(&slots.0[turn as usize], PlayerKind::Manual { .. });
 	if !is_manual {
 		return;
 	}
+	let hands = game.0.hands();
 	for (entity, interaction, hand_card) in &interaction_query {
 		if *interaction != Interaction::Pressed {
 			continue;
@@ -262,7 +301,7 @@ fn hand_click(
 			commands.entity(entity).insert(RejectFlash(Timer::from_seconds(0.3, TimerMode::Once)));
 			continue;
 		}
-		let count = gs.hands[turn as usize].count(hand_card.value);
+		let count = hands[turn as usize].count(hand_card.value);
 		debug!("hand_click: card={} count={count} player={:?}", hand_card.value.0, hand_card.player);
 		if count > 0 {
 			if selected.0 == Some(hand_card.value) {
@@ -291,11 +330,10 @@ fn reject_flash_system(mut commands: Commands, time: Res<Time>, mut query: Query
 }
 
 fn board_click(interaction_query: Query<(&Interaction, &BoardCell), Changed<Interaction>>, mut game: ResMut<Game>, mut selected: ResMut<SelectedCard>, slots: Res<PlayerSlots>) {
-	let gs = game.0.game();
-	if gs.is_terminal() {
+	if game.0.is_terminal() {
 		return;
 	}
-	let turn = gs.turn;
+	let turn = game.0.turn();
 	if !matches!(&slots.0[turn as usize], PlayerKind::Manual { .. }) {
 		return;
 	}
@@ -304,11 +342,11 @@ fn board_click(interaction_query: Query<(&Interaction, &BoardCell), Changed<Inte
 	for (interaction, cell) in &interaction_query {
 		if *interaction == Interaction::Pressed {
 			let pos = Pos { row: cell.row, col: cell.col };
-			let playable = game.0.game().board.is_playable(pos);
+			let playable = game.0.is_playable(pos);
 			debug!("board_click: ({},{}) card={} playable={playable}", cell.row, cell.col, card.0);
 			if playable {
 				match game.0.next(Some(Move { pos, card })) {
-					Ok(gs) => debug!("move applied, turn now {:?}", gs.turn),
+					Ok(()) => debug!("move applied"),
 					Err(result) => debug!("game ended: {} vs {}", result.p1_score, result.p2_score),
 				}
 				selected.0 = None;
@@ -329,13 +367,14 @@ fn sync_visuals(
 	mut cell_images: Query<(&mut ImageNode, &mut Visibility)>,
 	mut turn_indicator: Query<(&mut Text, &mut TextColor), (With<TurnIndicator>, Without<HandCountLabel>, Without<HandCard>)>,
 ) {
-	let gs = game.0.game();
+	let turn = game.0.turn();
+	let hands = game.0.hands();
 
 	// Board cells
 	for (cell, mut bg, children) in &mut board_cells {
-		let value = gs.board.get(Pos { row: cell.row, col: cell.col });
-		let is_playable = gs.board.is_playable(Pos { row: cell.row, col: cell.col });
-		let is_manual = matches!(&slots.0[gs.turn as usize], PlayerKind::Manual { .. });
+		let value = game.0.get(Pos { row: cell.row, col: cell.col });
+		let is_playable = game.0.is_playable(Pos { row: cell.row, col: cell.col });
+		let is_manual = matches!(&slots.0[turn as usize], PlayerKind::Manual { .. });
 		let highlighted = selected.0.is_some() && is_playable && is_manual;
 
 		*bg = if value != EMPTY {
@@ -360,11 +399,11 @@ fn sync_visuals(
 
 	// Hand counts
 	for (hc, mut text, mut color) in &mut hand_counts {
-		let count = gs.hands[hc.player as usize].count(hc.value);
+		let count = hands[hc.player as usize].count(hc.value);
 		**text = format!("x{count}");
 		*color = if count == 0 {
 			TextColor(theme::TEXT_MUTED)
-		} else if selected.0 == Some(hc.value) && hc.player == gs.turn {
+		} else if selected.0 == Some(hc.value) && hc.player == turn {
 			TextColor(theme::TEXT_SELECTION)
 		} else {
 			TextColor(theme::TEXT_PRIMARY)
@@ -376,8 +415,8 @@ fn sync_visuals(
 		if has_reject {
 			continue;
 		}
-		let count = gs.hands[hc.player as usize].count(hc.value);
-		let is_own = hc.player == gs.turn;
+		let count = hands[hc.player as usize].count(hc.value);
+		let is_own = hc.player == turn;
 		let is_selected = selected.0 == Some(hc.value) && is_own;
 		let is_hovered = *interaction == Interaction::Hovered && is_own && count > 0;
 
@@ -396,11 +435,11 @@ fn sync_visuals(
 
 	// Turn indicator
 	for (mut text, mut color) in &mut turn_indicator {
-		if gs.is_terminal() {
+		if game.0.is_terminal() {
 			**text = "Game Over!".into();
 			*color = TextColor(theme::TEXT_GAME_OVER);
 		} else {
-			let name = match gs.turn {
+			let name = match turn {
 				PlayerId::Cols => "Player 1 (Cols)",
 				PlayerId::Rows => "Player 2 (Rows)",
 			};
@@ -411,7 +450,7 @@ fn sync_visuals(
 }
 
 fn check_terminal(game: Res<Game>, mut next_state: ResMut<NextState<AppState>>) {
-	if game.0.game().is_terminal() {
+	if game.0.is_terminal() {
 		next_state.set(AppState::Result);
 	}
 }
