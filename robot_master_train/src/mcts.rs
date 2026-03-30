@@ -262,7 +262,7 @@ where
 mod tests {
 	use board_game::board::Board as _;
 	use rand::{SeedableRng, rngs::SmallRng};
-	use robot_master_arena::algos::greedy::GreedyPlayer;
+	use robot_master_arena::algos::rollout::RolloutPlayer;
 	use robot_master_core::game::{GameConfig, GameState};
 
 	use super::*;
@@ -275,7 +275,7 @@ mod tests {
 	#[test]
 	fn mcts_returns_legal_move() {
 		let state = state5();
-		let evaluator = RolloutEval::new(GreedyPlayer);
+		let evaluator = RolloutEval::new(RolloutPlayer);
 		let config = MctsConfig { simulations: 50, c_puct: 1.41 };
 		let mv = search(&state, &evaluator, &config);
 
@@ -285,7 +285,7 @@ mod tests {
 	#[test]
 	fn mcts_bot_plays_full_game() {
 		let mut state = state5();
-		let mut bot = MctsBot::new(RolloutEval::new(GreedyPlayer), MctsConfig { simulations: 20, c_puct: 1.41 });
+		let mut bot = MctsBot::new(RolloutEval::new(RolloutPlayer), MctsConfig { simulations: 20, c_puct: 1.41 });
 
 		while state.outcome().is_none() {
 			let mv = bot.choose_move(&state);
