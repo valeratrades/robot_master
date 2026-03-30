@@ -21,6 +21,7 @@ use crate::player::Bot;
 ///    Tiebreak: highest delta, then lowest card value.
 ///
 /// Limitation: treats each line independently, no lookahead.
+#[derive(Clone)]
 pub struct GreedyPlayer;
 
 impl<const N: usize> Bot<N> for GreedyPlayer

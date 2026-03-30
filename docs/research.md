@@ -147,9 +147,9 @@ At 11x11: 121 tokens — still tiny by transformer standards (GPT handles 128K).
 Both tracks share the same Rust ↔ Python split. No FFI, no bindings — filesystem is the interface.
 
 ```
-robot_master_alphazero/        (Rust crate)
+robot_master_train/            (Rust crate)
 ├── src/
-│   ├── mcts.rs                MCTS tree search (Gumbel variant)
+│   ├── mcts.rs                MCTS tree search + Evaluator trait
 │   ├── selfplay.rs            game generation loop
 │   ├── nn.rs                  ONNX Runtime inference wrapper
 │   ├── encoding.rs            GameState → tensor, training data serialization
@@ -163,7 +163,6 @@ training/                      (Python, NOT a Rust crate)
 ├── model_resnet.py            Track A: small ResNet
 ├── model_transformer.py       Track B: encoder-only transformer
 ├── train.py                   training loop (shared between tracks)
-├── data.py                    read Rust-generated game data
 ├── export_onnx.py             PyTorch → ONNX conversion
 └── requirements.txt
 ```
@@ -190,8 +189,8 @@ Rust evaluate  ──reads───>  models/model_v{N}.onnx
 - `robot_master_core` + `robot_master_arena` crates
 
 ### Phase 2 — MCTS Foundation
-- Pure MCTS with random rollouts as baseline (no neural net)
-- Implement in `robot_master_alphazero` crate
+- Pure MCTS with greedy rollouts as baseline (no neural net)
+- Implement in `robot_master_train` crate
 - Will already beat Greedy and Sadist
 - Establishes search framework and benchmarking
 
