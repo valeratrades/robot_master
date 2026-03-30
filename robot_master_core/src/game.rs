@@ -40,7 +40,14 @@ pub struct GameConfig {
 	pub size: u8 = 5,
 	pub max_card: u8 = 5,
 	pub nb_c: u8 = 6,
-	pub cards_dealt: u8 = 12,
+}
+
+impl GameConfig {
+	/// Number of cards each player receives: `(size² - 1) / 2`.
+	pub fn cards_per_player(self) -> u8 {
+		let n = self.size as u16;
+		((n * n - 1) / 2) as u8
+	}
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -78,8 +85,9 @@ where
 		let center = Pos { row: N as u8 / 2, col: N as u8 / 2 };
 		board.set(center, center_card.0);
 
-		let hand0 = deal(&mut deck, config.cards_dealt);
-		let hand1 = deal(&mut deck, config.cards_dealt);
+		let cards_per_player = config.cards_per_player();
+		let hand0 = deal(&mut deck, cards_per_player);
+		let hand1 = deal(&mut deck, cards_per_player);
 
 		Self {
 			board,

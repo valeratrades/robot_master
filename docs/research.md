@@ -197,10 +197,13 @@ Rust evaluate  ──reads───>  models/model_v{N}.onnx
 
 ### Phase 3 — Track A: AlphaZero
 - Small ResNet in PyTorch (`training/model_resnet.py`)
-- Gumbel AlphaZero self-play loop
+- Gumbel[^1] AlphaZero self-play loop
 - ONNX export → Rust inference via `ort`
 - Self-play → train → evaluate → promote cycle
 - Target: demolish all heuristic bots on 5x5
+
+[^1] Gumbel takes knowledge of improvement values in this cycle, then explores the lines with the best ones repeatedly: rolls out ones it has, gets scores, cuts out bottom half, repeats. Basically, select the most promising point, then purposefully penetrate it; instead of sampling around the boundary.
+I think this works cause we're more likely to discover good *lines* this way. But we have too much variance on next rollout on the first move we make in this direction. So here we just pre-compile commitment (think fuel in matklad's lexer).
 
 ### Phase 4 — Track B: Transformer
 - Encoder-only transformer in PyTorch (`training/model_transformer.py`)
