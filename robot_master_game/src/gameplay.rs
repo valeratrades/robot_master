@@ -9,32 +9,24 @@ use robot_master_core::{
 	cards::CardValue,
 	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
 };
-use v_utils::bevy::{ModalActionFired, ModalState, update_modal_state};
+use v_utils::bevy::{ModalActionFired, ModalState, PressedChars};
 
 use crate::{AppState, InitialPlayers, Textures, theme};
 
+const WARNING_DURATION: f32 = 2.0;
 pub struct GameplayPlugin;
 
 impl Plugin for GameplayPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<ModalState<GameAction>>()
+			.init_resource::<Warning>()
 			.add_message::<ModalActionFired<GameAction>>()
 			.add_systems(OnEnter(AppState::Playing), setup_gameplay)
 			.add_systems(
 				Update,
 				((
-					ai_turn,
-					hand_click,
-					keyboard_card_select,
-					rebuild_modal_tree,
-					update_modal_state::<GameAction>,
-					handle_modal_action,
-					board_click,
-					sync_visuals,
-					sync_command_line,
-					reject_flash_system,
-					check_terminal,
-					handle_escape,
+					ai_turn, hand_click, keyboard_card_select, rebuild_modal_tree, process_modal_input, handle_modal_action, board_click, sync_visuals, sync_command_line,
+					reject_flash_system, check_terminal, handle_escape,
 				)
 					.chain(),)
 					.run_if(in_state(AppState::Playing)),
@@ -86,9 +78,16 @@ struct HandCountLabel {
 #[derive(Component)]
 struct TurnIndicator;
 
-/// Persistent text element at the bottom showing ongoing key sequence.
+/// Persistent text element at the bottom showing ongoing key sequence or warnings.
 #[derive(Component)]
 struct CommandLine;
+
+/// Brief warning message shown on the command line after invalid input.
+#[derive(Default, Resource)]
+struct Warning {
+	text: String,
+	timer: f32,
+}
 
 /// Helper: create a `Box<dyn DynMatch>` for the given board size.
 fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> Box<dyn DynMatch + Send + Sync> {
@@ -493,6 +492,93 @@ fn rebuild_modal_tree(game: Res<Game>, selected: Res<SelectedCard>, slots: Res<P
 	}
 }
 
+/// Process keyboard input through the modal system, with descriptive warnings on invalid keys.
+fn process_modal_input(
+	time: Res<Time>,
+	pressed_chars: Res<PressedChars>,
+	mut modal: ResMut<ModalState<GameAction>>,
+	mut actions: bevy::ecs::message::MessageWriter<ModalActionFired<GameAction>>,
+	game: Res<Game>,
+	selected: Res<SelectedCard>,
+	mut warning: ResMut<Warning>,
+) {
+	// Tick warning timer
+	if warning.timer > 0.0 {
+		warning.timer -= time.delta_secs();
+		if warning.timer <= 0.0 {
+			warning.text.clear();
+		}
+	}
+
+	// Escape resets
+	if pressed_chars.logical_keys_just_pressed.contains(&KeyCode::Escape) && (modal.active || modal.show_help) {
+		modal.reset();
+		return;
+	}
+
+	if modal.show_help && !pressed_chars.just_pressed.is_empty() {
+		modal.reset();
+	}
+
+	// Hint timeout
+	if modal.active {
+		modal.time_since_last_key += time.delta_secs();
+		if modal.time_since_last_key >= v_utils::bevy::MODAL_HINT_TIMEOUT && !modal.hints_visible {
+			modal.hints_visible = true;
+		}
+	}
+
+	let n = game.0.size();
+
+	for &key in &pressed_chars.just_pressed {
+		if modal.active {
+			if modal.is_valid_key(key) {
+				if let Some(action) = modal.process_key(key) {
+					actions.write(ModalActionFired(action));
+				}
+			} else {
+				// Generate a descriptive warning
+				let first = modal.sequence.first().copied();
+				let msg = match first {
+					Some(':') => format!(":{key} is not a command"),
+					Some(col_ch) if col_ch.is_ascii_lowercase() => {
+						let col = col_ch as u8 - b'a';
+						let col_label = (b'a' + col) as char;
+						if key.is_ascii_digit() {
+							let row = key as u8 - b'1';
+							let pos = Pos { row, col };
+							if row >= n {
+								format!("{col_label}{key}: row out of bounds")
+							} else if !game.0.is_playable(pos) {
+								format!("{col_label}{key}: not a valid placement")
+							} else {
+								format!("{col_label}{key}: invalid")
+							}
+						} else {
+							format!("{col_ch}{key}: expected row number")
+						}
+					}
+					_ => format!("'{key}' is not a valid key"),
+				};
+				warning.text = msg;
+				warning.timer = WARNING_DURATION;
+				modal.reset();
+			}
+		} else if modal.root.children.contains_key(&key) {
+			if let Some(action) = modal.process_key(key) {
+				actions.write(ModalActionFired(action));
+			}
+		} else if selected.0.is_some() && key.is_ascii_lowercase() {
+			// User typed a column letter but it's not in the tree (no playable positions there)
+			let col = key as u8 - b'a';
+			if col < n {
+				warning.text = format!("no playable cells in column {key}");
+				warning.timer = WARNING_DURATION;
+			}
+		}
+	}
+}
+
 /// Handle completed modal actions.
 fn handle_modal_action(
 	mut actions: MessageReader<ModalActionFired<GameAction>>,
@@ -519,13 +605,17 @@ fn handle_modal_action(
 	}
 }
 
-/// Show the current modal sequence in the command line at the bottom.
-fn sync_command_line(modal: Res<ModalState<GameAction>>, mut query: Query<(&mut Text, &mut TextColor), With<CommandLine>>) {
+/// Show the current modal sequence or warning in the command line at the bottom.
+fn sync_command_line(modal: Res<ModalState<GameAction>>, warning: Res<Warning>, mut query: Query<(&mut Text, &mut TextColor), With<CommandLine>>) {
 	for (mut text, mut color) in &mut query {
 		if modal.active {
 			let seq: String = modal.sequence.iter().collect();
 			**text = seq;
 			*color = TextColor(theme::TEXT_SELECTION);
+		} else if !warning.text.is_empty() {
+			**text = warning.text.clone();
+			let alpha = (warning.timer / WARNING_DURATION).clamp(0.0, 1.0);
+			*color = TextColor(Color::oklcha(0.65, 0.18, 25.0, alpha));
 		} else {
 			**text = String::new();
 		}
