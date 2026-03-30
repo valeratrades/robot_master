@@ -1,12 +1,14 @@
 # AI Research: Robot Master
 
-## Recommended Approach: AlphaZero-style + NNUE Ideas
+Robot Master is a perfect-information, zero-sum, combinatorial game on an NxN board (5-11). 24 moves per game at 5x5, average branching factor ~25. State space ~10^15 at 5x5, growing dramatically with board size.
 
-Robot Master is a perfect-information, zero-sum, combinatorial game on a 5x5 board. 24 moves per game, average branching factor ~25. State space ~10^15 — large enough to be intractable for brute-force, small enough that neural-guided search should converge fast.
+Two parallel tracks: **Track A** is the proven approach to crush this game fast. **Track B** is a Transformer-based approach optimized for learning transferable ML skills (scales to larger boards, generalizes to other domains like finance).
 
-### State Representation (Input Planes)
+---
 
-Like AlphaGo's 19x19 input planes, but 5x5:
+## State Representation (Input Planes)
+
+Like AlphaGo's 19x19 input planes, but NxN:
 
 | Planes | Content |
 |--------|---------|
@@ -17,55 +19,16 @@ Like AlphaGo's 19x19 input planes, but 5x5:
 | 12 | Opponent's hand (same encoding) |
 | 1 | Current player indicator |
 
-~33 input planes on a 5x5 grid. Tiny compared to Go.
-
-### Network Architecture
-
-Small ResNet (5-10 residual blocks — board is only 5x5, no need for depth):
-
-- **Policy head**: probability over all (card, position) pairs — 6 x 25 = 150 logits
-- **Value head**: scalar in [-1, 1], win probability
-
-### Training: The Iteration Cycle
-
-```
-┌─────────────────────────────────────────────┐
-│              ITERATION CYCLE                 │
-│                                              │
-│  1. Self-Play Generation                     │
-│     ├─ Current best network plays itself     │
-│     ├─ MCTS with ~200-800 simulations/move   │
-│     ├─ Temperature τ=1 early, τ→0 late       │
-│     └─ Store (state, π, z) tuples            │
-│         π = MCTS visit counts (policy target)│
-│         z = game outcome (+1/-1)             │
-│                                              │
-│  2. Training                                 │
-│     ├─ Sample minibatches from replay buffer │
-│     ├─ Loss = L_value(v, z) + L_policy(p, π) │
-│     │        + c·‖θ‖²                        │
-│     └─ SGD with momentum, ~1000 steps        │
-│                                              │
-│  3. Evaluation                               │
-│     ├─ New net vs current best: 400 games    │
-│     ├─ If win rate > 55%: promote            │
-│     └─ Else: discard, continue self-play     │
-│                                              │
-│  4. Repeat                                   │
-└─────────────────────────────────────────────┘
-```
-
-Estimated convergence: ~50-100 iterations on a single GPU in hours.
+~33 input planes on an NxN grid.
 
 ### Why This Works for Robot Master
 
-| Property | Go | Robot Master |
-|----------|-----|-------------|
-| Board | 19x19 | 5x5 |
-| Branching factor | ~250 | ~25 avg |
-| Game length | ~200 | 24 |
-| State space | ~10^170 | ~10^15 |
-| MCTS sims needed | 1600+ | 200-400 likely enough |
+| Property | Go | Robot Master (5x5) | Robot Master (11x11) |
+|----------|-----|-------------|-------------|
+| Board | 19x19 | 5x5 | 11x11 |
+| Branching factor | ~250 | ~25 avg | ~100+ avg |
+| Game length | ~200 | 24 | 120 |
+| State space | ~10^170 | ~10^15 | ~10^70+ |
 
 The scoring function is highly nonlinear (1 copy = face value, 2 copies = 10x, 3+ = 100 flat). Random MCTS rollouts won't discover these interactions — that's exactly why a learned value function guiding search dominates here.
 
@@ -73,59 +36,195 @@ The min-across-lines objective creates a "weakest link" dynamic: shore up your w
 
 ---
 
-## Ideas to Steal
+## Track A: AlphaZero (Crush the Game)
 
-### From Stockfish NNUE
+The standard, proven approach. Small ResNet + MCTS + self-play. Goal: strongest possible play, fastest convergence.
 
-1. **Incremental evaluation** — the board changes by one card per move. Don't re-evaluate the whole board; update an accumulator. For MCTS rollouts this means faster node evaluation.
+### Network Architecture
 
-2. **Feature factorization** — Stockfish uses HalfKP (king_square, piece_square). Here: factor as (card_value, position, line_context) — encoding not just what's placed where but how it interacts with line scoring.
+Small ResNet (5 residual blocks, 64 filters — board is only 5x5 to start):
 
-3. **Quantized inference** — NNUE uses int8/int16 for blazing fast eval. For WASM deployment in the Bevy game, quantized inference lets the AI think deeper in real-time.
+- **Policy head**: probability over all (card, position) pairs — 6 x N² logits
+- **Value head**: scalar in [-1, 1], win probability
 
-### From AlphaGo/AlphaZero
+### Algorithm: Gumbel AlphaZero
 
-4. **Dirichlet noise at root** — adds exploration during self-play, prevents policy collapse early in training.
+Use Gumbel AlphaZero over vanilla AlphaZero. Key advantage: works reliably with as few as 8-16 MCTS simulations per move during training (vanilla needs 400-800). Massively faster self-play.
 
-5. **Virtual loss in parallel MCTS** — if running multi-threaded self-play, virtual loss prevents all threads from exploring the same path.
+Reference: [Policy Improvement by Planning with Gumbel](https://openreview.net/forum?id=bERaNdoegnO)
 
-6. **Symmetry augmentation** — the board has rotational/reflective symmetries (player 1 scores columns, player 2 scores rows, so a 90-degree rotation + player swap is equivalent). Use this to multiply training data.
+### Training Cycle
 
-### From Poker AI (for hidden-hands variant)
+```
+┌─────────────────────────────────────────────┐
+│              ITERATION CYCLE                 │
+│                                              │
+│  1. Self-Play Generation (Rust)              │
+│     ├─ Current best network plays itself     │
+│     ├─ Gumbel MCTS, 16-64 sims/move         │
+│     ├─ Temperature τ=1 early, τ→0 late       │
+│     └─ Write (state, π, z) to disk           │
+│         π = MCTS visit counts (policy target)│
+│         z = game outcome (+1/-1)             │
+│                                              │
+│  2. Training (Python/PyTorch)                │
+│     ├─ Read game data from disk              │
+│     ├─ Sample minibatches from replay buffer │
+│     ├─ Loss = L_value(v, z) + L_policy(p, π) │
+│     │        + c·‖θ‖²                        │
+│     ├─ SGD with momentum, ~1000 steps        │
+│     └─ Export model.onnx                     │
+│                                              │
+│  3. Evaluation (Rust)                        │
+│     ├─ New net vs current best: 400 games    │
+│     ├─ If win rate > 55%: promote            │
+│     └─ Else: discard, continue self-play     │
+│                                              │
+│  4. Repeat (~50-100 iterations)              │
+└─────────────────────────────────────────────┘
+```
 
-7. **Belief state tracking** — maintain probability distribution over opponent hands given observed play history. See [hidden.md](hidden.md).
+Expected training: 4-12 hours on a single modern GPU (RTX 3080/4080) for 5x5.
+
+### Ideas to Steal
+
+**From Stockfish NNUE:**
+1. **Incremental evaluation** — board changes by one card per move, update accumulator instead of re-evaluating
+2. **Quantized inference** — int8/int16 for fast WASM deployment in the Bevy game
+
+**From AlphaGo/AlphaZero:**
+3. **Dirichlet noise at root** — exploration during self-play, prevents policy collapse
+4. **Virtual loss in parallel MCTS** — prevents threads from exploring same path
+5. **Symmetry augmentation** — 90° rotation + player swap is equivalent, multiplies training data
+
+---
+
+## Track B: Transformers (Learn ML, Scale Up)
+
+Goal: learn modern ML practices that transfer beyond board games. Transformers are the architecture that matters — vision, language, time series, finance all converge on attention.
+
+### Why Transformers Here
+
+- **Variable board sizes**: a single model handles 5x5 through 11x11 (ResNet needs retraining per size)
+- **Global attention**: at 9x9+, CNN receptive fields struggle with whole-board patterns. Transformers see everything
+- **Transferable skills**: attention mechanisms, positional encodings, training dynamics — all transfer to sequence modeling (stocks, time series)
+- **Research frontier**: AlphaViT (2024), ResTNet (IJCAI 2025), Chessformer (2024) show transformers matching or beating CNNs for game playing
+
+### Architecture
+
+Encoder-only transformer, each board cell = 1 token:
+
+- **Input**: N² tokens, each embedding card value + position + hand context
+- **Positional encoding**: 2D geometric attention bias (row/col structure matters for scoring)
+- **Body**: 4-6 encoder layers, 256 embedding dim, 8 attention heads
+- **Policy head**: per-token logits × card values = N² × 6 output
+- **Value head**: CLS token or mean-pool → MLP → scalar [-1, 1]
+
+At 5x5: 25 tokens — attention is trivially cheap.
+At 11x11: 121 tokens — still tiny by transformer standards (GPT handles 128K).
+
+### Key Papers to Study
+
+| Paper | Year | Key Insight |
+|-------|------|-------------|
+| [AlphaViT](https://arxiv.org/abs/2408.13871) | 2024 | ViT replaces ResNet in AlphaZero; handles variable board sizes with single model |
+| [ResTNet](https://arxiv.org/html/2410.05347v2) | 2025 | CNN+Transformer hybrid; attention learns game concepts (alive stones, territory) |
+| [Chessformer](https://arxiv.org/html/2409.12272v2) | 2024 | 6M-param transformer matches 270M-param CNN for value estimation |
+| [Gumbel MuZero](https://openreview.net/forum?id=bERaNdoegnO) | 2022 | Planning with 2-16 sims instead of 800; works with any network arch |
+
+### What to Learn (in order)
+
+1. **Attention mechanism from scratch** — Karpathy's "Let's build GPT" gets you 80% of the way
+2. **Vision Transformer (ViT)** — how to tokenize a 2D grid, positional embeddings for spatial data
+3. **AlphaZero training loop** — MCTS + self-play + policy/value loss (same for both tracks)
+4. **Geometric attention bias** — Chessformer's key insight for board games
+5. **Training dynamics** — learning rate scheduling, gradient clipping, batch normalization vs layer normalization (transformers use LayerNorm)
+
+---
+
+## System Architecture
+
+Both tracks share the same Rust ↔ Python split. No FFI, no bindings — filesystem is the interface.
+
+```
+robot_master_alphazero/        (Rust crate)
+├── src/
+│   ├── mcts.rs                MCTS tree search (Gumbel variant)
+│   ├── selfplay.rs            game generation loop
+│   ├── nn.rs                  ONNX Runtime inference wrapper
+│   ├── encoding.rs            GameState → tensor, training data serialization
+│   └── eval.rs                network-vs-network evaluation
+├── src/bin/
+│   ├── selfplay.rs            CLI: generate N games, write to disk
+│   └── evaluate.rs            CLI: new model vs current best
+└── Cargo.toml
+
+training/                      (Python, NOT a Rust crate)
+├── model_resnet.py            Track A: small ResNet
+├── model_transformer.py       Track B: encoder-only transformer
+├── train.py                   training loop (shared between tracks)
+├── data.py                    read Rust-generated game data
+├── export_onnx.py             PyTorch → ONNX conversion
+└── requirements.txt
+```
+
+**Data flow:**
+```
+Rust selfplay  ──writes──>  training_data/*.bin
+Python train   ──reads───>  training_data/*.bin
+Python train   ──writes──>  models/model_v{N}.onnx
+Rust selfplay  ──reads───>  models/model_v{N}.onnx  (via ort crate)
+Rust evaluate  ──reads───>  models/model_v{N}.onnx
+```
+
+**Rust-side inference**: `ort` crate (ONNX Runtime bindings). Supports CUDA/TensorRT for GPU inference during self-play. No libtorch dependency.
+
+**Why not all-Rust training?** PyTorch's autograd, optimizers, LR schedulers, and debugging tools (tensorboard, wandb) are battle-tested. Reimplementing in Rust (via tch-rs/burn/candle) is pain for zero gain during training. Rust handles the hot path: self-play + inference.
 
 ---
 
 ## Roadmap
 
-### Phase 1 — Fast Game Engine in Rust
-- Board state, move generation, scoring — all in Rust
-- This becomes the self-play backbone (needs millions of games)
-- Validate against existing Python implementation
+### Phase 1 — Fast Game Engine ✅
+- Board state, move generation, scoring — done
+- `robot_master_core` + `robot_master_arena` crates
 
-### Phase 2 — Pure MCTS (no neural net)
-- MCTS with random rollouts as baseline
-- Will beat greedy/aggressive easily on its own
-- Establishes the search framework and benchmarking infrastructure
+### Phase 2 — MCTS Foundation
+- Pure MCTS with random rollouts as baseline (no neural net)
+- Implement in `robot_master_alphazero` crate
+- Will already beat Greedy and Sadist
+- Establishes search framework and benchmarking
 
-### Phase 3 — Neural Network
-- Small ResNet in PyTorch (or tch-rs)
-- Bootstrap training on self-play data from Phase 2
-- Export to ONNX for Rust inference
-
-### Phase 4 — AlphaZero Loop
+### Phase 3 — Track A: AlphaZero
+- Small ResNet in PyTorch (`training/model_resnet.py`)
+- Gumbel AlphaZero self-play loop
+- ONNX export → Rust inference via `ort`
 - Self-play → train → evaluate → promote cycle
-- ~50-100 iterations to convergence
-- This is where Elo climbs fast
+- Target: demolish all heuristic bots on 5x5
 
-### Phase 5 — NNUE Distillation (for deployment)
-- Distill the AlphaZero network into an NNUE-style efficiently-updatable architecture
-- Pair with alpha-beta search for deterministic, fast play
-- Deploy in the Bevy game (native + WASM)
-- The Stockfish playbook: train with deep search, deploy with efficient eval
+### Phase 4 — Track B: Transformer
+- Encoder-only transformer in PyTorch (`training/model_transformer.py`)
+- Same MCTS + self-play infrastructure (swap the model, everything else identical)
+- Train on 5x5 first, then scale to 7x7, 9x9, 11x11 without retraining from scratch
+- Compare Elo curves: ResNet vs Transformer at each board size
+
+### Phase 5 — Deployment
+- Distill best model into efficient architecture for real-time play
+- NNUE-style quantized eval for WASM (Bevy game)
+- Or: small transformer with int8 quantization via ONNX Runtime Web
 
 ### Phase 6 — Hidden Hands Variant
-- Extend engine to support imperfect information mode
-- Implement ISMCTS or belief-augmented AlphaZero
+- Extend engine to support imperfect information
+- ISMCTS or belief-augmented search
 - Compare open vs hidden Elo curves
+
+---
+
+## Reference Implementations
+
+| Project | Language | What to learn from it |
+|---------|----------|----------------------|
+| [kZero](https://github.com/KarelPeeters/kZero) | Rust+Python | Exactly our architecture: Rust self-play, Python training, ONNX bridge |
+| [alpha-zero-general](https://github.com/suragnair/alpha-zero-general) | Python | Simple reference for understanding the training loop |
+| [MiniZero](https://arxiv.org/abs/2310.11305) | C++/Python | Gumbel AlphaZero/MuZero reference implementation |
+| [michaelnny/alpha_zero](https://github.com/michaelnny/alpha_zero) | Python | Clean PyTorch AlphaZero for Go/Gomoku |
