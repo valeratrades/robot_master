@@ -1,3 +1,5 @@
+use std::ops::ControlFlow;
+
 use bevy::{ecs::message::MessageReader, prelude::*};
 use robot_master_arena::{
 	BoardSize,
@@ -314,8 +316,8 @@ fn ai_turn(mut game: ResMut<Game>, slots: Res<PlayerSlots>) {
 		return;
 	}
 	match game.0.next(None) {
-		Ok(()) => debug!("AI moved"),
-		Err(result) => debug!("AI move ended game: {} vs {}", result.p1_score, result.p2_score),
+		ControlFlow::Continue(()) => debug!("AI moved"),
+		ControlFlow::Break(result) => debug!("AI move ended game: {} vs {}", result.p1_score, result.p2_score),
 	}
 }
 
@@ -389,8 +391,8 @@ fn board_click(
 			let pos = Pos { row: cell.row, col: cell.col };
 			if game.0.is_playable(pos) {
 				match game.0.next(Some(Move { pos, card })) {
-					Ok(()) => debug!("move applied"),
-					Err(result) => debug!("game ended: {} vs {}", result.p1_score, result.p2_score),
+					ControlFlow::Continue(()) => debug!("move applied"),
+					ControlFlow::Break(result) => debug!("game ended: {} vs {}", result.p1_score, result.p2_score),
 				}
 				selected.0 = None;
 				modal.reset();
@@ -595,8 +597,8 @@ fn handle_modal_action(
 				let Some(card) = selected.0 else { continue };
 				if game.0.is_playable(*pos) {
 					match game.0.next(Some(Move { pos: *pos, card })) {
-						Ok(()) => debug!("modal: placed at ({},{})", pos.row, pos.col),
-						Err(result) => debug!("game ended: {} vs {}", result.p1_score, result.p2_score),
+						ControlFlow::Continue(()) => debug!("modal: placed at ({},{})", pos.row, pos.col),
+						ControlFlow::Break(result) => debug!("game ended: {} vs {}", result.p1_score, result.p2_score),
 					}
 					selected.0 = None;
 				}
