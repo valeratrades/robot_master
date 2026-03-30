@@ -1,4 +1,7 @@
-use std::io::{self, BufRead, Write};
+use std::{
+	io::{self, BufRead, Write},
+	ops::ControlFlow,
+};
 
 use rand::rngs::SmallRng;
 use robot_master_arena::{
@@ -34,7 +37,8 @@ where
 	[(); N * N]:, {
 	let mut lines_to_erase = 0usize;
 	let mut warning: Option<String> = None;
-	loop {
+	//LOOP: bound the loop to 256 // if user made 256 incorrect inputs in a row, sth's wrong
+	for _ in 0..u8::MAX {
 		if lines_to_erase > 0 {
 			write!(stdout, "\x1B[{lines_to_erase}A\x1B[J").unwrap();
 		}
@@ -116,6 +120,7 @@ where
 
 		return Move { pos, card: CardValue(carte) };
 	}
+	panic!("failed to read a valid move after {} attempts", u8::MAX);
 }
 
 fn run_sized<const N: usize>(
@@ -145,7 +150,8 @@ fn run_sized<const N: usize>(
 	writeln!(stdout, "{board_str}").unwrap();
 	let mut prev_lines = board_str.chars().filter(|&c| c == '\n').count() + 1;
 
-	loop {
+	//LOOP: hard bound
+	for _ in 0..GameState::<N>::total_moves() {
 		let game = m.game();
 		let current_name = match game.turn {
 			Player::A => &p1_display,
@@ -170,13 +176,13 @@ fn run_sized<const N: usize>(
 		};
 
 		match m.next(external_move) {
-			Ok(game) => {
+			ControlFlow::Continue(game) => {
 				let board_str = game.board.to_string();
 				let output = format!("au tour de {current_name}\n{board_str}");
 				writeln!(stdout, "{output}").unwrap();
 				prev_lines = output.chars().filter(|&c| c == '\n').count() + 1;
 			}
-			Err(result) => {
+			ControlFlow::Break(result) => {
 				// Clear last turn display, show final board + results
 				if prev_lines > 0 {
 					write!(stdout, "\x1B[{prev_lines}A\x1B[J").unwrap();
@@ -187,6 +193,7 @@ fn run_sized<const N: usize>(
 			}
 		}
 	}
+	unreachable!("game did not terminate within {} moves", GameState::<N>::total_moves());
 }
 
 fn display_result<const N: usize>(result: &MatchResult, p1_display: &str, p2_display: &str, stdout: &mut impl Write)

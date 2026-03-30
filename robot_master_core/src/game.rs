@@ -97,6 +97,11 @@ where
 		}
 	}
 
+	/// Total number of moves in a game (N*N cells minus the center card placed at setup).
+	pub const fn total_moves() -> usize {
+		N * N - 1
+	}
+
 	/// Standard `Iterator` over legal moves. Thin wrapper over the `Board` trait's `available_moves()`.
 	///
 	/// Use this when you need `.choose()`, `.next()`, or other std `Iterator` adapters.

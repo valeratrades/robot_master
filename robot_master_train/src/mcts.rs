@@ -173,13 +173,8 @@ where
 	let mut current = node_idx;
 	let mut sim_state = state.clone();
 
-	loop {
-		let node = &tree.nodes[current as usize];
-
-		if node.edges.is_empty() {
-			break;
-		}
-
+	//LOOP: embed termination condition
+	while let Some(node) = tree.nodes.get(current as usize).filter(|n| !n.edges.is_empty()) {
 		let parent_visits = node.visit_count;
 		let best_edge_idx = select_edge(&tree.nodes, node, parent_visits, c_puct);
 

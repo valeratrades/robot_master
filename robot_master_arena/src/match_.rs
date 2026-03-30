@@ -1,3 +1,5 @@
+use std::ops::ControlFlow;
+
 use board_game::board::Board as _;
 use robot_master_core::{
 	board::{Cell, Pos},
@@ -22,7 +24,7 @@ pub trait DynMatch {
 	fn is_done(&self) -> bool;
 	fn turn(&self) -> Player;
 	fn hands(&self) -> [Hand; 2];
-	fn next(&mut self, external_move: Option<Move>) -> Result<(), MatchResult>;
+	fn next(&mut self, external_move: Option<Move>) -> ControlFlow<MatchResult>;
 	/// (p1_score, p1_weak_line, p2_score, p2_weak_line)
 	fn scores(&self) -> (u16, usize, u16, usize);
 }
@@ -132,11 +134,11 @@ where
 	/// Pass `Some(m)` to supply a move externally (manual/human input).
 	/// Pass `None` to let the current player's `choose_move` decide.
 	///
-	/// Returns `Ok(state)` if game continues, `Err(result)` if game just ended.
+	/// Returns `Continue(state)` if game continues, `Break(result)` if game just ended.
 	///
 	/// # Panics
 	/// If the move is illegal, or if called after the game is terminal.
-	pub fn next(&mut self, external_move: Option<Move>) -> Result<&GameState<N>, MatchResult> {
+	pub fn next(&mut self, external_move: Option<Move>) -> ControlFlow<MatchResult, &GameState<N>> {
 		assert!(!self.game.is_done(), "Match::next called on terminal game");
 
 		let m = external_move.unwrap_or_else(|| match self.game.turn {
@@ -152,20 +154,20 @@ where
 			if let Some(ref db) = self.rating_db {
 				result.update_elo(db.as_ref());
 			}
-			Err(result)
+			ControlFlow::Break(result)
 		} else {
-			Ok(&self.game)
+			ControlFlow::Continue(&self.game)
 		}
 	}
 
 	/// Play to completion (all players must be AI).
 	pub fn run(mut self) -> MatchResult {
-		loop {
-			match self.next(None) {
-				Ok(_) => {}
-				Err(result) => return result,
+		for _ in 0..GameState::<N>::total_moves() {
+			if let ControlFlow::Break(result) = self.next(None) {
+				return result;
 			}
 		}
+		panic!("game did not terminate within {} moves", GameState::<N>::total_moves());
 	}
 
 	fn build_result(&self) -> MatchResult {
@@ -211,10 +213,10 @@ where
 		self.game.hands
 	}
 
-	fn next(&mut self, external_move: Option<Move>) -> Result<(), MatchResult> {
+	fn next(&mut self, external_move: Option<Move>) -> ControlFlow<MatchResult> {
 		match Match::next(self, external_move) {
-			Ok(_) => Ok(()),
-			Err(result) => Err(result),
+			ControlFlow::Continue(_) => ControlFlow::Continue(()),
+			ControlFlow::Break(result) => ControlFlow::Break(result),
 		}
 	}
 
@@ -262,16 +264,11 @@ mod tests {
 		let p2 = DummyRandom(SmallRng::seed_from_u64(2));
 		let mut m = Match::new(game, p1, p2);
 		let mut steps = 0;
-		loop {
-			match m.next(None) {
-				Ok(_) => steps += 1,
-				Err(result) => {
-					steps += 1;
-					assert_eq!(steps, 24);
-					assert_eq!(result.moves.len(), 24);
-					break;
-				}
-			}
+		while let ControlFlow::Continue(_) = m.next(None) {
+			steps += 1;
 		}
+		// The final move that ended the game
+		steps += 1;
+		assert_eq!(steps, 24);
 	}
 }
