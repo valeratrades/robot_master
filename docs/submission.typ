@@ -11,5 +11,7 @@ NB: don't forget to mention:
   - aggressive tests in /home/v/uni/robot_master/py_src/IA/IA_test.py to be based on final score (cause tiebrake rules shouldn't influence)
   - type in some tests like /home/v/uni/robot_master/py_src/partie_guidee/c_test.py:65 are switched to ones that make more sense
     // here it's a tuple for `("B", "r", {3: 1})`, not an array (cause first two are positional)
+  - mention I didn't know abt `IA_test.py` for a while, so it won't exist or pass until `v0.5.0`
+- all the links are to `gitlab` only, - github of this project is private (yet is source of truth).
 
 NB: when talking about fundamental design decisions and things that should go into docs/, - just put them in docs, then link. Despite what they say in the pdf file, we're writing more of a progress report, and actually important things should be persisted alongside the code itself not in some random compiled pdf.
