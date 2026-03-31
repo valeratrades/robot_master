@@ -306,7 +306,10 @@ fn spawn_player_dropdown(commands: &mut Commands, player_idx: usize, ratings: &H
 		let s = key.as_str();
 		match s.parse::<PlayerKind>() {
 			Ok(kind) => kinds.push(kind),
-			Err(_) => kinds.push(PlayerKind::Manual { name: s.to_string() }),
+			Err(_) =>
+				if robot_master_arena::algos::validate_manual_name(s).is_ok() {
+					kinds.push(PlayerKind::Manual { name: s.to_string() });
+				},
 		}
 	}
 

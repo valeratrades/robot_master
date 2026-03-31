@@ -6,7 +6,7 @@ mod menu;
 mod result;
 mod theme;
 
-use bevy::{asset::AssetMetaCheck, ecs::message::MessageWriter, prelude::*};
+use bevy::{asset::AssetMetaCheck, prelude::*};
 use robot_master_arena::{BoardSize, algos::PlayerKind};
 use robot_master_core::cards::CardValue;
 use v_utils::bevy::{PressedChars, update_pressed_chars};
@@ -27,10 +27,14 @@ pub struct InitialPlayers {
 	pub size: BoardSize,
 }
 
+#[derive(Clone, Copy, Debug, Resource)]
+struct SoundEnabled(bool);
+
 #[cfg(not(target_arch = "wasm32"))]
-pub fn create_app(asset_dir: &str, size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> App {
+pub fn create_app(asset_dir: &str, size: BoardSize, p1: PlayerKind, p2: PlayerKind, sound: bool) -> App {
 	let mut app = App::new();
 	app.insert_resource(InitialPlayers { p1, p2, size });
+	app.insert_resource(SoundEnabled(sound));
 	configure_app(&mut app, asset_dir.to_string());
 	app
 }
@@ -42,6 +46,7 @@ pub fn create_app() -> App {
 		p2: PlayerKind::Random(robot_master_arena::algos::Random {}),
 		size: BoardSize::DEFAULT,
 	});
+	app.insert_resource(SoundEnabled(true));
 	configure_app(&mut app, String::new());
 	app
 }
@@ -60,6 +65,8 @@ impl Textures {
 fn configure_app(app: &mut App, file_path: String) {
 	app.add_plugins(
 		DefaultPlugins
+			.build()
+			.disable::<bevy::app::TerminalCtrlCHandlerPlugin>()
 			.set(AssetPlugin {
 				meta_check: AssetMetaCheck::Never,
 				file_path,
@@ -92,18 +99,13 @@ fn configure_app(app: &mut App, file_path: String) {
 	app.init_resource::<PressedChars>()
 		.init_state::<AppState>()
 		.add_systems(Startup, setup)
-		.add_systems(Update, (update_pressed_chars, handle_ctrl_c).chain())
+		.add_systems(Update, update_pressed_chars)
 		.add_plugins((menu::MenuPlugin, gameplay::GameplayPlugin, result::ResultPlugin));
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>, sound: Res<SoundEnabled>) {
 	commands.spawn(Camera2d);
-	commands.spawn(AudioPlayer::new(asset_server.load("music/robotic_city_v2.ogg")));
-}
-
-fn handle_ctrl_c(keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppExit>) {
-	let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-	if ctrl && keys.just_pressed(KeyCode::KeyC) {
-		exit.write(AppExit::Success);
+	if sound.0 {
+		commands.spawn(AudioPlayer::new(asset_server.load("music/robotic_city_v2.ogg")));
 	}
 }
