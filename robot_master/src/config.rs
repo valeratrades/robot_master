@@ -58,6 +58,11 @@ pub enum ArenaCommands {
 
 #[derive(Subcommand)]
 pub enum PlayersCommands {
+	/// Register a new player algorithm (e.g. `mcts:s500`, `random`, `rollout`)
+	New {
+		/// Player spec: algo name with optional params (e.g. `mcts:s500`, `greedy`)
+		player: String,
+	},
 	/// List all players and their ratings
 	List,
 	/// Reset ratings to default (all if no players filter, otherwise only matched)
