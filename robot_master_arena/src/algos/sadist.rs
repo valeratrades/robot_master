@@ -6,28 +6,20 @@ use robot_master_core::{
 	scoring::{LineCounts, line_counts, score_line},
 };
 use ustr::{Ustr, ustr};
+use v_utils::macros::CompactFormatNamed;
 
 use crate::player::Bot;
 
 /// Sadist player: minimizes the opponent's maximum potential score.
-///
-/// Faithful port of `choix_carte_agressif` from `py_src/IA/h_agressif.py`.
-///
-/// Algorithm:
-/// 1. For each valid (position, card) pair:
-///    a. Simulate the move.
-///    b. For each of the opponent's lines, enumerate all possible completions using remaining cards, take max score.
-///    c. The opponent's "max potential" = max across all their lines.
-/// 2. Pick the move that minimizes this opponent max potential.
-/// 3. Tiebreak: (score, card, row, col) — lower is better lexicographically.
-pub struct SadistPlayer;
+#[derive(Clone, CompactFormatNamed, Debug)]
+pub struct Sadist {}
 
-impl<const N: usize> Bot<N> for SadistPlayer
+impl<const N: usize> Bot<N> for Sadist
 where
 	[(); N * N]:,
 {
 	fn id(&self) -> Ustr {
-		ustr("sadist")
+		ustr(&self.to_string())
 	}
 
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
@@ -207,7 +199,7 @@ mod tests {
 	#[test]
 	fn agressif_midgame() {
 		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), Player::B);
-		let m = SadistPlayer.choose_move(&state);
+		let m = Sadist {}.choose_move(&state);
 		assert_snapshot!(format!("{}\nmove: card={} pos=({},{})", state.board, m.card.0, m.pos.row, m.pos.col), @"
 		-----------------------------
 		          0   1   2   3   4
@@ -278,7 +270,7 @@ mod tests {
 				turn,
 				config: GameConfig::default(),
 			};
-			let m = SadistPlayer.choose_move(&state);
+			let m = Sadist {}.choose_move(&state);
 			moves.push(format!("board={board} turn={turn:?} card={} pos=({},{})", m.card.0, m.pos.row, m.pos.col));
 			board.set(m.pos, m.card.0);
 			hand_counts[m.card.0 as usize] -= 1;

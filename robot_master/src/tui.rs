@@ -6,7 +6,7 @@ use std::{
 use rand::rngs::SmallRng;
 use robot_master_arena::{
 	BoardSize,
-	algos::{PlayerKind, rollout::RolloutPlayer},
+	algos::{PlayerKind, rollout::Rollout},
 	db::RatingDb,
 	match_::{Match, MatchResult},
 	player::Bot,
@@ -37,7 +37,7 @@ where
 	[(); N * N]:, {
 	match kind {
 		PlayerKind::Mcts(params) => {
-			let evaluator = RolloutEval::new(RolloutPlayer);
+			let evaluator = RolloutEval::new(Rollout {});
 			let config = MctsConfig {
 				simulations: params.simulations,
 				c_puct: 1.41,

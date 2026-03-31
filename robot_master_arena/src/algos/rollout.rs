@@ -6,19 +6,20 @@ use robot_master_core::{
 	scoring::{line_counts, score_delta, score_line},
 };
 use ustr::{Ustr, ustr};
+use v_utils::macros::CompactFormatNamed;
 
 use crate::player::Bot;
 
 /// Rollout-quality bot: `modal_greed` when we can improve our score, `averse` when we can't.
-#[derive(Clone)]
-pub struct RolloutPlayer;
+#[derive(Clone, CompactFormatNamed, Debug)]
+pub struct Rollout {}
 
-impl<const N: usize> Bot<N> for RolloutPlayer
+impl<const N: usize> Bot<N> for Rollout
 where
 	[(); N * N]:,
 {
 	fn id(&self) -> Ustr {
-		ustr("rollout")
+		ustr(&self.to_string())
 	}
 
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
@@ -247,7 +248,7 @@ mod tests {
 	fn rollout_returns_legal_move() {
 		let mut rng = SmallRng::seed_from_u64(42);
 		let state: GameState<5> = GameState::new(GameConfig::default(), &mut rng);
-		let mv = RolloutPlayer.choose_move(&state);
+		let mv = Rollout {}.choose_move(&state);
 		assert!(state.valid_moves().any(|m| m == mv), "illegal move: {mv}");
 	}
 
@@ -255,7 +256,7 @@ mod tests {
 	fn rollout_plays_full_game() {
 		let mut rng = SmallRng::seed_from_u64(42);
 		let mut state: GameState<5> = GameState::new(GameConfig::default(), &mut rng);
-		let mut bot = RolloutPlayer;
+		let mut bot = Rollout {};
 
 		while state.outcome().is_none() {
 			let mv = bot.choose_move(&state);

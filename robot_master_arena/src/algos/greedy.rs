@@ -5,6 +5,7 @@ use robot_master_core::{
 	scoring::{line_counts, score_delta},
 };
 use ustr::{Ustr, ustr};
+use v_utils::macros::CompactFormatNamed;
 
 use crate::player::Bot;
 
@@ -21,15 +22,15 @@ use crate::player::Bot;
 ///    Tiebreak: highest delta, then lowest card value.
 ///
 /// Limitation: treats each line independently, no lookahead.
-#[derive(Clone)]
-pub struct GreedyPlayer;
+#[derive(Clone, CompactFormatNamed, Debug)]
+pub struct Greedy {}
 
-impl<const N: usize> Bot<N> for GreedyPlayer
+impl<const N: usize> Bot<N> for Greedy
 where
 	[(); N * N]:,
 {
 	fn id(&self) -> Ustr {
-		ustr("greedy")
+		ustr(&self.to_string())
 	}
 
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
@@ -137,7 +138,7 @@ mod tests {
 	fn picks_highest_delta_odd_player() {
 		// Row 2 already has a 3; playing another 3 gives delta=27 (9*3) vs delta=1 for card 1.
 		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), Player::B);
-		let m = GreedyPlayer.choose_move(&state);
+		let m = Greedy {}.choose_move(&state);
 		assert_eq!(m.card, CardValue(3));
 		assert_eq!(m.pos.row, 2);
 		assert_snapshot!(format!("{}\nmove: card={} pos=({},{})", state.board, m.card.0, m.pos.row, m.pos.col), @"
@@ -158,7 +159,7 @@ mod tests {
 	fn picks_highest_delta_even_player() {
 		// Col 2 already has a 3; even player scores columns.
 		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), Player::A);
-		let m = GreedyPlayer.choose_move(&state);
+		let m = Greedy {}.choose_move(&state);
 		assert_eq!(m.card, CardValue(3));
 		assert_eq!(m.pos.col, 2);
 	}
@@ -166,7 +167,7 @@ mod tests {
 	#[test]
 	fn midgame_odd_player() {
 		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), Player::B);
-		let m = GreedyPlayer.choose_move(&state);
+		let m = Greedy {}.choose_move(&state);
 		assert_snapshot!(format!("{}\nmove: card={} pos=({},{})", state.board, m.card.0, m.pos.row, m.pos.col), @"
 		-----------------------------
 		          0   1   2   3   4
@@ -184,7 +185,7 @@ mod tests {
 	#[test]
 	fn midgame_even_player() {
 		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), Player::A);
-		let m = GreedyPlayer.choose_move(&state);
+		let m = Greedy {}.choose_move(&state);
 		assert_snapshot!(format!("card={} pos=({},{})", m.card.0, m.pos.row, m.pos.col), @"card=3 pos=(2,3)");
 	}
 
@@ -244,7 +245,7 @@ mod tests {
 				turn,
 				config: GameConfig::default(),
 			};
-			let m = GreedyPlayer.choose_move(&state);
+			let m = Greedy {}.choose_move(&state);
 			moves.push(format!("board={board} turn={turn:?} card={} pos=({},{})", m.card.0, m.pos.row, m.pos.col));
 			board.set(m.pos, m.card.0);
 			hand_counts[m.card.0 as usize] -= 1;
