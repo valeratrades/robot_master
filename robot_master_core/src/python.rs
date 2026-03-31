@@ -289,6 +289,19 @@ where
 	Ok(board)
 }
 
+/// Diff display between two board states. New cells shown as `+v`.
+#[pyfunction]
+pub fn display_diff_py(plateau: Vec<Vec<Option<u8>>>, prev: Vec<Vec<Option<u8>>>) -> PyResult<String> {
+	let n = plateau.len();
+	match n {
+		5 => Ok(board_from_plateau::<5>(&plateau)?.display_diff(&board_from_plateau::<5>(&prev)?)),
+		7 => Ok(board_from_plateau::<7>(&plateau)?.display_diff(&board_from_plateau::<7>(&prev)?)),
+		9 => Ok(board_from_plateau::<9>(&plateau)?.display_diff(&board_from_plateau::<9>(&prev)?)),
+		11 => Ok(board_from_plateau::<11>(&plateau)?.display_diff(&board_from_plateau::<11>(&prev)?)),
+		_ => Err(PyValueError::new_err(format!("unsupported board size {n}"))),
+	}
+}
+
 // ---------------------------------------------------------------------------
 // a_plateau equivalents
 // ---------------------------------------------------------------------------

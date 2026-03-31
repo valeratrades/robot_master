@@ -26,6 +26,7 @@ fn robot_master(m: &Bound<'_, PyModule>) -> PyResult<()> {
 	m.add_function(wrap_pyfunction!(robot_master_core::python::score_joueuse, m)?)?;
 	m.add_function(wrap_pyfunction!(robot_master_core::python::victoire_py, m)?)?;
 	m.add_function(wrap_pyfunction!(robot_master_core::python::random_move_py, m)?)?;
+	m.add_function(wrap_pyfunction!(robot_master_core::python::display_diff_py, m)?)?;
 	m.add_function(wrap_pyfunction!(greedy_move_py, m)?)?;
 	m.add_function(wrap_pyfunction!(sadist_move_py, m)?)?;
 	Ok(())

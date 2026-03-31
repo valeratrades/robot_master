@@ -53,6 +53,7 @@ class Pos:
 def choix_carte_greedy(plateau: Grid, dico_main: dict[int, int], dico_options: dict[str, int], joueuse_active: int) -> tuple[int, int, int]:
 	"""La fonction choix_carte_greedy retourne un tuple (carte,posL,posC) maximisant le score_complet de la joueuse_active."""
 	import robot_master as _rc
+
 	return _rc.greedy_move_py(plateau, dico_main, joueuse_active)
 
 
@@ -60,8 +61,10 @@ def choix_carte_greedy(plateau: Grid, dico_main: dict[int, int], dico_options: d
 #                Tests
 # -----------------------------------------
 if True:
+	import copy
+
 	from inline_snapshot import snapshot
-	from partie_guidee.a_plateau import plateau_to_string
+	from partie_guidee.a_plateau import display_diff, plateau_to_string
 
 	OPTS = {"maxC": 5}
 
@@ -105,24 +108,40 @@ if True:
 	def test_picks_highest_delta_odd_player():
 		# Row 2 already has a 3; playing another 3 gives delta=27 (9*3) vs delta=1 for card 1.
 		board = _board_one_card()
-		assert plateau_to_string(board) == snapshot("""\
+		card, posL, posC = _check(board, {0: 0, 1: 1, 2: 0, 3: 2, 4: 0, 5: 0}, joueuse_active=1)
+		after = copy.deepcopy(board)
+		after[posL][posC] = card
+		assert display_diff(after, board) == snapshot("""\
 -----------------------------
           0   1   2   3   4
 -----------------------------
 (0,_)   |   |   |   |   |   |
 (1,_)   |   |   |   |   |   |
-(2,_)   |   |   | 3 |   |   |
+(2,_)   |   |+3 | 3 |   |   |
 (3,_)   |   |   |   |   |   |
 (4,_)   |   |   |   |   |   |
------------------------------""")
-		card, posL, _posC = _check(board, {0: 0, 1: 1, 2: 0, 3: 2, 4: 0, 5: 0}, joueuse_active=1)
+-----------------------------\
+""")
 		assert card == 3
 		assert posL == 2  # must land in row 2 to score the pair
 
 	def test_picks_highest_delta_even_player():
 		# Col 2 already has a 3; even player scores columns.
 		board = _board_one_card()
-		card, _posL, posC = _check(board, {0: 0, 1: 1, 2: 0, 3: 2, 4: 0, 5: 0}, joueuse_active=0)
+		card, posL, posC = _check(board, {0: 0, 1: 1, 2: 0, 3: 2, 4: 0, 5: 0}, joueuse_active=0)
+		after = copy.deepcopy(board)
+		after[posL][posC] = card
+		assert display_diff(after, board) == snapshot("""\
+-----------------------------
+          0   1   2   3   4
+-----------------------------
+(0,_)   |   |   |   |   |   |
+(1,_)   |   |   |+3 |   |   |
+(2,_)   |   |   | 3 |   |   |
+(3,_)   |   |   |   |   |   |
+(4,_)   |   |   |   |   |   |
+-----------------------------\
+""")
 		assert card == 3
 		assert posC == 2  # must land in col 2 to score the pair
 
@@ -145,11 +164,39 @@ if True:
 (3,_)   |   | 2 |   |   | 0 |
 (4,_)   | 4 | 4 | 4 | 0 | 0 |
 -----------------------------""")
-		assert _check(board, {0: 1, 1: 2, 2: 0, 3: 1, 4: 0, 5: 2}, joueuse_active=1) == snapshot((1, 0, 1))
+		card, posL, posC = _check(board, {0: 1, 1: 2, 2: 0, 3: 1, 4: 0, 5: 2}, joueuse_active=1)
+		after = copy.deepcopy(board)
+		after[posL][posC] = card
+		assert display_diff(after, board) == snapshot("""\
+-----------------------------
+          0   1   2   3   4
+-----------------------------
+(0,_)   |   |+1 | 1 | 1 | 0 |
+(1,_)   |   | 2 |   | 3 |   |
+(2,_)   | 4 |   |   |   |   |
+(3,_)   |   | 2 |   |   | 0 |
+(4,_)   | 4 | 4 | 4 | 0 | 0 |
+-----------------------------\
+""")
+		assert (card, posL, posC) == snapshot((1, 0, 1))
 
 	def test_midgame_even_player():
 		board = _board_midgame()
-		assert _check(board, {0: 1, 1: 2, 2: 0, 3: 1, 4: 0, 5: 2}, joueuse_active=0) == snapshot((3, 2, 3))
+		card, posL, posC = _check(board, {0: 1, 1: 2, 2: 0, 3: 1, 4: 0, 5: 2}, joueuse_active=0)
+		after = copy.deepcopy(board)
+		after[posL][posC] = card
+		assert display_diff(after, board) == snapshot("""\
+-----------------------------
+          0   1   2   3   4
+-----------------------------
+(0,_)   |   |   | 1 | 1 | 0 |
+(1,_)   |   | 2 |   | 3 |   |
+(2,_)   | 4 |   |   |+3 |   |
+(3,_)   |   | 2 |   |   | 0 |
+(4,_)   | 4 | 4 | 4 | 0 | 0 |
+-----------------------------\
+""")
+		assert (card, posL, posC) == snapshot((3, 2, 3))
 
 	def test_game_rollout():
 		from partie_guidee.b_gestionCartes import place_carte
@@ -160,148 +207,100 @@ if True:
 		for turn in range(10):
 			joueuse = turn % 2
 			card, posL, posC = _check(board, hand, joueuse)
-			moves.append((plateau_to_string(board), joueuse, card, posL, posC))
+			prev = copy.deepcopy(board)
 			place_carte(board, posL, posC, card)
+			moves.append(f"turn={joueuse}\n{display_diff(board, prev)}")
 			hand[card] -= 1
 			if hand[card] == 0:
 				del hand[card]
 			if not any(v > 0 for v in hand.values()):
 				break
-		assert moves == snapshot([
-			(
-				"""\
+		assert "\n---\n".join(moves) == snapshot("""\
+turn=0
 -----------------------------
           0   1   2   3   4
 -----------------------------
-(0,_)   |   |   | 1 | 1 | 0 |
+(0,_)   |   |+2 | 1 | 1 | 0 |
 (1,_)   |   | 2 |   | 3 |   |
 (2,_)   | 4 |   |   |   |   |
 (3,_)   |   | 2 |   |   | 0 |
 (4,_)   | 4 | 4 | 4 | 0 | 0 |
------------------------------\
-""",
-				0,
-				2,
-				0,
-				1,
-			),
-			(
-				"""\
+-----------------------------
+---
+turn=1
 -----------------------------
           0   1   2   3   4
 -----------------------------
-(0,_)   |   | 2 | 1 | 1 | 0 |
+(0,_)   |+1 | 2 | 1 | 1 | 0 |
 (1,_)   |   | 2 |   | 3 |   |
 (2,_)   | 4 |   |   |   |   |
 (3,_)   |   | 2 |   |   | 0 |
 (4,_)   | 4 | 4 | 4 | 0 | 0 |
------------------------------\
-""",
-				1,
-				1,
-				0,
-				0,
-			),
-			(
-				"""\
+-----------------------------
+---
+turn=0
 -----------------------------
           0   1   2   3   4
 -----------------------------
 (0,_)   | 1 | 2 | 1 | 1 | 0 |
 (1,_)   |   | 2 |   | 3 |   |
-(2,_)   | 4 |   |   |   |   |
+(2,_)   | 4 |   |   |+3 |   |
 (3,_)   |   | 2 |   |   | 0 |
 (4,_)   | 4 | 4 | 4 | 0 | 0 |
------------------------------\
-""",
-				0,
-				3,
-				2,
-				3,
-			),
-			(
-				"""\
+-----------------------------
+---
+turn=1
 -----------------------------
           0   1   2   3   4
 -----------------------------
 (0,_)   | 1 | 2 | 1 | 1 | 0 |
-(1,_)   |   | 2 |   | 3 |   |
+(1,_)   |+5 | 2 |   | 3 |   |
 (2,_)   | 4 |   |   | 3 |   |
 (3,_)   |   | 2 |   |   | 0 |
 (4,_)   | 4 | 4 | 4 | 0 | 0 |
------------------------------\
-""",
-				1,
-				5,
-				1,
-				0,
-			),
-			(
-				"""\
+-----------------------------
+---
+turn=0
 -----------------------------
           0   1   2   3   4
 -----------------------------
 (0,_)   | 1 | 2 | 1 | 1 | 0 |
 (1,_)   | 5 | 2 |   | 3 |   |
 (2,_)   | 4 |   |   | 3 |   |
-(3,_)   |   | 2 |   |   | 0 |
+(3,_)   |+5 | 2 |   |   | 0 |
 (4,_)   | 4 | 4 | 4 | 0 | 0 |
------------------------------\
-""",
-				0,
-				5,
-				3,
-				0,
-			),
-			(
-				"""\
+-----------------------------
+---
+turn=1
 -----------------------------
           0   1   2   3   4
 -----------------------------
 (0,_)   | 1 | 2 | 1 | 1 | 0 |
-(1,_)   | 5 | 2 |   | 3 |   |
+(1,_)   | 5 | 2 |+1 | 3 |   |
 (2,_)   | 4 |   |   | 3 |   |
 (3,_)   | 5 | 2 |   |   | 0 |
 (4,_)   | 4 | 4 | 4 | 0 | 0 |
------------------------------\
-""",
-				1,
-				1,
-				1,
-				2,
-			),
-			(
-				"""\
+-----------------------------
+---
+turn=0
 -----------------------------
           0   1   2   3   4
 -----------------------------
 (0,_)   | 1 | 2 | 1 | 1 | 0 |
 (1,_)   | 5 | 2 | 1 | 3 |   |
-(2,_)   | 4 |   |   | 3 |   |
+(2,_)   | 4 |+0 |   | 3 |   |
 (3,_)   | 5 | 2 |   |   | 0 |
 (4,_)   | 4 | 4 | 4 | 0 | 0 |
------------------------------\
-""",
-				0,
-				0,
-				2,
-				1,
-			),
-			(
-				"""\
+-----------------------------
+---
+turn=1
 -----------------------------
           0   1   2   3   4
 -----------------------------
 (0,_)   | 1 | 2 | 1 | 1 | 0 |
-(1,_)   | 5 | 2 | 1 | 3 |   |
+(1,_)   | 5 | 2 | 1 | 3 |+0 |
 (2,_)   | 4 | 0 |   | 3 |   |
 (3,_)   | 5 | 2 |   |   | 0 |
 (4,_)   | 4 | 4 | 4 | 0 | 0 |
 -----------------------------\
-""",
-				1,
-				0,
-				1,
-				4,
-			),
-		])
+""")

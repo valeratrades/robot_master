@@ -17,6 +17,10 @@ def plateau_to_string(plateau: Grid, vide: str = "   ") -> str:
 	return _rc.plateau_to_string(plateau, vide)
 
 
+def display_diff(plateau: Grid, prev: Grid) -> str:
+	return _rc.display_diff_py(plateau, prev)
+
+
 def afficher_coordonnees(plateau: Grid) -> None:
 	n = len(plateau)
 	for i in range(n):

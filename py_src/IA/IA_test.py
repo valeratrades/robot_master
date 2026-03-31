@@ -8,9 +8,21 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 
+from inline_snapshot import snapshot
+
 from IA.g_greedy import *
 from IA.h_agressif import *
+from partie_guidee.a_plateau import display_diff, plateau_to_string
 from partie_guidee.b_gestionCartes import *
+
+
+def _apply_move(plateau, card, posL, posC):
+	"""Return a copy of plateau with card placed, for diffing."""
+	import copy
+
+	p = copy.deepcopy(plateau)
+	p[posL][posC] = card
+	return p
 
 
 # test pour tous les score possible
@@ -20,28 +32,88 @@ def test_tous_les_scores_possibles():
 	dico_options = {"maxC": 5, "nbC": 6, "taille": 5}
 	assert set([106, 8, 8, 51, 51, 53, 53]) == set(tous_les_scores_possibles(dico_ligne, dico_crest, dico_options))
 
+
 # print(tous_les_scores_possibles(dico_ligne,dico_crest,dico_options))
 # Fin du test : [106,8,8,51,51,53,53]
 
 
 def test_greedy_colone():
 	(p, d_m, d_o) = config1()
-	assert choix_carte_greedy(p, d_m, d_o, 0) == [5, 4, 0] or choix_carte_greedy(p, d_m, d_o, 0) == (5, 4, 0)
+	assert plateau_to_string(p) == snapshot("""\
+-----------------------------
+          0   1   2   3   4
+-----------------------------
+(0,_)   |   |   |   |   | 1 |
+(1,_)   |   |   |   |   | 5 |
+(2,_)   |   |   | 3 | 2 | 1 |
+(3,_)   |   |   | 4 | 4 |   |
+(4,_)   |   | 2 | 2 | 2 |   |
+-----------------------------\
+""")
+	card, posL, posC = choix_carte_greedy(p, d_m, d_o, 0)
+	assert display_diff(_apply_move(p, card, posL, posC), p) == snapshot("""\
+-----------------------------
+          0   1   2   3   4
+-----------------------------
+(0,_)   |   |   |   |   | 1 |
+(1,_)   |   |   |   |   | 5 |
+(2,_)   |   |   | 3 | 2 | 1 |
+(3,_)   |   |   | 4 | 4 |+1 |
+(4,_)   |   | 2 | 2 | 2 |   |
+-----------------------------\
+""")
+	assert (card, posL, posC) == (5, 4, 0) or [card, posL, posC] == [5, 4, 0]
 
 
 def test_greedy_ligne():
 	(p, d_m, d_o) = config1()
-	assert choix_carte_greedy(p, d_m, d_o, 1) == [1, 0, 3] or choix_carte_greedy(p, d_m, d_o, 1) == (1, 0, 3)
+	card, posL, posC = choix_carte_greedy(p, d_m, d_o, 1)
+	assert display_diff(_apply_move(p, card, posL, posC), p) == snapshot("""\
+-----------------------------
+          0   1   2   3   4
+-----------------------------
+(0,_)   |   |   |   |   | 1 |
+(1,_)   |   |   |   |   | 5 |
+(2,_)   |   |   | 3 | 2 | 1 |
+(3,_)   |   |+4 | 4 | 4 |   |
+(4,_)   |   | 2 | 2 | 2 |   |
+-----------------------------\
+""")
+	assert (card, posL, posC) == (1, 0, 3) or [card, posL, posC] == [1, 0, 3]
 
 
 def test_aggro_colone():
 	(p, d_m, d_o) = config1()
-	assert choix_carte_agressif(p, d_m, d_o, 0) == [0, 2, 1] or choix_carte_agressif(p, d_m, d_o, 0) == (0, 2, 1)
+	card, posL, posC = choix_carte_agressif(p, d_m, d_o, 0)
+	assert display_diff(_apply_move(p, card, posL, posC), p) == snapshot("""\
+-----------------------------
+          0   1   2   3   4
+-----------------------------
+(0,_)   |   |   |   |+0 | 1 |
+(1,_)   |   |   |   |   | 5 |
+(2,_)   |   |   | 3 | 2 | 1 |
+(3,_)   |   |   | 4 | 4 |   |
+(4,_)   |   | 2 | 2 | 2 |   |
+-----------------------------\
+""")
+	assert (card, posL, posC) == (0, 2, 1) or [card, posL, posC] == [0, 2, 1]
 
 
 def test_aggro_ligne():
 	(p, d_m, d_o) = config1()
-	assert choix_carte_agressif(p, d_m, d_o, 1) == [0, 1, 2] or choix_carte_agressif(p, d_m, d_o, 1) == (0, 1, 2)
+	card, posL, posC = choix_carte_agressif(p, d_m, d_o, 1)
+	assert display_diff(_apply_move(p, card, posL, posC), p) == snapshot("""\
+-----------------------------
+          0   1   2   3   4
+-----------------------------
+(0,_)   |   |   |   |+0 | 1 |
+(1,_)   |   |   |   |   | 5 |
+(2,_)   |   |   | 3 | 2 | 1 |
+(3,_)   |   |   | 4 | 4 |   |
+(4,_)   |   | 2 | 2 | 2 |   |
+-----------------------------\
+""")
+	assert (card, posL, posC) == (0, 1, 2) or [card, posL, posC] == [0, 1, 2]
 
 
 def plateau_strat1():
