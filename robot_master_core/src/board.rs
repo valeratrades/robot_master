@@ -95,6 +95,50 @@ where
 			}
 		})
 	}
+
+	/// Diff display against another board state.
+	/// - `+v` — cell added (was empty in `other`, filled here)
+	/// - `-v` — cell removed (filled in `other`, empty here)
+	/// - `~v` — cell changed value
+	/// - ` v` — unchanged
+	pub fn display_diff(&self, other: &Board<N>) -> String {
+		use fmt::Write;
+		let mut out = String::new();
+		let bar: String = "-".repeat(9 + 4 * N);
+		writeln!(out, "{bar}").unwrap();
+		write!(out, "          ").unwrap();
+		for c in 0..N {
+			if c + 1 < N {
+				write!(out, "{c}   ").unwrap();
+			} else {
+				write!(out, "{c}").unwrap();
+			}
+		}
+		writeln!(out).unwrap();
+		writeln!(out, "{bar}").unwrap();
+		for row in 0..N {
+			write!(out, "({row},_)   |").unwrap();
+			for col in 0..N {
+				let p = Pos { row: row as u8, col: col as u8 };
+				let mine = self.get(p);
+				let theirs = other.get(p);
+				match (mine, theirs) {
+					(a, b) if a == b =>
+						if a == EMPTY {
+							write!(out, "   |").unwrap();
+						} else {
+							write!(out, " {a} |").unwrap();
+						},
+					(a, b) if b == EMPTY => write!(out, "+{a} |").unwrap(),
+					(a, _) if a == EMPTY => write!(out, "-  |").unwrap(),
+					(a, _) => write!(out, "~{a} |").unwrap(),
+				}
+			}
+			writeln!(out).unwrap();
+		}
+		write!(out, "{bar}").unwrap();
+		out
+	}
 }
 
 impl<const N: usize> Default for Board<N>

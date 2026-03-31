@@ -51,9 +51,16 @@ impl PlayerKind {
 		ustr(&self.to_string())
 	}
 
-	/// Canonical algo names for discovery (fzf, arena seeding).
-	pub fn algo_names() -> &'static [&'static str] {
-		&["random", "greedy", "sadist", "rollout", "mcts"]
+	/// All non-Manual variants with default parameters.
+	pub fn defaults() -> impl Iterator<Item = Self> {
+		[
+			PlayerKind::Random(Random {}),
+			PlayerKind::Greedy(Greedy {}),
+			PlayerKind::Sadist(Sadist {}),
+			PlayerKind::Rollout(Rollout {}),
+			PlayerKind::Mcts(Mcts::default()),
+		]
+		.into_iter()
 	}
 
 	/// Construct a concrete `Bot<N>` from this kind.

@@ -11,6 +11,7 @@ use robot_master_arena::{
 use robot_master_core::game::GameConfig;
 use robot_master_train::mcts::{MctsBot, MctsConfig, RolloutEval};
 use ustr::Ustr;
+use v_utils::io::ProgressBar;
 
 use crate::config::{ArenaCommands, PlayersCommands};
 
@@ -25,9 +26,9 @@ fn resolve_players(filter: &[String], rating_db: &dyn RatingDb) -> Vec<PlayerKin
 	let all_ids: Vec<Ustr> = {
 		let ratings = rating_db.load_ratings();
 		let mut ids: Vec<Ustr> = ratings.keys().copied().collect();
-		// Also include all known algo names even if they don't have ratings yet
-		for &name in PlayerKind::algo_names() {
-			let id = Ustr::from(name);
+		// Also include all known algo defaults even if they don't have ratings yet
+		for kind in PlayerKind::defaults() {
+			let id = kind.id();
 			if !ids.contains(&id) {
 				ids.push(id);
 			}
@@ -111,7 +112,11 @@ where
 		.collect();
 	let mut rng = rand::make_rng::<rand::rngs::SmallRng>();
 
-	let results = tournament::swiss::<N>(&mut players, ratings, config, avg_rounds, rating_db.as_ref(), &mut rng);
+	let swiss_rounds = (players.len() as f64).log2().ceil() as usize;
+	let estimated_total = (players.len() / 2) * avg_rounds * swiss_rounds;
+	let mut pb = ProgressBar::builder().total(estimated_total).prefix("Swiss".into()).build();
+
+	let results = tournament::swiss::<N>(&mut players, ratings, config, avg_rounds, rating_db.as_ref(), &mut rng, Some(&mut pb));
 
 	// Print summary
 	let mut wins: std::collections::HashMap<Ustr, u32> = std::collections::HashMap::new();
@@ -136,7 +141,10 @@ where
 		let w = wins.get(id).copied().unwrap_or(0);
 		let g = games.get(id).copied().unwrap_or(0);
 		let prov = if rating.is_provisional() { "?" } else { "" };
-		eprintln!("  {id}: {:.0}{prov} (RD {:.0})  {w}/{g} wins", rating.rating, rating.deviation);
+		let prev = ratings.get(id).copied().unwrap_or(rating.rating);
+		let delta = rating.rating - prev;
+		let sign = if delta >= 0.0 { "+" } else { "" };
+		eprintln!("  {id}: {:.0}{prov} ({sign}{delta:.0}, RD {:.0})  {w}/{g} wins", rating.rating, rating.deviation);
 	}
 }
 
