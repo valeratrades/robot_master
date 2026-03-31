@@ -1,0 +1,19 @@
+[package]
+name = "robot_master_train"
+edition = "2024"
+version = "0.1.0"
+
+[dependencies]
+robot_master_arena = { path = "../robot_master_arena" }
+robot_master_core = { path = "../robot_master_core" }
+
+board-game = "0.8"
+
+rand.workspace = true
+ustr.workspace = true
+
+[dev-dependencies]
+insta = "1"
+
+[lints]
+workspace = true

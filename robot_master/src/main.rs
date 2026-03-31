@@ -3,32 +3,38 @@ use std::{io::Write, process, str::FromStr, time::Duration};
 use clap::Parser;
 use robot_master::config::{Cli, Commands, LiveSettings};
 use robot_master_arena::{
-	algos::{ALGO_NAMES, PlayerKind},
+	algos::{PlayerKind, validate_manual_name},
 	db,
 };
 use robot_master_core::game::GameConfig;
 
 fn main() {
 	let cli = Cli::parse();
+	let auto_yes = cli.settings_flags.yes;
 	let settings = LiveSettings::new(cli.settings_flags, Duration::from_secs(5)).expect("failed to load config");
 	let config = settings.config().expect("failed to read config");
 	let rating_db = db::from_config(&config.arena);
 
-	let p1 = resolve_player(&cli.players.player1);
-	let p2 = resolve_player(&cli.players.player2);
 	let size = cli.players.size;
 
 	match cli.command {
 		Commands::Tui => {
+			let p1 = resolve_player(&cli.players.player1, auto_yes);
+			let p2 = resolve_player(&cli.players.player2, auto_yes);
 			let game_config = GameConfig {
 				size: size.into(),
 				..GameConfig::default()
 			};
 			robot_master::tui::run(game_config, size, p1, p2, rating_db);
 		}
-		Commands::Gui => {
+		Commands::Gui { sound } => {
+			let p1 = resolve_player(&cli.players.player1, auto_yes);
+			let p2 = resolve_player(&cli.players.player2, auto_yes);
 			let asset_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../robot_master_game/assets");
-			robot_master_game::create_app(asset_dir, size, p1, p2).run();
+			robot_master_game::create_app(asset_dir, size, p1, p2, sound).run();
+		}
+		Commands::Arena { select, command } => {
+			robot_master::arena::run(select, command, size, rating_db, auto_yes);
 		}
 	}
 }
@@ -38,9 +44,18 @@ fn main() {
 /// On exact match (case-insensitive, with shortcuts): returns immediately.
 /// Otherwise: asks whether to register a manual player with that name,
 /// or falls back to fzf selection over all known algo names.
-fn resolve_player(input: &str) -> PlayerKind {
+fn resolve_player(input: &str, auto_yes: bool) -> PlayerKind {
 	if let Ok(kind) = PlayerKind::from_str(input) {
 		return kind;
+	}
+
+	validate_manual_name(input).unwrap_or_else(|e| {
+		eprintln!("{e}");
+		process::exit(1);
+	});
+
+	if auto_yes {
+		return PlayerKind::Manual { name: input.to_string() };
 	}
 
 	eprint!("Unknown player \"{input}\". Register as manual player? [y/N] ");
@@ -52,7 +67,8 @@ fn resolve_player(input: &str) -> PlayerKind {
 	}
 
 	// Fall back to fzf selection over algo names
-	let all_names: Vec<&str> = std::iter::once("manual").chain(ALGO_NAMES.iter().copied()).collect();
+	let algo_names: Vec<String> = PlayerKind::defaults().map(|k| k.to_string()).collect();
+	let all_names: Vec<&str> = std::iter::once("manual").chain(algo_names.iter().map(|s| s.as_str())).collect();
 	let fzf_input = all_names.join("\n");
 
 	let mut child = process::Command::new("fzf")

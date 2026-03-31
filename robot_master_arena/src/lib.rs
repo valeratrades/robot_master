@@ -1,4 +1,5 @@
 #![feature(default_field_values)]
+#![feature(error_generic_member_access)]
 #![feature(generic_const_exprs)]
 #![allow(incomplete_features)]
 

@@ -6,9 +6,10 @@ mod menu;
 mod result;
 mod theme;
 
-use bevy::{asset::AssetMetaCheck, ecs::message::MessageWriter, prelude::*};
+use bevy::{asset::AssetMetaCheck, prelude::*};
 use robot_master_arena::{BoardSize, algos::PlayerKind};
 use robot_master_core::cards::CardValue;
+use v_utils::bevy::{PressedChars, update_pressed_chars};
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, States)]
 pub enum AppState {
@@ -27,9 +28,10 @@ pub struct InitialPlayers {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn create_app(asset_dir: &str, size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> App {
+pub fn create_app(asset_dir: &str, size: BoardSize, p1: PlayerKind, p2: PlayerKind, sound: bool) -> App {
 	let mut app = App::new();
 	app.insert_resource(InitialPlayers { p1, p2, size });
+	app.insert_resource(SoundEnabled(sound));
 	configure_app(&mut app, asset_dir.to_string());
 	app
 }
@@ -38,12 +40,15 @@ pub fn create_app() -> App {
 	let mut app = App::new();
 	app.insert_resource(InitialPlayers {
 		p1: PlayerKind::Manual { name: "Player".into() },
-		p2: PlayerKind::Random,
+		p2: PlayerKind::Random(robot_master_arena::algos::Random {}),
 		size: BoardSize::DEFAULT,
 	});
+	app.insert_resource(SoundEnabled(true));
 	configure_app(&mut app, String::new());
 	app
 }
+#[derive(Clone, Copy, Debug, Resource)]
+struct SoundEnabled(bool);
 
 /// Shared texture handles, loaded once at startup.
 #[derive(Resource)]
@@ -56,13 +61,11 @@ impl Textures {
 	}
 }
 
-/// Tracks whether `:` was pressed, waiting for `q` to complete `:q` exit.
-#[derive(Default, Resource)]
-struct ColonPressed(bool);
-
 fn configure_app(app: &mut App, file_path: String) {
 	app.add_plugins(
 		DefaultPlugins
+			.build()
+			.disable::<bevy::app::TerminalCtrlCHandlerPlugin>()
 			.set(AssetPlugin {
 				meta_check: AssetMetaCheck::Never,
 				file_path,
@@ -92,28 +95,16 @@ fn configure_app(app: &mut App, file_path: String) {
 		app.insert_resource(Textures { card_faces });
 	}
 
-	app.init_resource::<ColonPressed>()
+	app.init_resource::<PressedChars>()
 		.init_state::<AppState>()
 		.add_systems(Startup, setup)
-		.add_systems(Update, handle_exit)
+		.add_systems(Update, update_pressed_chars)
 		.add_plugins((menu::MenuPlugin, gameplay::GameplayPlugin, result::ResultPlugin));
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>, sound: Res<SoundEnabled>) {
 	commands.spawn(Camera2d);
-	commands.spawn(AudioPlayer::new(asset_server.load("music/robotic_city_v2.ogg")));
-}
-
-fn handle_exit(keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppExit>, mut colon: ResMut<ColonPressed>) {
-	let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-	if ctrl && keys.just_pressed(KeyCode::KeyC) {
-		exit.write(AppExit::Success);
-	}
-	if keys.just_pressed(KeyCode::Semicolon) && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)) {
-		colon.0 = true;
-	} else if colon.0 && keys.just_pressed(KeyCode::KeyQ) {
-		exit.write(AppExit::Success);
-	} else if keys.get_just_pressed().count() > 0 && !keys.just_pressed(KeyCode::ShiftLeft) && !keys.just_pressed(KeyCode::ShiftRight) {
-		colon.0 = false;
+	if sound.0 {
+		commands.spawn(AudioPlayer::new(asset_server.load("music/robotic_city_v2.ogg")));
 	}
 }

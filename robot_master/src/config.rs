@@ -3,7 +3,7 @@ use robot_master_arena::{BoardSize, config::ArenaConfig};
 use v_utils::macros as v_macros;
 
 #[derive(Parser)]
-#[command(author, version, about = "Robot Master game")]
+#[command(author, version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), ")"), about, long_about = None)]
 pub struct Cli {
 	#[clap(flatten)]
 	pub settings_flags: SettingsFlags,
@@ -29,8 +29,53 @@ pub enum Commands {
 	/// Play the game in the terminal
 	Tui,
 	/// Play the game with a graphical interface
-	Gui,
+	Gui {
+		/// Enable music and sound effects
+		#[arg(long, default_value = "false")]
+		sound: bool,
+	},
+	/// Arena: tournaments and data management
+	Arena {
+		/// Filter players by grepping these patterns against known IDs. If empty, all players.
+		#[arg(short, long, value_delimiter = ',')]
+		select: Vec<String>,
+		#[command(subcommand)]
+		command: ArenaCommands,
+	},
 	//DO: `site` command that starts the leptos server
+}
+
+#[derive(Subcommand)]
+pub enum ArenaCommands {
+	/// Run a Swiss tournament
+	Tourney {
+		/// Average number of games per pairing
+		#[arg(default_value = "1")]
+		rounds: usize,
+		/// Number of threads for parallel game execution (0 = all cores)
+		#[arg(short, long, default_value = "0")]
+		threads: usize,
+	},
+	/// Player data management
+	Players {
+		#[command(subcommand)]
+		command: PlayersCommands,
+	},
+}
+
+#[derive(Subcommand)]
+pub enum PlayersCommands {
+	/// Register a new player algorithm (e.g. `mcts:s500`, `random`, `rollout`)
+	New {
+		/// Player spec: algo name with optional params (e.g. `mcts:s500`, `greedy`)
+		player: String,
+	},
+	/// List all players and their ratings
+	List,
+	/// Reset ratings to default (all if no players filter, otherwise only matched)
+	ResetRatings,
+	/// Remove players from the database entirely
+	Nuke,
 }
 
 #[derive(Clone, Debug, Default, v_macros::LiveSettings, v_macros::MyConfigPrimitives, v_macros::Settings)]

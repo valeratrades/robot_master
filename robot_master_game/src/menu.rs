@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use robot_master_arena::{BoardSize, algos::PlayerKind, rating::EloRating};
+use robot_master_arena::{
+	BoardSize,
+	algos::{Greedy, PlayerKind, Random, Sadist},
+	rating::Rating,
+};
 use strum::IntoEnumIterator;
 use ustr::Ustr;
 
@@ -10,7 +14,7 @@ use crate::{AppState, InitialPlayers, theme};
 pub struct MenuPlugin;
 /// Cached Elo ratings, loaded once per menu entry.
 #[derive(Resource)]
-struct Ratings(HashMap<Ustr, EloRating>);
+struct Ratings(HashMap<Ustr, Rating>);
 
 impl Plugin for MenuPlugin {
 	fn build(&self, app: &mut App) {
@@ -50,7 +54,7 @@ struct SizeDropdownOption(BoardSize);
 #[derive(Component)]
 struct DropdownPanel;
 
-fn format_player_label(kind: &PlayerKind, ratings: &HashMap<Ustr, EloRating>) -> String {
+fn format_player_label(kind: &PlayerKind, ratings: &HashMap<Ustr, Rating>) -> String {
 	let name = kind.to_string();
 	match ratings.get(&kind.id()) {
 		Some(elo) => format!("{name} ({:.0})", elo.rating),
@@ -285,18 +289,28 @@ fn dropdown_system(
 	}
 }
 
-fn spawn_player_dropdown(commands: &mut Commands, player_idx: usize, ratings: &HashMap<Ustr, EloRating>) {
-	use robot_master_arena::algos::ALGO_NAMES;
+fn spawn_player_dropdown(commands: &mut Commands, player_idx: usize, ratings: &HashMap<Ustr, Rating>) {
+	let mut kinds = vec![
+		PlayerKind::Manual { name: "Player".into() },
+		PlayerKind::Random(Random {}),
+		PlayerKind::Greedy(Greedy {}),
+		PlayerKind::Sadist(Sadist {}),
+	];
+	let default_ids: Vec<Ustr> = kinds.iter().map(|k| k.id()).collect();
 
-	let mut kinds = vec![PlayerKind::Manual { name: "Player".into() }, PlayerKind::Random, PlayerKind::Greedy, PlayerKind::Sadist];
-
-	// Discover manual players persisted in the ratings DB
+	// Discover players persisted in the ratings DB that aren't already in the hardcoded defaults
 	for key in ratings.keys() {
-		let s = key.as_str();
-		if s == "player" || ALGO_NAMES.contains(&s) {
+		if default_ids.contains(key) {
 			continue;
 		}
-		kinds.push(PlayerKind::Manual { name: s.to_string() });
+		let s = key.as_str();
+		match s.parse::<PlayerKind>() {
+			Ok(kind) => kinds.push(kind),
+			Err(_) =>
+				if robot_master_arena::algos::validate_manual_name(s).is_ok() {
+					kinds.push(PlayerKind::Manual { name: s.to_string() });
+				},
+		}
 	}
 
 	kinds.sort_by(|a, b| {
@@ -393,7 +407,7 @@ fn size_dropdown_item(size: BoardSize, label: String) -> impl Bundle {
 	)
 }
 
-fn load_ratings() -> HashMap<Ustr, EloRating> {
+fn load_ratings() -> HashMap<Ustr, Rating> {
 	#[cfg(not(target_arch = "wasm32"))]
 	{
 		use robot_master_arena::db::JsonRatingDb;

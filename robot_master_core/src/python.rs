@@ -136,7 +136,8 @@ pub fn distribution_cartes(pile_cartes: Vec<u8>, dico_options: Option<HashMap<St
 	Python::with_gil(|py| {
 		let opts = dico_options.unwrap_or_default();
 		let nb_j = opts.get("nbJ").copied().unwrap_or(2) as usize;
-		let cartes_distrib = opts.get("cartes_distrib").copied().unwrap_or(12) as usize;
+		let taille = opts.get("taille").copied().unwrap_or(5) as usize;
+		let cartes_distrib = (taille * taille - 1) / 2;
 
 		let mut result: Vec<PyObject> = Vec::new();
 		// first element: center card (scalar int)
@@ -264,7 +265,6 @@ pub fn config_from_options(opts: &HashMap<String, i64>) -> GameConfig {
 		size: opts.get("taille").copied().unwrap_or(5) as u8,
 		max_card: opts.get("maxC").copied().unwrap_or(5) as u8,
 		nb_c: opts.get("nbC").copied().unwrap_or(6) as u8,
-		cards_dealt: opts.get("cartes_distrib").copied().unwrap_or(12) as u8,
 	}
 }
 

@@ -1,17 +1,22 @@
-use std::io::{self, BufRead, Write};
+use std::{
+	io::{self, BufRead, Write},
+	ops::ControlFlow,
+};
 
 use rand::rngs::SmallRng;
 use robot_master_arena::{
 	BoardSize,
-	algos::PlayerKind,
+	algos::{PlayerKind, rollout::Rollout},
 	db::RatingDb,
 	match_::{Match, MatchResult},
+	player::Bot,
 };
 use robot_master_core::{
 	board::{Board, Pos},
 	cards::{CardValue, Hand},
-	game::{GameConfig, GameState, Move, PlayerId},
+	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
 };
+use robot_master_train::mcts::{MctsBot, MctsConfig, RolloutEval};
 
 pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Box<dyn RatingDb>) {
 	let stdout_handle = io::stdout();
@@ -27,6 +32,21 @@ pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, 
 		BoardSize::Eleven => run_sized::<11>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
 	}
 }
+fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
+where
+	[(); N * N]:, {
+	match kind {
+		PlayerKind::Mcts(params) => {
+			let evaluator = RolloutEval::new(Rollout {});
+			let config = MctsConfig {
+				simulations: params.simulations,
+				c_puct: 1.41,
+			};
+			Box::new(MctsBot::new(evaluator, config))
+		}
+		other => other.into_bot(),
+	}
+}
 
 /// Returns the move and erases all its own output, so the caller can re-display the board uniformly.
 fn read_manual_move<const N: usize>(board: &Board<N>, hand: &Hand, name: &str, stdout: &mut impl Write, stdin: &mut impl BufRead) -> Move
@@ -34,7 +54,8 @@ where
 	[(); N * N]:, {
 	let mut lines_to_erase = 0usize;
 	let mut warning: Option<String> = None;
-	loop {
+	//LOOP: bound the loop to 256 // if user made 256 incorrect inputs in a row, sth's wrong
+	for _ in 0..u8::MAX {
 		if lines_to_erase > 0 {
 			write!(stdout, "\x1B[{lines_to_erase}A\x1B[J").unwrap();
 		}
@@ -116,6 +137,7 @@ where
 
 		return Move { pos, card: CardValue(carte) };
 	}
+	panic!("failed to read a valid move after {} attempts", u8::MAX);
 }
 
 fn run_sized<const N: usize>(
@@ -130,30 +152,33 @@ fn run_sized<const N: usize>(
 	[(); N * N]:, {
 	let game: GameState<N> = GameState::new(config, rng);
 
-	let p1_display = format!("{p1_kind} ({:?})", PlayerId::Cols);
-	let p2_display = format!("{p2_kind} ({:?})", PlayerId::Rows);
+	let p1_display = format!("{p1_kind} ({})", PlayerDisplay(Player::A));
+	let p2_display = format!("{p2_kind} ({})", PlayerDisplay(Player::B));
 
 	let p1_manual = p1_kind.is_manual();
 	let p2_manual = p2_kind.is_manual();
 
-	let p1 = p1_kind.into_player::<N>();
-	let p2 = p2_kind.into_player::<N>();
-	let mut m = Match::new(game, p1, p2).with_rating_db(rating_db);
+	let p1_id = p1_kind.id();
+	let p2_id = p2_kind.id();
+	let p1 = kind_into_bot::<N>(p1_kind);
+	let p2 = kind_into_bot::<N>(p2_kind);
+	let mut m = Match::new(game, p1, p2, p1_id, p2_id).with_rating_db(rating_db);
 
 	// Show initial board
 	let board_str = m.game().board.to_string();
 	writeln!(stdout, "{board_str}").unwrap();
 	let mut prev_lines = board_str.chars().filter(|&c| c == '\n').count() + 1;
 
-	loop {
+	//LOOP: hard bound
+	for _ in 0..GameState::<N>::total_moves() {
 		let game = m.game();
 		let current_name = match game.turn {
-			PlayerId::Cols => &p1_display,
-			PlayerId::Rows => &p2_display,
+			Player::A => &p1_display,
+			Player::B => &p2_display,
 		};
 		let is_manual = match game.turn {
-			PlayerId::Cols => p1_manual,
-			PlayerId::Rows => p2_manual,
+			Player::A => p1_manual,
+			Player::B => p2_manual,
 		};
 
 		// Clear previous turn's output
@@ -163,20 +188,20 @@ fn run_sized<const N: usize>(
 		}
 
 		let external_move = if is_manual {
-			let hand = &game.hands[game.turn as usize];
+			let hand = &game.hands[game.turn.index() as usize];
 			Some(read_manual_move(&game.board, hand, current_name, stdout, stdin))
 		} else {
 			None
 		};
 
 		match m.next(external_move) {
-			Ok(game) => {
+			ControlFlow::Continue(game) => {
 				let board_str = game.board.to_string();
 				let output = format!("au tour de {current_name}\n{board_str}");
 				writeln!(stdout, "{output}").unwrap();
 				prev_lines = output.chars().filter(|&c| c == '\n').count() + 1;
 			}
-			Err(result) => {
+			ControlFlow::Break(result) => {
 				// Clear last turn display, show final board + results
 				if prev_lines > 0 {
 					write!(stdout, "\x1B[{prev_lines}A\x1B[J").unwrap();
@@ -187,6 +212,7 @@ fn run_sized<const N: usize>(
 			}
 		}
 	}
+	unreachable!("game did not terminate within {} moves", GameState::<N>::total_moves());
 }
 
 fn display_result<const N: usize>(result: &MatchResult, p1_display: &str, p2_display: &str, stdout: &mut impl Write)
@@ -205,19 +231,19 @@ where
 	)
 	.unwrap();
 
-	if let Some(ref elo) = result.elo_update {
-		let d1 = elo.p1_new - elo.p1_old;
-		let d2 = elo.p2_new - elo.p2_old;
+	if let Some(ref u) = result.rating_update {
+		let d1 = u.p1_new.rating - u.p1_old.rating;
+		let d2 = u.p2_new.rating - u.p2_old.rating;
 		let sign = |d: f64| if d >= 0.0 { "+" } else { "" };
 		writeln!(
 			stdout,
-			"\nElo: {} {:.0} ({}{:.0}) | {} {:.0} ({}{:.0})",
+			"\nRating: {} {:.0} ({}{:.0}) | {} {:.0} ({}{:.0})",
 			result.p1_id,
-			elo.p1_new,
+			u.p1_new.rating,
 			sign(d1),
 			d1,
 			result.p2_id,
-			elo.p2_new,
+			u.p2_new.rating,
 			sign(d2),
 			d2
 		)

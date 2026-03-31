@@ -1,42 +1,30 @@
+use board_game::board::Board as _;
 use robot_master_core::{
 	board::{EMPTY, Pos},
 	cards::MAX_CARD_VALUE,
-	game::{GameState, Move, PlayerId},
+	game::{GameState, Move, Player},
 	scoring::{LineCounts, line_counts, score_line},
 };
-use ustr::{Ustr, ustr};
+use v_utils::macros::CompactFormatNamed;
 
-use crate::player::Player;
+use crate::player::Bot;
 
 /// Sadist player: minimizes the opponent's maximum potential score.
-///
-/// Faithful port of `choix_carte_agressif` from `py_src/IA/h_agressif.py`.
-///
-/// Algorithm:
-/// 1. For each valid (position, card) pair:
-///    a. Simulate the move.
-///    b. For each of the opponent's lines, enumerate all possible completions using remaining cards, take max score.
-///    c. The opponent's "max potential" = max across all their lines.
-/// 2. Pick the move that minimizes this opponent max potential.
-/// 3. Tiebreak: (score, card, row, col) — lower is better lexicographically.
-pub struct SadistPlayer;
+#[derive(Clone, CompactFormatNamed, Debug)]
+pub struct Sadist {}
 
-impl<const N: usize> Player<N> for SadistPlayer
+impl<const N: usize> Bot<N> for Sadist
 where
 	[(); N * N]:,
 {
-	fn id(&self) -> Ustr {
-		ustr("sadist")
-	}
-
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
-		let opponent = game.turn.opponent();
+		let opponent = game.turn.other();
 
 		let mut best_move: Option<Move> = None;
 		let mut best_score: Option<(u16, u8, u8, u8)> = None; // (opp_potential, card, row, col)
 
 		for m in game.valid_moves() {
-			let next = game.apply_move(m).expect("valid_moves produced illegal move");
+			let next = game.clone_and_play(m).expect("valid_moves produced illegal move");
 			let opp_potential = score_max_potential::<N>(&next, opponent);
 
 			let key = (opp_potential, m.card.0, m.pos.row, m.pos.col);
@@ -52,7 +40,7 @@ where
 
 /// Maximum score the given player could achieve on their best line,
 /// considering all possible completions with remaining cards.
-fn score_max_potential<const N: usize>(game: &GameState<N>, player: PlayerId) -> u16
+fn score_max_potential<const N: usize>(game: &GameState<N>, player: Player) -> u16
 where
 	[(); N * N]:, {
 	let remaining = remaining_cards(game);
@@ -136,7 +124,7 @@ mod tests {
 
 	use super::*;
 
-	fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand, turn: PlayerId) -> GameState<5> {
+	fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand, turn: Player) -> GameState<5> {
 		let mut board = Board::<5>::default();
 		for row in 0..5u8 {
 			for col in 0..5u8 {
@@ -148,8 +136,8 @@ mod tests {
 		GameState {
 			board,
 			hands: match turn {
-				PlayerId::Cols => [hand, Hand::default()],
-				PlayerId::Rows => [Hand::default(), hand],
+				Player::A => [hand, Hand::default()],
+				Player::B => [Hand::default(), hand],
 			},
 			turn,
 			config: GameConfig::default(),
@@ -205,8 +193,8 @@ mod tests {
 
 	#[test]
 	fn agressif_midgame() {
-		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), PlayerId::Rows);
-		let m = SadistPlayer.choose_move(&state);
+		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), Player::B);
+		let m = Sadist {}.choose_move(&state);
 		assert_snapshot!(format!("{}\nmove: card={} pos=({},{})", state.board, m.card.0, m.pos.row, m.pos.col), @"
 		-----------------------------
 		          0   1   2   3   4
@@ -260,7 +248,7 @@ mod tests {
 		}
 
 		let mut moves: Vec<String> = Vec::new();
-		let turns = [PlayerId::Cols, PlayerId::Rows];
+		let turns = [Player::A, Player::B];
 
 		for turn_idx in 0..10usize {
 			let turn = turns[turn_idx % 2];
@@ -271,15 +259,16 @@ mod tests {
 			let state = GameState {
 				board,
 				hands: match turn {
-					PlayerId::Cols => [h, Hand::default()],
-					PlayerId::Rows => [Hand::default(), h],
+					Player::A => [h, Hand::default()],
+					Player::B => [Hand::default(), h],
 				},
 				turn,
 				config: GameConfig::default(),
 			};
-			let m = SadistPlayer.choose_move(&state);
-			moves.push(format!("board={board} turn={turn:?} card={} pos=({},{})", m.card.0, m.pos.row, m.pos.col));
+			let m = Sadist {}.choose_move(&state);
+			let prev = board;
 			board.set(m.pos, m.card.0);
+			moves.push(format!("turn={turn:?}\n{}", board.display_diff(&prev)));
 			hand_counts[m.card.0 as usize] -= 1;
 			if hand_counts.iter().all(|&c| c == 0) {
 				break;
@@ -287,85 +276,93 @@ mod tests {
 		}
 
 		assert_snapshot!(moves.join("\n---\n"), @"
-		board=-----------------------------
+		turn=A
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
 		(0,_)   |   |   | 1 | 1 | 0 |
 		(1,_)   |   | 2 |   | 3 |   |
-		(2,_)   | 4 |   |   |   |   |
+		(2,_)   | 4 |+0 |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=0 pos=(2,1)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=B
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
-		(0,_)   |   |   | 1 | 1 | 0 |
+		(0,_)   |   |+0 | 1 | 1 | 0 |
 		(1,_)   |   | 2 |   | 3 |   |
 		(2,_)   | 4 | 0 |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=0 pos=(0,1)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=A
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
 		(0,_)   |   | 0 | 1 | 1 | 0 |
-		(1,_)   |   | 2 |   | 3 |   |
+		(1,_)   |+1 | 2 |   | 3 |   |
 		(2,_)   | 4 | 0 |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=1 pos=(1,0)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=B
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
 		(0,_)   |   | 0 | 1 | 1 | 0 |
-		(1,_)   | 1 | 2 |   | 3 |   |
+		(1,_)   | 1 | 2 |   | 3 |+1 |
 		(2,_)   | 4 | 0 |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=1 pos=(1,4)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=A
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
-		(0,_)   |   | 0 | 1 | 1 | 0 |
+		(0,_)   |+2 | 0 | 1 | 1 | 0 |
 		(1,_)   | 1 | 2 |   | 3 | 1 |
 		(2,_)   | 4 | 0 |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=2 pos=(0,0)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=B
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
 		(0,_)   | 2 | 0 | 1 | 1 | 0 |
-		(1,_)   | 1 | 2 |   | 3 | 1 |
+		(1,_)   | 1 | 2 |+3 | 3 | 1 |
 		(2,_)   | 4 | 0 |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=3 pos=(1,2)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=A
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
 		(0,_)   | 2 | 0 | 1 | 1 | 0 |
 		(1,_)   | 1 | 2 | 3 | 3 | 1 |
-		(2,_)   | 4 | 0 |   |   |   |
+		(2,_)   | 4 | 0 |+5 |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=5 pos=(2,2)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=B
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
 		(0,_)   | 2 | 0 | 1 | 1 | 0 |
 		(1,_)   | 1 | 2 | 3 | 3 | 1 |
-		(2,_)   | 4 | 0 | 5 |   |   |
+		(2,_)   | 4 | 0 | 5 |   |+5 |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=5 pos=(2,4)
+		-----------------------------
 		");
 	}
 }

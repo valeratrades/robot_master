@@ -1,8 +1,13 @@
 use rand::{rngs::SmallRng, seq::IteratorRandom};
 use robot_master_core::game::{GameState, Move};
-use ustr::{Ustr, ustr};
+use v_utils::macros::CompactFormatNamed;
 
-use crate::player::Player;
+use crate::player::Bot;
+
+/// Separate from `RandomPlayer` because `SmallRng` doesn't impl `FromStr`/`Display`,
+/// so it can't be a field on a `CompactFormatNamed` struct.
+#[derive(Clone, CompactFormatNamed, Debug)]
+pub struct Random {}
 
 pub struct RandomPlayer {
 	rng: SmallRng,
@@ -19,14 +24,10 @@ impl Default for RandomPlayer {
 	}
 }
 
-impl<const N: usize> Player<N> for RandomPlayer
+impl<const N: usize> Bot<N> for RandomPlayer
 where
 	[(); N * N]:,
 {
-	fn id(&self) -> Ustr {
-		ustr("random")
-	}
-
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		game.valid_moves().choose(&mut self.rng).expect("no valid moves")
 	}

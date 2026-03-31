@@ -1,7 +1,7 @@
 use crate::{
 	board::{Board, Cell, EMPTY},
 	cards::{CardValue, MAX_CARD_VALUE},
-	game::PlayerId,
+	game::Player,
 };
 
 pub type LineCounts = [u8; MAX_CARD_VALUE + 1];
@@ -46,12 +46,12 @@ pub fn score_delta(counts: &LineCounts, v: CardValue) -> i16 {
 pub fn victoire<const N: usize>(board: &Board<N>) -> (u16, usize, u16, usize)
 where
 	[(); N * N]:, {
-	let (s0, i0) = player_score(board, PlayerId::Cols);
-	let (s1, i1) = player_score(board, PlayerId::Rows);
+	let (s0, i0) = player_score(board, Player::A);
+	let (s1, i1) = player_score(board, Player::B);
 	(s0, i0, s1, i1)
 }
 /// Minimum score across all of a player's lines. Returns (min_score, line_index).
-fn player_score<const N: usize>(board: &Board<N>, player: PlayerId) -> (u16, usize)
+fn player_score<const N: usize>(board: &Board<N>, player: Player) -> (u16, usize)
 where
 	[(); N * N]:, {
 	(0..N)

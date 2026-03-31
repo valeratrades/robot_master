@@ -1,36 +1,53 @@
-use bevy::prelude::*;
+use std::ops::ControlFlow;
+
+use bevy::{ecs::message::MessageReader, prelude::*};
 use robot_master_arena::{
 	BoardSize,
-	algos::PlayerKind,
+	algos::{PlayerKind, rollout::Rollout},
 	match_::{DynMatch, Match},
+	player::Bot,
 };
 use robot_master_core::{
 	board::{EMPTY, Pos},
 	cards::CardValue,
-	game::{GameConfig, GameState, Move, PlayerId},
+	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
 };
+use robot_master_train::mcts::{MctsBot, MctsConfig, RolloutEval};
+use v_utils::bevy::{ModalActionFired, ModalState, PressedChars};
 
 use crate::{AppState, InitialPlayers, Textures, theme};
 
+const WARNING_DURATION: f32 = 2.0;
 pub struct GameplayPlugin;
 
 impl Plugin for GameplayPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_systems(OnEnter(AppState::Playing), setup_gameplay)
+		app.init_resource::<ModalState<GameAction>>()
+			.init_resource::<Warning>()
+			.add_message::<ModalActionFired<GameAction>>()
+			.add_systems(OnEnter(AppState::Playing), setup_gameplay)
 			.add_systems(
 				Update,
-				(
-					(
-						ai_turn, hand_click, keyboard_card_select, board_click, sync_visuals, reject_flash_system, check_terminal, handle_escape,
-					)
-						.chain(),
-					exit_hint_system,
+				((
+					ai_turn, hand_click, keyboard_card_select, rebuild_modal_tree, process_modal_input, handle_modal_action, board_click, sync_visuals, sync_command_line,
+					reject_flash_system, check_terminal, handle_escape,
 				)
+					.chain(),)
 					.run_if(in_state(AppState::Playing)),
 			)
 			.add_systems(OnExit(AppState::Playing), cleanup_gameplay);
 	}
 }
+
+// -- Game actions triggered by modal key sequences --
+
+#[derive(Clone, Debug)]
+enum GameAction {
+	Exit,
+	PlaceCard(Pos),
+}
+
+// -- Components & Resources --
 
 #[derive(Component)]
 struct GameScene;
@@ -52,18 +69,45 @@ struct BoardCell {
 
 #[derive(Component)]
 struct HandCard {
-	player: PlayerId,
+	player: Player,
 	value: CardValue,
 }
 
 #[derive(Component)]
 struct HandCountLabel {
-	player: PlayerId,
+	player: Player,
 	value: CardValue,
 }
 
 #[derive(Component)]
 struct TurnIndicator;
+
+/// Persistent text element at the bottom showing ongoing key sequence or warnings.
+#[derive(Component)]
+struct CommandLine;
+
+/// Brief warning message shown on the command line after invalid input.
+#[derive(Default, Resource)]
+struct Warning {
+	text: String,
+	timer: f32,
+}
+
+fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
+where
+	[(); N * N]:, {
+	match kind {
+		PlayerKind::Mcts(params) => {
+			let evaluator = RolloutEval::new(Rollout {});
+			let config = MctsConfig {
+				simulations: params.simulations,
+				c_puct: 1.41,
+			};
+			Box::new(MctsBot::new(evaluator, config))
+		}
+		other => other.into_bot(),
+	}
+}
 
 /// Helper: create a `Box<dyn DynMatch>` for the given board size.
 fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> Box<dyn DynMatch + Send + Sync> {
@@ -72,13 +116,15 @@ fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> Box<dyn DynMat
 		size: size.into(),
 		..GameConfig::default()
 	};
+	let p1_id = p1.id();
+	let p2_id = p2.id();
 
 	macro_rules! go {
 		($N:literal) => {{
 			let game = GameState::<$N>::new(config, &mut rng);
-			let p1 = p1.into_player::<$N>();
-			let p2 = p2.into_player::<$N>();
-			Box::new(Match::new(game, p1, p2))
+			let p1 = kind_into_bot::<$N>(p1);
+			let p2 = kind_into_bot::<$N>(p2);
+			Box::new(Match::new(game, p1, p2, p1_id, p2_id))
 		}};
 	}
 
@@ -161,7 +207,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 				..default()
 			})
 			.with_children(|row| {
-				spawn_hand(row, &snap.hands, PlayerId::Cols, &tex);
+				spawn_hand(row, &snap.hands, Player::A, &tex);
 
 				row.spawn(Node {
 					flex_direction: FlexDirection::Column,
@@ -207,17 +253,27 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 					}
 				});
 
-				spawn_hand(row, &snap.hands, PlayerId::Rows, &tex);
+				spawn_hand(row, &snap.hands, Player::B, &tex);
 			});
+
+			// Command line at the bottom
+			root.spawn((
+				CommandLine,
+				Text::new(""),
+				TextFont { font_size: 18.0, ..default() },
+				TextColor(theme::TEXT_SELECTION),
+				Node {
+					position_type: PositionType::Absolute,
+					bottom: Val::Px(16.0),
+					..default()
+				},
+			));
 		});
 }
 
-fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::cards::Hand; 2], player: PlayerId, tex: &Textures) {
-	let hand = &hands[player as usize];
-	let title = match player {
-		PlayerId::Cols => "P1 (Cols)",
-		PlayerId::Rows => "P2 (Rows)",
-	};
+fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::cards::Hand; 2], player: Player, tex: &Textures) {
+	let hand = &hands[player.index() as usize];
+	let title = format!("{}", PlayerDisplay(player));
 
 	parent
 		.spawn(Node {
@@ -232,8 +288,8 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::car
 				Text::new(title),
 				TextFont { font_size: 18.0, ..default() },
 				TextColor(match player {
-					PlayerId::Cols => theme::TEXT_P1,
-					PlayerId::Rows => theme::TEXT_P2,
+					Player::A => theme::TEXT_P1,
+					Player::B => theme::TEXT_P2,
 				}),
 			));
 
@@ -272,16 +328,16 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::car
 }
 
 fn ai_turn(mut game: ResMut<Game>, slots: Res<PlayerSlots>) {
-	if game.0.is_terminal() {
+	if game.0.is_done() {
 		return;
 	}
 	let turn = game.0.turn();
-	if matches!(&slots.0[turn as usize], PlayerKind::Manual { .. }) {
+	if matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. }) {
 		return;
 	}
 	match game.0.next(None) {
-		Ok(()) => debug!("AI moved"),
-		Err(result) => debug!("AI move ended game: {} vs {}", result.p1_score, result.p2_score),
+		ControlFlow::Continue(()) => debug!("AI moved"),
+		ControlFlow::Break(result) => debug!("AI move ended game: {} vs {}", result.p1_score, result.p2_score),
 	}
 }
 
@@ -291,9 +347,10 @@ fn hand_click(
 	mut selected: ResMut<SelectedCard>,
 	game: Res<Game>,
 	slots: Res<PlayerSlots>,
+	mut modal: ResMut<ModalState<GameAction>>,
 ) {
 	let turn = game.0.turn();
-	let is_manual = matches!(&slots.0[turn as usize], PlayerKind::Manual { .. });
+	let is_manual = matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. });
 	if !is_manual {
 		return;
 	}
@@ -306,14 +363,14 @@ fn hand_click(
 			commands.entity(entity).insert(RejectFlash(Timer::from_seconds(0.3, TimerMode::Once)));
 			continue;
 		}
-		let count = hands[turn as usize].count(hand_card.value);
-		debug!("hand_click: card={} count={count} player={:?}", hand_card.value.0, hand_card.player);
+		let count = hands[turn.index() as usize].count(hand_card.value);
 		if count > 0 {
 			if selected.0 == Some(hand_card.value) {
 				selected.0 = None;
 			} else {
 				selected.0 = Some(hand_card.value);
 			}
+			modal.reset();
 		}
 	}
 }
@@ -326,7 +383,6 @@ fn reject_flash_system(mut commands: Commands, time: Res<Time>, mut query: Query
 		flash.0.tick(time.delta());
 		let t = flash.0.fraction();
 		let intensity = 1.0 - t;
-		// Oklch red flash that fades out
 		*bg = BackgroundColor(Color::oklcha(0.45 + 0.1 * intensity, 0.18 * intensity, 25.0, 0.7 + 0.3 * intensity));
 		if flash.0.is_finished() {
 			commands.entity(entity).remove::<RejectFlash>();
@@ -334,12 +390,18 @@ fn reject_flash_system(mut commands: Commands, time: Res<Time>, mut query: Query
 	}
 }
 
-fn board_click(interaction_query: Query<(&Interaction, &BoardCell), Changed<Interaction>>, mut game: ResMut<Game>, mut selected: ResMut<SelectedCard>, slots: Res<PlayerSlots>) {
-	if game.0.is_terminal() {
+fn board_click(
+	interaction_query: Query<(&Interaction, &BoardCell), Changed<Interaction>>,
+	mut game: ResMut<Game>,
+	mut selected: ResMut<SelectedCard>,
+	slots: Res<PlayerSlots>,
+	mut modal: ResMut<ModalState<GameAction>>,
+) {
+	if game.0.is_done() {
 		return;
 	}
 	let turn = game.0.turn();
-	if !matches!(&slots.0[turn as usize], PlayerKind::Manual { .. }) {
+	if !matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. }) {
 		return;
 	}
 	let Some(card) = selected.0 else { return };
@@ -347,16 +409,237 @@ fn board_click(interaction_query: Query<(&Interaction, &BoardCell), Changed<Inte
 	for (interaction, cell) in &interaction_query {
 		if *interaction == Interaction::Pressed {
 			let pos = Pos { row: cell.row, col: cell.col };
-			let playable = game.0.is_playable(pos);
-			debug!("board_click: ({},{}) card={} playable={playable}", cell.row, cell.col, card.0);
-			if playable {
+			if game.0.is_playable(pos) {
 				match game.0.next(Some(Move { pos, card })) {
-					Ok(()) => debug!("move applied"),
-					Err(result) => debug!("game ended: {} vs {}", result.p1_score, result.p2_score),
+					ControlFlow::Continue(()) => debug!("move applied"),
+					ControlFlow::Break(result) => debug!("game ended: {} vs {}", result.p1_score, result.p2_score),
 				}
 				selected.0 = None;
+				modal.reset();
 				return;
 			}
+		}
+	}
+}
+
+/// Rebuild the modal tree based on current game state.
+///
+/// Always includes `:q` for exit. When a card is selected on a manual player's turn,
+/// also includes position keys (column letters → row digits) for all playable positions.
+fn rebuild_modal_tree(game: Res<Game>, selected: Res<SelectedCard>, slots: Res<PlayerSlots>, mut modal: ResMut<ModalState<GameAction>>) {
+	use v_utils::bevy::ModalNode;
+
+	let mut root = ModalNode::<GameAction>::new();
+
+	// :q → exit (colon then q)
+	root.children.insert(
+		':',
+		ModalNode {
+			children: [(
+				'q',
+				ModalNode {
+					action: Some(GameAction::Exit),
+					..default()
+				},
+			)]
+			.into_iter()
+			.collect(),
+			label: Some("command"),
+			..default()
+		},
+	);
+
+	// Position shortcuts when card is selected
+	if selected.0.is_some() && !game.0.is_done() {
+		let turn = game.0.turn();
+		if matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. }) {
+			let n = game.0.size();
+
+			// Group playable positions by column
+			for col in 0..n {
+				let col_char = (b'a' + col) as char;
+				let playable_rows: Vec<u8> = (0..n).filter(|&row| game.0.is_playable(Pos { row, col })).collect();
+
+				if playable_rows.is_empty() {
+					continue;
+				}
+
+				if playable_rows.len() == 1 {
+					// Single playable row in this column → terminal on the column key
+					let pos = Pos { row: playable_rows[0], col };
+					root.children.insert(
+						col_char,
+						ModalNode {
+							action: Some(GameAction::PlaceCard(pos)),
+							label: Some("place"),
+							..default()
+						},
+					);
+				} else {
+					// Multiple rows → need second key for row
+					let mut col_node = ModalNode::<GameAction>::new();
+					col_node.label = Some("col");
+					for row in playable_rows {
+						let row_char = (b'1' + row) as char;
+						col_node.children.insert(
+							row_char,
+							ModalNode {
+								action: Some(GameAction::PlaceCard(Pos { row, col })),
+								label: Some("row"),
+								..default()
+							},
+						);
+					}
+					root.children.insert(col_char, col_node);
+				}
+			}
+		}
+	}
+
+	// Only update if tree actually changed (avoid resetting active sequence unnecessarily).
+	// Simple heuristic: compare child key sets. Full structural comparison not worth it.
+	let old_keys: Vec<char> = modal.root.children.keys().copied().collect();
+	let new_keys: Vec<char> = root.children.keys().copied().collect();
+	if old_keys != new_keys {
+		modal.root = root;
+		// Don't reset sequence — if user is mid-`:q`, keep it alive.
+		// Only reset if the active sequence is no longer valid.
+		if modal.active {
+			if modal.current_node().is_none() {
+				modal.reset();
+			}
+		}
+	} else {
+		modal.root = root;
+	}
+}
+
+/// Process keyboard input through the modal system, with descriptive warnings on invalid keys.
+fn process_modal_input(
+	time: Res<Time>,
+	pressed_chars: Res<PressedChars>,
+	mut modal: ResMut<ModalState<GameAction>>,
+	mut actions: bevy::ecs::message::MessageWriter<ModalActionFired<GameAction>>,
+	game: Res<Game>,
+	selected: Res<SelectedCard>,
+	mut warning: ResMut<Warning>,
+) {
+	// Tick warning timer
+	if warning.timer > 0.0 {
+		warning.timer -= time.delta_secs();
+		if warning.timer <= 0.0 {
+			warning.text.clear();
+		}
+	}
+
+	// Escape resets
+	if pressed_chars.logical_keys_just_pressed.contains(&KeyCode::Escape) && (modal.active || modal.show_help) {
+		modal.reset();
+		return;
+	}
+
+	if modal.show_help && !pressed_chars.just_pressed.is_empty() {
+		modal.reset();
+	}
+
+	// Hint timeout
+	if modal.active {
+		modal.time_since_last_key += time.delta_secs();
+		if modal.time_since_last_key >= v_utils::bevy::MODAL_HINT_TIMEOUT && !modal.hints_visible {
+			modal.hints_visible = true;
+		}
+	}
+
+	let n = game.0.size();
+
+	for &key in &pressed_chars.just_pressed {
+		if modal.active {
+			if modal.is_valid_key(key) {
+				if let Some(action) = modal.process_key(key) {
+					actions.write(ModalActionFired(action));
+				}
+			} else {
+				// Generate a descriptive warning
+				let first = modal.sequence.first().copied();
+				let msg = match first {
+					Some(':') => format!(":{key} is not a command"),
+					Some(col_ch) if col_ch.is_ascii_lowercase() => {
+						let col = col_ch as u8 - b'a';
+						let col_label = (b'a' + col) as char;
+						if key.is_ascii_digit() {
+							let row = key as u8 - b'1';
+							let pos = Pos { row, col };
+							if row >= n {
+								format!("{col_label}{key}: row out of bounds")
+							} else if !game.0.is_playable(pos) {
+								format!("{col_label}{key}: not a valid placement")
+							} else {
+								format!("{col_label}{key}: invalid")
+							}
+						} else {
+							format!("{col_ch}{key}: expected row number")
+						}
+					}
+					_ => format!("'{key}' is not a valid key"),
+				};
+				warning.text = msg;
+				warning.timer = WARNING_DURATION;
+				modal.reset();
+			}
+		} else if modal.root.children.contains_key(&key) {
+			if let Some(action) = modal.process_key(key) {
+				actions.write(ModalActionFired(action));
+			}
+		} else if selected.0.is_some() && key.is_ascii_lowercase() {
+			// User typed a column letter but it's not in the tree (no playable positions there)
+			let col = key as u8 - b'a';
+			if col < n {
+				warning.text = format!("no playable cells in column {key}");
+				warning.timer = WARNING_DURATION;
+			}
+		}
+	}
+}
+
+/// Handle completed modal actions.
+fn handle_modal_action(
+	mut actions: MessageReader<ModalActionFired<GameAction>>,
+	mut game: ResMut<Game>,
+	mut selected: ResMut<SelectedCard>,
+	mut exit: bevy::ecs::message::MessageWriter<AppExit>,
+) {
+	for ModalActionFired(action) in actions.read() {
+		match action {
+			GameAction::Exit => {
+				exit.write(AppExit::Success);
+			}
+			GameAction::PlaceCard(pos) => {
+				let Some(card) = selected.0 else { continue };
+				if game.0.is_playable(*pos) {
+					match game.0.next(Some(Move { pos: *pos, card })) {
+						ControlFlow::Continue(()) => debug!("modal: placed at ({},{})", pos.row, pos.col),
+						ControlFlow::Break(result) => debug!("game ended: {} vs {}", result.p1_score, result.p2_score),
+					}
+					selected.0 = None;
+				}
+			}
+		}
+	}
+}
+
+/// Show the current modal sequence or warning in the command line at the bottom.
+fn sync_command_line(modal: Res<ModalState<GameAction>>, warning: Res<Warning>, mut query: Query<(&mut Text, &mut TextColor), With<CommandLine>>) {
+	for (mut text, mut color) in &mut query {
+		if modal.active {
+			let seq: String = modal.sequence.iter().collect();
+			**text = seq;
+			*color = TextColor(theme::TEXT_SELECTION);
+		} else if !warning.text.is_empty() {
+			**text = warning.text.clone();
+			let alpha = (warning.timer / WARNING_DURATION).clamp(0.0, 1.0);
+			*color = TextColor(Color::oklcha(0.65, 0.18, 25.0, alpha));
+		} else {
+			**text = String::new();
 		}
 	}
 }
@@ -366,21 +649,36 @@ fn sync_visuals(
 	selected: Res<SelectedCard>,
 	slots: Res<PlayerSlots>,
 	tex: Res<Textures>,
+	modal: Res<ModalState<GameAction>>,
 	mut board_cells: Query<(&BoardCell, &mut BackgroundColor, &Children)>,
 	mut hand_counts: Query<(&HandCountLabel, &mut Text, &mut TextColor)>,
 	mut hand_cards: Query<(&HandCard, &mut BackgroundColor, &Interaction, Has<RejectFlash>), Without<BoardCell>>,
 	mut cell_images: Query<(&mut ImageNode, &mut Visibility)>,
-	mut turn_indicator: Query<(&mut Text, &mut TextColor), (With<TurnIndicator>, Without<HandCountLabel>, Without<HandCard>)>,
+	mut turn_indicator: Query<(&mut Text, &mut TextColor), (With<TurnIndicator>, Without<HandCountLabel>, Without<HandCard>, Without<CommandLine>)>,
 ) {
 	let turn = game.0.turn();
 	let hands = game.0.hands();
+
+	// If user has typed a column letter, narrow highlight to that column only
+	let highlight_col: Option<u8> = if modal.active && !modal.sequence.is_empty() {
+		let first = modal.sequence[0];
+		if first.is_ascii_lowercase() { Some(first as u8 - b'a') } else { None }
+	} else {
+		None
+	};
 
 	// Board cells
 	for (cell, mut bg, children) in &mut board_cells {
 		let value = game.0.get(Pos { row: cell.row, col: cell.col });
 		let is_playable = game.0.is_playable(Pos { row: cell.row, col: cell.col });
-		let is_manual = matches!(&slots.0[turn as usize], PlayerKind::Manual { .. });
-		let highlighted = selected.0.is_some() && is_playable && is_manual;
+		let is_manual = matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. });
+		let highlighted = selected.0.is_some()
+			&& is_playable
+			&& is_manual
+			&& match highlight_col {
+				Some(col) => cell.col == col,
+				None => true,
+			};
 
 		*bg = if value != EMPTY {
 			BackgroundColor(theme::CELL_OCCUPIED)
@@ -404,7 +702,7 @@ fn sync_visuals(
 
 	// Hand counts
 	for (hc, mut text, mut color) in &mut hand_counts {
-		let count = hands[hc.player as usize].count(hc.value);
+		let count = hands[hc.player.index() as usize].count(hc.value);
 		**text = format!("x{count}");
 		*color = if count == 0 {
 			TextColor(theme::TEXT_MUTED)
@@ -415,12 +713,12 @@ fn sync_visuals(
 		};
 	}
 
-	// Hand card backgrounds: tint, hover glow, selection
+	// Hand card backgrounds
 	for (hc, mut bg, interaction, has_reject) in &mut hand_cards {
 		if has_reject {
 			continue;
 		}
-		let count = hands[hc.player as usize].count(hc.value);
+		let count = hands[hc.player.index() as usize].count(hc.value);
 		let is_own = hc.player == turn;
 		let is_selected = selected.0 == Some(hc.value) && is_own;
 		let is_hovered = *interaction == Interaction::Hovered && is_own && count > 0;
@@ -440,32 +738,32 @@ fn sync_visuals(
 
 	// Turn indicator
 	for (mut text, mut color) in &mut turn_indicator {
-		if game.0.is_terminal() {
+		if game.0.is_done() {
 			**text = "Game Over!".into();
 			*color = TextColor(theme::TEXT_GAME_OVER);
 		} else {
-			let name = match turn {
-				PlayerId::Cols => "Player 1 (Cols)",
-				PlayerId::Rows => "Player 2 (Rows)",
-			};
-			**text = format!("{name}'s turn");
+			**text = format!("{}'s turn", PlayerDisplay(turn));
 			*color = TextColor(theme::TEXT_PRIMARY);
 		}
 	}
 }
 
 fn check_terminal(game: Res<Game>, mut next_state: ResMut<NextState<AppState>>) {
-	if game.0.is_terminal() {
+	if game.0.is_done() {
 		next_state.set(AppState::Result);
 	}
 }
 
-fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<SelectedCard>, game: Res<Game>, slots: Res<PlayerSlots>) {
-	if game.0.is_terminal() {
+fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<SelectedCard>, game: Res<Game>, slots: Res<PlayerSlots>, mut modal: ResMut<ModalState<GameAction>>) {
+	if game.0.is_done() {
+		return;
+	}
+	// Don't handle digit keys if modal is active (user might be typing a row number)
+	if modal.active {
 		return;
 	}
 	let turn = game.0.turn();
-	if !matches!(&slots.0[turn as usize], PlayerKind::Manual { .. }) {
+	if !matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. }) {
 		return;
 	}
 	let pressed = if keys.just_pressed(KeyCode::Digit0) || keys.just_pressed(KeyCode::Numpad0) {
@@ -485,65 +783,37 @@ fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<Se
 	};
 	let Some(card) = pressed else { return };
 	let hands = game.0.hands();
-	let count = hands[turn as usize].count(card);
+	let count = hands[turn.index() as usize].count(card);
 	if count > 0 {
 		if selected.0 == Some(card) {
 			selected.0 = None;
 		} else {
 			selected.0 = Some(card);
 		}
+		modal.reset();
 	}
 }
-
-/// Floating hint that fades out, shown when Escape is pressed.
-#[derive(Component)]
-struct ExitHint(Timer);
 
 fn handle_escape(
 	keys: Res<ButtonInput<KeyCode>>,
 	mut selected: ResMut<SelectedCard>,
 	mut next_state: ResMut<NextState<AppState>>,
-	mut commands: Commands,
-	scene: Query<Entity, With<GameScene>>,
-	existing_hints: Query<Entity, With<ExitHint>>,
+	modal: Res<ModalState<GameAction>>,
+	mut was_modal_active: Local<bool>,
 ) {
+	// update_modal_state already resets on Escape, so track whether it was active
+	// to avoid double-action in the same frame.
+	let modal_active_now = modal.active;
 	if keys.just_pressed(KeyCode::Escape) {
-		if selected.0.is_some() {
+		if *was_modal_active {
+			// Modal just got reset by update_modal_state — don't also deselect
+		} else if selected.0.is_some() {
 			selected.0 = None;
 		} else {
 			next_state.set(AppState::Menu);
 		}
-		// Show hint regardless — even when going back, the flash is harmless
-		for e in &existing_hints {
-			commands.entity(e).despawn();
-		}
-		if let Ok(scene) = scene.single() {
-			commands.entity(scene).with_children(|root| {
-				root.spawn((
-					ExitHint(Timer::from_seconds(2.0, TimerMode::Once)),
-					Text::new("Ctrl+C or :q to quit"),
-					TextFont { font_size: 14.0, ..default() },
-					TextColor(theme::TEXT_MUTED),
-					Node {
-						position_type: PositionType::Absolute,
-						bottom: Val::Px(12.0),
-						..default()
-					},
-				));
-			});
-		}
 	}
-}
-
-fn exit_hint_system(mut commands: Commands, time: Res<Time>, mut query: Query<(Entity, &mut ExitHint, &mut TextColor)>) {
-	for (entity, mut hint, mut color) in &mut query {
-		hint.0.tick(time.delta());
-		let alpha = 1.0 - hint.0.fraction();
-		*color = TextColor(Color::oklcha(0.50, 0.0, 0.0, 0.5 * alpha));
-		if hint.0.is_finished() {
-			commands.entity(entity).despawn();
-		}
-	}
+	*was_modal_active = modal_active_now;
 }
 
 fn cleanup_gameplay(mut commands: Commands, query: Query<Entity, With<GameScene>>) {

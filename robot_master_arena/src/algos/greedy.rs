@@ -1,12 +1,12 @@
 use robot_master_core::{
 	board::Pos,
 	cards::CardValue,
-	game::{GameState, Move, PlayerId},
+	game::{GameState, Move, scores_rows},
 	scoring::{line_counts, score_delta},
 };
-use ustr::{Ustr, ustr};
+use v_utils::macros::CompactFormatNamed;
 
-use crate::player::Player;
+use crate::player::Bot;
 
 /// Greedy player: maximizes immediate score delta on own lines.
 ///
@@ -21,19 +21,16 @@ use crate::player::Player;
 ///    Tiebreak: highest delta, then lowest card value.
 ///
 /// Limitation: treats each line independently, no lookahead.
-pub struct GreedyPlayer;
+#[derive(Clone, CompactFormatNamed, Debug)]
+pub struct Greedy {}
 
-impl<const N: usize> Player<N> for GreedyPlayer
+impl<const N: usize> Bot<N> for Greedy
 where
 	[(); N * N]:,
 {
-	fn id(&self) -> Ustr {
-		ustr("greedy")
-	}
-
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		let turn = game.turn;
-		let hand = &game.hands[turn as usize];
+		let hand = &game.hands[turn.index() as usize];
 		let board = &game.board;
 
 		// Compute line counts for each of the player's lines.
@@ -42,10 +39,7 @@ where
 		// Map each playable position to its line index, keep first representative per line.
 		let mut line_pos: Vec<Option<Pos>> = vec![None; N];
 		for pos in board.valid_placements() {
-			let line_idx = match turn {
-				PlayerId::Rows => pos.row as usize,
-				PlayerId::Cols => pos.col as usize,
-			};
+			let line_idx = if scores_rows(turn) { pos.row as usize } else { pos.col as usize };
 			if line_pos[line_idx].is_none() {
 				line_pos[line_idx] = Some(pos);
 			}
@@ -81,11 +75,15 @@ where
 #[cfg(test)]
 mod tests {
 	use insta::assert_snapshot;
-	use robot_master_core::{board::Board, cards::Hand, game::GameConfig};
+	use robot_master_core::{
+		board::Board,
+		cards::Hand,
+		game::{GameConfig, Player},
+	};
 
 	use super::*;
 
-	fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand, turn: PlayerId) -> GameState<5> {
+	fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand, turn: Player) -> GameState<5> {
 		let mut board = Board::<5>::default();
 		for row in 0..5u8 {
 			for col in 0..5u8 {
@@ -97,8 +95,8 @@ mod tests {
 		GameState {
 			board,
 			hands: match turn {
-				PlayerId::Cols => [hand, Hand::default()],
-				PlayerId::Rows => [Hand::default(), hand],
+				Player::A => [hand, Hand::default()],
+				Player::B => [Hand::default(), hand],
 			},
 			turn,
 			config: GameConfig::default(),
@@ -134,8 +132,8 @@ mod tests {
 	#[test]
 	fn picks_highest_delta_odd_player() {
 		// Row 2 already has a 3; playing another 3 gives delta=27 (9*3) vs delta=1 for card 1.
-		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), PlayerId::Rows);
-		let m = GreedyPlayer.choose_move(&state);
+		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), Player::B);
+		let m = Greedy {}.choose_move(&state);
 		assert_eq!(m.card, CardValue(3));
 		assert_eq!(m.pos.row, 2);
 		assert_snapshot!(format!("{}\nmove: card={} pos=({},{})", state.board, m.card.0, m.pos.row, m.pos.col), @"
@@ -155,16 +153,16 @@ mod tests {
 	#[test]
 	fn picks_highest_delta_even_player() {
 		// Col 2 already has a 3; even player scores columns.
-		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), PlayerId::Cols);
-		let m = GreedyPlayer.choose_move(&state);
+		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), Player::A);
+		let m = Greedy {}.choose_move(&state);
 		assert_eq!(m.card, CardValue(3));
 		assert_eq!(m.pos.col, 2);
 	}
 
 	#[test]
 	fn midgame_odd_player() {
-		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), PlayerId::Rows);
-		let m = GreedyPlayer.choose_move(&state);
+		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), Player::B);
+		let m = Greedy {}.choose_move(&state);
 		assert_snapshot!(format!("{}\nmove: card={} pos=({},{})", state.board, m.card.0, m.pos.row, m.pos.col), @"
 		-----------------------------
 		          0   1   2   3   4
@@ -181,8 +179,8 @@ mod tests {
 
 	#[test]
 	fn midgame_even_player() {
-		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), PlayerId::Cols);
-		let m = GreedyPlayer.choose_move(&state);
+		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), Player::A);
+		let m = Greedy {}.choose_move(&state);
 		assert_snapshot!(format!("card={} pos=({},{})", m.card.0, m.pos.row, m.pos.col), @"card=3 pos=(2,3)");
 	}
 
@@ -225,7 +223,7 @@ mod tests {
 		}
 
 		let mut moves: Vec<String> = Vec::new();
-		let turns = [PlayerId::Cols, PlayerId::Rows];
+		let turns = [Player::A, Player::B];
 
 		for turn_idx in 0..10usize {
 			let turn = turns[turn_idx % 2];
@@ -236,15 +234,16 @@ mod tests {
 			let state = GameState {
 				board,
 				hands: match turn {
-					PlayerId::Cols => [h, Hand::default()],
-					PlayerId::Rows => [Hand::default(), h],
+					Player::A => [h, Hand::default()],
+					Player::B => [Hand::default(), h],
 				},
 				turn,
 				config: GameConfig::default(),
 			};
-			let m = GreedyPlayer.choose_move(&state);
-			moves.push(format!("board={board} turn={turn:?} card={} pos=({},{})", m.card.0, m.pos.row, m.pos.col));
+			let m = Greedy {}.choose_move(&state);
+			let prev = board;
 			board.set(m.pos, m.card.0);
+			moves.push(format!("turn={turn:?}\n{}", board.display_diff(&prev)));
 			hand_counts[m.card.0 as usize] -= 1;
 			if hand_counts.iter().all(|&c| c == 0) {
 				break;
@@ -252,85 +251,93 @@ mod tests {
 		}
 
 		assert_snapshot!(moves.join("\n---\n"), @"
-		board=-----------------------------
+		turn=A
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
-		(0,_)   |   |   | 1 | 1 | 0 |
+		(0,_)   |   |+2 | 1 | 1 | 0 |
 		(1,_)   |   | 2 |   | 3 |   |
 		(2,_)   | 4 |   |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=2 pos=(0,1)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=B
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
-		(0,_)   |   | 2 | 1 | 1 | 0 |
+		(0,_)   |+1 | 2 | 1 | 1 | 0 |
 		(1,_)   |   | 2 |   | 3 |   |
 		(2,_)   | 4 |   |   |   |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=1 pos=(0,0)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=A
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
 		(0,_)   | 1 | 2 | 1 | 1 | 0 |
 		(1,_)   |   | 2 |   | 3 |   |
-		(2,_)   | 4 |   |   |   |   |
+		(2,_)   | 4 |   |   |+3 |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=3 pos=(2,3)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=B
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
 		(0,_)   | 1 | 2 | 1 | 1 | 0 |
-		(1,_)   |   | 2 |   | 3 |   |
+		(1,_)   |+5 | 2 |   | 3 |   |
 		(2,_)   | 4 |   |   | 3 |   |
 		(3,_)   |   | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=5 pos=(1,0)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=A
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
 		(0,_)   | 1 | 2 | 1 | 1 | 0 |
 		(1,_)   | 5 | 2 |   | 3 |   |
 		(2,_)   | 4 |   |   | 3 |   |
-		(3,_)   |   | 2 |   |   | 0 |
+		(3,_)   |+5 | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=5 pos=(3,0)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=B
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
 		(0,_)   | 1 | 2 | 1 | 1 | 0 |
-		(1,_)   | 5 | 2 |   | 3 |   |
+		(1,_)   | 5 | 2 |+1 | 3 |   |
 		(2,_)   | 4 |   |   | 3 |   |
 		(3,_)   | 5 | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=1 pos=(1,2)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=A
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
 		(0,_)   | 1 | 2 | 1 | 1 | 0 |
 		(1,_)   | 5 | 2 | 1 | 3 |   |
-		(2,_)   | 4 |   |   | 3 |   |
+		(2,_)   | 4 |+0 |   | 3 |   |
 		(3,_)   | 5 | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Cols card=0 pos=(2,1)
+		-----------------------------
 		---
-		board=-----------------------------
+		turn=B
+		-----------------------------
 		          0   1   2   3   4
 		-----------------------------
 		(0,_)   | 1 | 2 | 1 | 1 | 0 |
-		(1,_)   | 5 | 2 | 1 | 3 |   |
+		(1,_)   | 5 | 2 | 1 | 3 |+0 |
 		(2,_)   | 4 | 0 |   | 3 |   |
 		(3,_)   | 5 | 2 |   |   | 0 |
 		(4,_)   | 4 | 4 | 4 | 0 | 0 |
-		----------------------------- turn=Rows card=0 pos=(1,4)
+		-----------------------------
 		");
 	}
 }
