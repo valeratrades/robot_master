@@ -1,6 +1,11 @@
 [profile.rust]
 codegen-backend = "cranelift"
 
+#Q: widen `default-members` to all crates so `cargo t` doesn't need `--workspace`? Only blocker: `cargo r` ambiguity (robot_master vs robot_master_site)
+[alias]
+t = "nextest run --workspace"
+ta = "nextest run --workspace --no-fail-fast"
+
 [target.wasm32-unknown-unknown]
 rustflags = ["--cfg=getrandom_backend=\"wasm_js\""]
 

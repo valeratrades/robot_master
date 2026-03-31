@@ -52,6 +52,9 @@ pub enum ArenaCommands {
 		/// Average number of games per pairing
 		#[arg(default_value = "1")]
 		rounds: usize,
+		/// Number of threads for parallel game execution (0 = all cores)
+		#[arg(short, long, default_value = "0")]
+		threads: usize,
 	},
 	/// Player data management
 	Players {

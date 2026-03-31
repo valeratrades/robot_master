@@ -17,7 +17,7 @@ use crate::config::{ArenaCommands, PlayersCommands};
 
 pub fn run(players_filter: Vec<String>, command: ArenaCommands, size: BoardSize, rating_db: Box<dyn RatingDb>, auto_yes: bool) {
 	match command {
-		ArenaCommands::Tourney { rounds } => run_tournament(players_filter, rounds, size, rating_db),
+		ArenaCommands::Tourney { rounds, threads } => run_tournament(players_filter, rounds, threads, size, rating_db),
 		ArenaCommands::Players { command } => run_players(players_filter, command, rating_db, auto_yes),
 	}
 }
@@ -55,7 +55,7 @@ fn resolve_players(filter: &[String], rating_db: &dyn RatingDb) -> Vec<PlayerKin
 		.collect()
 }
 
-fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
+fn kind_into_bot<const N: usize>(kind: &PlayerKind) -> Box<dyn Bot<N>>
 where
 	[(); N * N]:, {
 	match kind {
@@ -67,18 +67,24 @@ where
 			};
 			Box::new(MctsBot::new(evaluator, config))
 		}
-		other => other.into_bot(),
+		other => other.clone().into_bot(),
 	}
 }
 
-fn run_tournament(players_filter: Vec<String>, avg_rounds: usize, size: BoardSize, rating_db: Box<dyn RatingDb>) {
+fn run_tournament(players_filter: Vec<String>, avg_rounds: usize, threads: usize, size: BoardSize, rating_db: Box<dyn RatingDb>) {
 	let kinds = resolve_players(&players_filter, rating_db.as_ref());
 	if kinds.len() < 2 {
 		eprintln!("Need at least 2 players for a tournament, found {}", kinds.len());
 		std::process::exit(1);
 	}
 
-	eprintln!("Swiss tournament: {} players, ~{avg_rounds} avg rounds/pairing", kinds.len());
+	let threads = if threads == 0 {
+		std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
+	} else {
+		threads
+	};
+
+	eprintln!("Swiss tournament: {} players, ~{avg_rounds} avg rounds/pairing, {threads} threads", kinds.len());
 	for kind in &kinds {
 		eprintln!("  {kind}");
 	}
@@ -93,30 +99,38 @@ fn run_tournament(players_filter: Vec<String>, avg_rounds: usize, size: BoardSiz
 	let ratings_f64: std::collections::HashMap<Ustr, f64> = ratings_map.iter().map(|(k, v)| (*k, v.rating)).collect();
 
 	match size {
-		BoardSize::Five => run_tournament_sized::<5>(kinds, &ratings_f64, config, avg_rounds, rating_db),
-		BoardSize::Seven => run_tournament_sized::<7>(kinds, &ratings_f64, config, avg_rounds, rating_db),
-		BoardSize::Nine => run_tournament_sized::<9>(kinds, &ratings_f64, config, avg_rounds, rating_db),
-		BoardSize::Eleven => run_tournament_sized::<11>(kinds, &ratings_f64, config, avg_rounds, rating_db),
+		BoardSize::Five => run_tournament_sized::<5>(kinds, &ratings_f64, config, avg_rounds, threads, rating_db),
+		BoardSize::Seven => run_tournament_sized::<7>(kinds, &ratings_f64, config, avg_rounds, threads, rating_db),
+		BoardSize::Nine => run_tournament_sized::<9>(kinds, &ratings_f64, config, avg_rounds, threads, rating_db),
+		BoardSize::Eleven => run_tournament_sized::<11>(kinds, &ratings_f64, config, avg_rounds, threads, rating_db),
 	}
 }
 
-fn run_tournament_sized<const N: usize>(kinds: Vec<PlayerKind>, ratings: &std::collections::HashMap<Ustr, f64>, config: GameConfig, avg_rounds: usize, rating_db: Box<dyn RatingDb>)
-where
+fn run_tournament_sized<const N: usize>(
+	kinds: Vec<PlayerKind>,
+	ratings: &std::collections::HashMap<Ustr, f64>,
+	config: GameConfig,
+	avg_rounds: usize,
+	threads: usize,
+	rating_db: Box<dyn RatingDb>,
+) where
 	[(); N * N]:, {
-	let mut players: Vec<(Ustr, Box<dyn Bot<N>>)> = kinds
-		.into_iter()
-		.map(|k| {
-			let id = k.id();
-			(id, kind_into_bot::<N>(k))
-		})
-		.collect();
+	// Build id→kind lookup for the factory
+	let kind_map: std::collections::HashMap<Ustr, PlayerKind> = kinds.iter().map(|k| (k.id(), k.clone())).collect();
+	let player_ids: Vec<Ustr> = kinds.iter().map(|k| k.id()).collect();
+
+	let factory = move |id: Ustr| -> Box<dyn Bot<N>> {
+		let kind = &kind_map[&id];
+		kind_into_bot::<N>(kind)
+	};
+
 	let mut rng = rand::make_rng::<rand::rngs::SmallRng>();
 
-	let swiss_rounds = (players.len() as f64).log2().ceil() as usize;
-	let estimated_total = (players.len() / 2) * avg_rounds * swiss_rounds;
+	let swiss_rounds = (player_ids.len() as f64).log2().ceil() as usize;
+	let estimated_total = (player_ids.len() / 2) * avg_rounds * swiss_rounds;
 	let mut pb = ProgressBar::builder().total(estimated_total).prefix("Swiss".into()).build();
 
-	let results = tournament::swiss::<N>(&mut players, ratings, config, avg_rounds, rating_db.as_ref(), &mut rng, Some(&mut pb));
+	let results = tournament::swiss::<N>(&player_ids, ratings, config, avg_rounds, rating_db.as_ref(), &factory, &mut rng, threads, Some(&mut pb));
 
 	// Print summary
 	let mut wins: std::collections::HashMap<Ustr, u32> = std::collections::HashMap::new();
