@@ -7,14 +7,14 @@ use robot_master_core::{
 };
 use v_utils::macros::CompactFormatNamed;
 
-use super::greedy::Greedy;
+use super::greedy_max::GreedyMax;
 use crate::player::Bot;
 
 /// Three-mode bot:
 /// 1. No finished lines → pure greedy (maximize immediate score_delta across all lines)
 /// 2. Some finished lines, unfinished lines below finished_min → target those weak lines
 /// 3. No improvable lines → averse (harass opponent)
-#[derive(Clone, CompactFormatNamed, Debug)]
+#[derive(Clone, CompactFormatNamed, Debug, Default, Eq, PartialEq)]
 pub struct Rollout {}
 
 impl<const N: usize> Bot<N> for Rollout
@@ -25,7 +25,7 @@ where
 		let analysis = LineAnalysis::new(game);
 
 		match analysis.mode() {
-			Mode::Greedy => Greedy {}.choose_move(game),
+			Mode::GreedyMax => GreedyMax {}.choose_move(game),
 			Mode::TargetWeak => target_weak(game, &analysis),
 			Mode::Averse => Averse::builder().fuel(500).build().choose(game),
 		}
@@ -34,7 +34,7 @@ where
 
 enum Mode {
 	/// No finished lines — play pure greedy.
-	Greedy,
+	GreedyMax,
 	/// At least one finished line, but unfinished lines exist below finished_min — target those.
 	TargetWeak,
 	/// All unfinished lines >= finished_min — can't improve, harass opponent.
@@ -69,7 +69,7 @@ impl LineAnalysis {
 
 	fn mode(&self) -> Mode {
 		let Some(fmin) = self.finished_min else {
-			return Mode::Greedy;
+			return Mode::GreedyMax;
 		};
 		if self.lines.iter().any(|&(_, score, finished)| !finished && score < fmin) {
 			Mode::TargetWeak
@@ -108,7 +108,7 @@ where
 	}
 
 	// If no target line has a playable position, fall back to greedy.
-	best.map(|b| b.1).unwrap_or_else(|| Greedy {}.choose_move(game))
+	best.map(|b| b.1).unwrap_or_else(|| GreedyMax {}.choose_move(game))
 }
 
 /// Bounded sadist: minimizes opponent's max potential, but uses greedy for opponent
@@ -153,7 +153,7 @@ fn project_opponent_score<const N: usize>(game: &GameState<N>, opponent: Player)
 where
 	[(); N * N]:, {
 	let mut sim = game.clone();
-	let mut greedy = Greedy {};
+	let mut greedy = GreedyMax {};
 
 	while sim.outcome().is_none() {
 		let mv = greedy.choose_move(&sim);
@@ -240,8 +240,8 @@ mod tests {
 		grid[2][2] = Some(3);
 		let state = make_state(grid, hand(&[(3, 2), (1, 1), (5, 1)]), Player::A);
 		let analysis = LineAnalysis::new(&state);
-		assert!(matches!(analysis.mode(), Mode::Greedy));
-		assert_eq!(Rollout {}.choose_move(&state), Greedy {}.choose_move(&state));
+		assert!(matches!(analysis.mode(), Mode::GreedyMax));
+		assert_eq!(Rollout {}.choose_move(&state), GreedyMax {}.choose_move(&state));
 	}
 
 	#[test]

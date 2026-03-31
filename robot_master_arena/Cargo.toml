@@ -16,6 +16,7 @@ rayon = "1"
 
 bon.workspace = true
 derive-new.workspace = true
+derive_more.workspace = true
 miette.workspace = true
 rand.workspace = true
 serde.workspace = true

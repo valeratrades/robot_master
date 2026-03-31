@@ -136,8 +136,13 @@ pub fn distribution_cartes(pile_cartes: Vec<u8>, dico_options: Option<HashMap<St
 	Python::with_gil(|py| {
 		let opts = dico_options.unwrap_or_default();
 		let nb_j = opts.get("nbJ").copied().unwrap_or(2) as usize;
-		let taille = opts.get("taille").copied().unwrap_or(5) as usize;
-		let cartes_distrib = (taille * taille - 1) / 2;
+		//HACK: apparently in IA_test.py they try to force different number of cards. So uhh, gotta support that bullshit
+		let cartes_distrib = if let Some(&cd) = opts.get("cartes_distrib") {
+			cd as usize
+		} else {
+			let taille = opts.get("taille").copied().unwrap_or(5) as usize;
+			(taille * taille - 1) / 2
+		};
 
 		let mut result: Vec<PyObject> = Vec::new();
 		// first element: center card (scalar int)

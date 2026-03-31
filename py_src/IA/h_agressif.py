@@ -338,7 +338,8 @@ if True:
 (2,_)   | 4 |   |   |   |   |
 (3,_)   |   | 2 |   |   | 0 |
 (4,_)   | 4 | 4 | 4 | 0 | 0 |
------------------------------""")
+-----------------------------\
+""")
 		card, posL, posC = _check(board, {0: 1, 1: 2, 2: 0, 3: 1, 4: 0, 5: 2}, joueuse_active=1)
 		after = copy.deepcopy(board)
 		after[posL][posC] = card

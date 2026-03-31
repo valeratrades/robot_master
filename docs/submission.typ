@@ -7,5 +7,9 @@ NB: don't forget to mention:
 - full description of functionality
 - don't restate things in docs/ like ARCHITECTURE.md - just point to them (full links on gitlab (master))
   TODO: talking ARCHITECTURE.md, - just noticed it's missing. Need to fill in before even starting with this
+- extra attention to all the things we changed from the original, like
+  - aggressive tests in /home/v/uni/robot_master/py_src/IA/IA_test.py to be based on final score (cause tiebrake rules shouldn't influence)
+  - type in some tests like /home/v/uni/robot_master/py_src/partie_guidee/c_test.py:65 are switched to ones that make more sense
+    // here it's a tuple for `("B", "r", {3: 1})`, not an array (cause first two are positional)
 
 NB: when talking about fundamental design decisions and things that should go into docs/, - just put them in docs, then link. Despite what they say in the pdf file, we're writing more of a progress report, and actually important things should be persisted alongside the code itself not in some random compiled pdf.

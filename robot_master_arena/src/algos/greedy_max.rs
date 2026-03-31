@@ -8,23 +8,17 @@ use v_utils::macros::CompactFormatNamed;
 
 use crate::player::Bot;
 
-/// Greedy player: maximizes immediate score delta on own lines.
+/// Greedy player: maximizes immediate score delta on the single best line.
 ///
-/// Faithful port of `choix_carte_greedy` from `py_src/IA/g_greedy.py`.
+/// Picks the (card, position) that gives the highest `score_delta` on whichever
+/// line it lands in. This tends to chase big scores (pairs/triples) on one line
+/// while potentially leaving other lines at zero.
 ///
-/// Algorithm:
-/// 1. For each of the player's lines, extract current card counts.
-/// 2. For each playable position, determine which line it affects.
-/// 3. Pick one representative position per line (first found).
-/// 4. For each line with a position, score every card in hand by `score_delta`.
-/// 5. Return the (card, position) with the globally best delta.
-///    Tiebreak: highest delta, then lowest card value.
-///
-/// Limitation: treats each line independently, no lookahead.
-#[derive(Clone, CompactFormatNamed, Debug)]
-pub struct Greedy {}
+/// Tiebreak: highest delta, then lowest card value.
+#[derive(Clone, CompactFormatNamed, Debug, Default, Eq, PartialEq)]
+pub struct GreedyMax {}
 
-impl<const N: usize> Bot<N> for Greedy
+impl<const N: usize> Bot<N> for GreedyMax
 where
 	[(); N * N]:,
 {
@@ -33,10 +27,8 @@ where
 		let hand = &game.hands[turn.index() as usize];
 		let board = &game.board;
 
-		// Compute line counts for each of the player's lines.
 		let lines: Vec<_> = (0..N).map(|i| line_counts(&board.line(turn, i))).collect();
 
-		// Map each playable position to its line index, keep first representative per line.
 		let mut line_pos: Vec<Option<Pos>> = vec![None; N];
 		for pos in board.valid_placements() {
 			let line_idx = if scores_rows(turn) { pos.row as usize } else { pos.col as usize };
@@ -45,7 +37,6 @@ where
 			}
 		}
 
-		// Find best (card, position) across all lines.
 		let mut best_delta: Option<i16> = None;
 		let mut best_card: Option<CardValue> = None;
 		let mut best_pos: Option<Pos> = None;
@@ -131,9 +122,8 @@ mod tests {
 
 	#[test]
 	fn picks_highest_delta_odd_player() {
-		// Row 2 already has a 3; playing another 3 gives delta=27 (9*3) vs delta=1 for card 1.
 		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), Player::B);
-		let m = Greedy {}.choose_move(&state);
+		let m = GreedyMax {}.choose_move(&state);
 		assert_eq!(m.card, CardValue(3));
 		assert_eq!(m.pos.row, 2);
 		assert_snapshot!(format!("{}\nmove: card={} pos=({},{})", state.board, m.card.0, m.pos.row, m.pos.col), @"
@@ -152,9 +142,8 @@ mod tests {
 
 	#[test]
 	fn picks_highest_delta_even_player() {
-		// Col 2 already has a 3; even player scores columns.
 		let state = make_state(board_one_card(), hand(&[(1, 1), (3, 2)]), Player::A);
-		let m = Greedy {}.choose_move(&state);
+		let m = GreedyMax {}.choose_move(&state);
 		assert_eq!(m.card, CardValue(3));
 		assert_eq!(m.pos.col, 2);
 	}
@@ -162,7 +151,7 @@ mod tests {
 	#[test]
 	fn midgame_odd_player() {
 		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), Player::B);
-		let m = Greedy {}.choose_move(&state);
+		let m = GreedyMax {}.choose_move(&state);
 		assert_snapshot!(format!("{}\nmove: card={} pos=({},{})", state.board, m.card.0, m.pos.row, m.pos.col), @"
 		-----------------------------
 		          0   1   2   3   4
@@ -180,7 +169,7 @@ mod tests {
 	#[test]
 	fn midgame_even_player() {
 		let state = make_state(board_midgame(), hand(&[(0, 1), (1, 2), (3, 1), (5, 2)]), Player::A);
-		let m = Greedy {}.choose_move(&state);
+		let m = GreedyMax {}.choose_move(&state);
 		assert_snapshot!(format!("card={} pos=({},{})", m.card.0, m.pos.row, m.pos.col), @"card=3 pos=(2,3)");
 	}
 
@@ -240,7 +229,7 @@ mod tests {
 				turn,
 				config: GameConfig::default(),
 			};
-			let m = Greedy {}.choose_move(&state);
+			let m = GreedyMax {}.choose_move(&state);
 			let prev = board;
 			board.set(m.pos, m.card.0);
 			moves.push(format!("turn={turn:?}\n{}", board.display_diff(&prev)));

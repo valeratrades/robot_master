@@ -50,16 +50,11 @@ impl GameConfig {
 	}
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, derive_more::Display, Eq, PartialEq)]
+#[display("{}@({},{})", card.0, pos.row, pos.col)]
 pub struct Move {
 	pub pos: Pos,
 	pub card: CardValue,
-}
-
-impl fmt::Display for Move {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{}@({},{})", self.card.0, self.pos.row, self.pos.col)
-	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

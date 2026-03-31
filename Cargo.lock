@@ -6339,6 +6339,7 @@ dependencies = [
  "bon",
  "clickhouse",
  "derive-new",
+ "derive_more",
  "insta",
  "miette",
  "rand 0.10.0",
@@ -6359,6 +6360,7 @@ name = "robot_master_core"
 version = "0.1.0"
 dependencies = [
  "board-game",
+ "derive_more",
  "internal-iterator",
  "pyo3",
  "rand 0.10.0",

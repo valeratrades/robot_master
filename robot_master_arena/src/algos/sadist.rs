@@ -10,7 +10,7 @@ use v_utils::macros::CompactFormatNamed;
 use crate::player::Bot;
 
 /// Sadist player: minimizes the opponent's maximum potential score.
-#[derive(Clone, CompactFormatNamed, Debug)]
+#[derive(Clone, CompactFormatNamed, Debug, Default, Eq, PartialEq)]
 pub struct Sadist {}
 
 impl<const N: usize> Bot<N> for Sadist

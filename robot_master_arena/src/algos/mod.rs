@@ -1,14 +1,15 @@
-pub mod greedy;
+pub mod greedy_max;
+pub mod greedy_min;
 pub mod random;
 pub mod rollout;
 pub mod sadist;
 
-use std::{fmt, str::FromStr};
-
-pub use greedy::Greedy;
-pub use random::Random;
+pub use greedy_max::GreedyMax;
+pub use greedy_min::GreedyMin;
+pub use random::RandomPlayer;
 pub use rollout::Rollout;
 pub use sadist::Sadist;
+use strum::IntoEnumIterator;
 use ustr::{Ustr, ustr};
 use v_utils::macros::CompactFormatNamed;
 
@@ -16,25 +17,18 @@ use crate::player::{Bot, ManualPlayer};
 
 /// MCTS parameters.
 /// CLI: `mcts:s200` (simulations=200). Bare `mcts` uses defaults.
-#[derive(Clone, CompactFormatNamed, Debug)]
+#[derive(Clone, CompactFormatNamed, Debug, Default, Eq, PartialEq)]
 pub struct Mcts {
-	pub simulations: u32,
-}
-
-impl Default for Mcts {
-	fn default() -> Self {
-		Self { simulations: 200 }
-	}
+	pub simulations: u32 = 200,
 }
 
 /// Known player types.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, derive_more::Display, strum::EnumIter, Eq, PartialEq, v_utils::macros::TryParseVariants)]
 pub enum PlayerKind {
-	Manual {
-		name: String,
-	},
-	Random(Random),
-	Greedy(Greedy),
+	ManualPlayer(ManualPlayer),
+	RandomPlayer(RandomPlayer),
+	GreedyMax(GreedyMax),
+	GreedyMin(GreedyMin),
 	Sadist(Sadist),
 	Rollout(Rollout),
 	/// MCTS with rollout evaluation. `into_bot` cannot construct this — the binary crate
@@ -44,7 +38,7 @@ pub enum PlayerKind {
 
 impl PlayerKind {
 	pub fn is_manual(&self) -> bool {
-		matches!(self, PlayerKind::Manual { .. })
+		matches!(self, PlayerKind::ManualPlayer(_))
 	}
 
 	pub fn id(&self) -> Ustr {
@@ -52,15 +46,8 @@ impl PlayerKind {
 	}
 
 	/// All non-Manual variants with default parameters.
-	pub fn defaults() -> impl Iterator<Item = Self> {
-		[
-			PlayerKind::Random(Random {}),
-			PlayerKind::Greedy(Greedy {}),
-			PlayerKind::Sadist(Sadist {}),
-			PlayerKind::Rollout(Rollout {}),
-			PlayerKind::Mcts(Mcts::default()),
-		]
-		.into_iter()
+	pub fn defaults() -> Vec<PlayerKind> {
+		Self::iter().filter(|k| !k.is_manual()).collect()
 	}
 
 	/// Construct a concrete `Bot<N>` from this kind.
@@ -71,67 +58,14 @@ impl PlayerKind {
 	where
 		[(); N * N]:, {
 		match self {
-			PlayerKind::Manual { .. } => Box::new(ManualPlayer::new()),
-			PlayerKind::Random(_) => Box::new(random::RandomPlayer::new()),
-			PlayerKind::Greedy(_) => Box::new(greedy::Greedy {}),
-			PlayerKind::Sadist(_) => Box::new(sadist::Sadist {}),
-			PlayerKind::Rollout(_) => Box::new(rollout::Rollout {}),
+			PlayerKind::ManualPlayer(p) => Box::new(p),
+			PlayerKind::RandomPlayer(p) => Box::new(p),
+			PlayerKind::GreedyMax(p) => Box::new(p),
+			PlayerKind::GreedyMin(p) => Box::new(p),
+			PlayerKind::Sadist(p) => Box::new(p),
+			PlayerKind::Rollout(p) => Box::new(p),
 			PlayerKind::Mcts(_) => panic!("Mcts cannot be constructed via into_bot; use robot_master_train::mcts::MctsBot"),
-		}
-	}
-}
-
-impl fmt::Display for PlayerKind {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		match self {
-			PlayerKind::Manual { name } => write!(f, "manual:{name}"),
-			PlayerKind::Random(p) => write!(f, "{p}"),
-			PlayerKind::Greedy(p) => write!(f, "{p}"),
-			PlayerKind::Sadist(p) => write!(f, "{p}"),
-			PlayerKind::Rollout(p) => write!(f, "{p}"),
-			PlayerKind::Mcts(p) => write!(f, "{p}"),
-		}
-	}
-}
-
-impl FromStr for PlayerKind {
-	type Err = String;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		// Try each CompactFormatNamed struct. Order doesn't matter — graphemics ensure
-		// only the matching struct name succeeds.
-		if let Ok(v) = s.parse::<Mcts>() {
-			return Ok(PlayerKind::Mcts(v));
-		}
-		if let Ok(v) = s.parse::<Random>() {
-			return Ok(PlayerKind::Random(v));
-		}
-		if let Ok(v) = s.parse::<Greedy>() {
-			return Ok(PlayerKind::Greedy(v));
-		}
-		if let Ok(v) = s.parse::<Sadist>() {
-			return Ok(PlayerKind::Sadist(v));
-		}
-		if let Ok(v) = s.parse::<Rollout>() {
-			return Ok(PlayerKind::Rollout(v));
-		}
-
-		// Bare "mcts" without params.
-		if s.eq_ignore_ascii_case("mcts") {
-			return Ok(PlayerKind::Mcts(Mcts::default()));
-		}
-
-		// Manual players: "manual:<name>" or bare "manual".
-		let lower = s.to_lowercase();
-		if let Some(name) = lower.strip_prefix("manual:") {
-			validate_manual_name(name)?;
-			return Ok(PlayerKind::Manual { name: name.to_string() });
-		}
-		if lower == "manual" {
-			return Ok(PlayerKind::Manual { name: "Player".into() });
-		}
-
-		Err(s.to_string())
+		} // have to hardcode names even though we do the same thing, cause eg `Mcts` is attached later (round dependencies), so at this level it doesn't impl `Bot`
 	}
 }
 

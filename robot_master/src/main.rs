@@ -55,7 +55,7 @@ fn resolve_player(input: &str, auto_yes: bool) -> PlayerKind {
 	});
 
 	if auto_yes {
-		return PlayerKind::Manual { name: input.to_string() };
+		return PlayerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: input.to_string() });
 	}
 
 	eprint!("Unknown player \"{input}\". Register as manual player? [y/N] ");
@@ -63,11 +63,11 @@ fn resolve_player(input: &str, auto_yes: bool) -> PlayerKind {
 	let mut answer = String::new();
 	std::io::stdin().read_line(&mut answer).unwrap();
 	if answer.trim().eq_ignore_ascii_case("y") {
-		return PlayerKind::Manual { name: input.to_string() };
+		return PlayerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: input.to_string() });
 	}
 
 	// Fall back to fzf selection over algo names
-	let algo_names: Vec<String> = PlayerKind::defaults().map(|k| k.to_string()).collect();
+	let algo_names: Vec<String> = PlayerKind::defaults().into_iter().map(|k| k.to_string()).collect();
 	let all_names: Vec<&str> = std::iter::once("manual").chain(algo_names.iter().map(|s| s.as_str())).collect();
 	let fzf_input = all_names.join("\n");
 
