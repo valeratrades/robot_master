@@ -5,6 +5,7 @@ use robot_master_arena::{
 	algos::{PlayerKind, rollout::Rollout},
 	db::RatingDb,
 	player::Bot,
+	rating::Rating,
 	tournament,
 };
 use robot_master_core::game::GameConfig;
@@ -141,6 +142,26 @@ fn run_players(players_filter: Vec<String>, command: PlayersCommands, rating_db:
 	} else {
 		ratings.keys().filter(|id| players_filter.iter().any(|pat| id.as_str().contains(pat.as_str()))).copied().collect()
 	};
+
+	if let PlayersCommands::New { player } = command {
+		let kind: PlayerKind = player.parse().unwrap_or_else(|e| {
+			eprintln!("Unknown player spec: {e}");
+			std::process::exit(1);
+		});
+		if kind.is_manual() {
+			eprintln!("Cannot register manual players in arena");
+			std::process::exit(1);
+		}
+		let id = kind.id();
+		if ratings.contains_key(&id) {
+			eprintln!("Player already exists: {id}");
+			std::process::exit(1);
+		}
+		ratings.insert(id, Rating::default());
+		rating_db.save_ratings(&ratings);
+		eprintln!("Registered {id} (rating {:.0}, RD {:.0})", Rating::default().rating, Rating::default().deviation);
+		return;
+	}
 
 	if matches!(command, PlayersCommands::List) {
 		let mut entries: Vec<_> = ratings.iter().filter(|(id, _)| matched.contains(id)).collect();
