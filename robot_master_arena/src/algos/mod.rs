@@ -3,9 +3,10 @@ pub mod greedy_min;
 pub mod random;
 pub mod rollout;
 pub mod sadist;
+mod test_utils;
 
-pub use greedy_max::GreedyMax;
-pub use greedy_min::GreedyMin;
+pub use greedy_max::GreedyForNumber;
+pub use greedy_min::GreedyForScore;
 pub use random::RandomPlayer;
 pub use rollout::Rollout;
 pub use sadist::Sadist;
@@ -23,12 +24,13 @@ pub struct Mcts {
 }
 
 /// Known player types.
+//NB: pay attention to keeping field names equal to contained values. Easy to rename contained T via lsp from elsewhere, and forget to rename the field name to follow.
 #[derive(Clone, Debug, derive_more::Display, strum::EnumIter, Eq, PartialEq, v_utils::macros::TryParseVariants)]
 pub enum PlayerKind {
 	ManualPlayer(ManualPlayer),
 	RandomPlayer(RandomPlayer),
-	GreedyMax(GreedyMax),
-	GreedyMin(GreedyMin),
+	GreedyForNumber(GreedyForNumber),
+	GreedyForScocre(GreedyForScore),
 	Sadist(Sadist),
 	Rollout(Rollout),
 	/// MCTS with rollout evaluation. `into_bot` cannot construct this — the binary crate
@@ -60,8 +62,8 @@ impl PlayerKind {
 		match self {
 			PlayerKind::ManualPlayer(p) => Box::new(p),
 			PlayerKind::RandomPlayer(p) => Box::new(p),
-			PlayerKind::GreedyMax(p) => Box::new(p),
-			PlayerKind::GreedyMin(p) => Box::new(p),
+			PlayerKind::GreedyForNumber(p) => Box::new(p),
+			PlayerKind::GreedyForScocre(p) => Box::new(p),
 			PlayerKind::Sadist(p) => Box::new(p),
 			PlayerKind::Rollout(p) => Box::new(p),
 			PlayerKind::Mcts(_) => panic!("Mcts cannot be constructed via into_bot; use robot_master_train::mcts::MctsBot"),

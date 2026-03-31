@@ -65,10 +65,10 @@ pub enum ArenaCommands {
 
 #[derive(Subcommand)]
 pub enum PlayersCommands {
-	/// Register a new player algorithm (e.g. `mcts:s500`, `random`, `rollout`)
+	/// Register player algorithms (e.g. `mcts:s500`, `random`, `rollout`). Also auto-registers any missing default variants.
 	New {
-		/// Player spec: algo name with optional params (e.g. `mcts:s500`, `greedy`)
-		player: String,
+		/// Player specs: algo names with optional params (e.g. `mcts:s500`, `greedy`)
+		players: Vec<String>,
 	},
 	/// List all players and their ratings
 	List,

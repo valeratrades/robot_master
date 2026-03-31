@@ -82,7 +82,7 @@ macro_rules! algo_move_dispatch {
 #[cfg(feature = "python")]
 #[pyfunction]
 fn greedy_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: std::collections::HashMap<u8, u8>, joueuse_active: u8) -> PyResult<(u8, u8, u8)> {
-	algo_move_dispatch!(plateau, dico_main, joueuse_active, robot_master_arena::algos::greedy_min::GreedyMin {})
+	algo_move_dispatch!(plateau, dico_main, joueuse_active, robot_master_arena::algos::greedy_min::GreedyForScore {})
 }
 
 #[cfg(feature = "python")]

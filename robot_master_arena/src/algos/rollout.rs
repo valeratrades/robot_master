@@ -7,7 +7,7 @@ use robot_master_core::{
 };
 use v_utils::macros::CompactFormatNamed;
 
-use super::greedy_max::GreedyMax;
+use super::greedy_max::GreedyForNumber;
 use crate::player::Bot;
 
 /// Three-mode bot:
@@ -25,7 +25,7 @@ where
 		let analysis = LineAnalysis::new(game);
 
 		match analysis.mode() {
-			Mode::GreedyMax => GreedyMax {}.choose_move(game),
+			Mode::GreedyMax => GreedyForNumber {}.choose_move(game),
 			Mode::TargetWeak => target_weak(game, &analysis),
 			Mode::Averse => Averse::builder().fuel(500).build().choose(game),
 		}
@@ -108,7 +108,7 @@ where
 	}
 
 	// If no target line has a playable position, fall back to greedy.
-	best.map(|b| b.1).unwrap_or_else(|| GreedyMax {}.choose_move(game))
+	best.map(|b| b.1).unwrap_or_else(|| GreedyForNumber {}.choose_move(game))
 }
 
 /// Bounded sadist: minimizes opponent's max potential, but uses greedy for opponent
@@ -153,7 +153,7 @@ fn project_opponent_score<const N: usize>(game: &GameState<N>, opponent: Player)
 where
 	[(); N * N]:, {
 	let mut sim = game.clone();
-	let mut greedy = GreedyMax {};
+	let mut greedy = GreedyForNumber {};
 
 	while sim.outcome().is_none() {
 		let mv = greedy.choose_move(&sim);
@@ -174,43 +174,9 @@ mod tests {
 	use board_game::board::Board as _;
 	use insta::assert_snapshot;
 	use rand::{SeedableRng, rngs::SmallRng};
-	use robot_master_core::{
-		board::{Board, Pos},
-		cards::{CardValue, Hand},
-		game::{GameConfig, GameState},
-	};
+	use robot_master_core::game::{GameConfig, GameState};
 
-	use super::*;
-
-	fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand, turn: Player) -> GameState<5> {
-		let mut board = Board::<5>::default();
-		for row in 0..5u8 {
-			for col in 0..5u8 {
-				if let Some(v) = grid[row as usize][col as usize] {
-					board.set(Pos { row, col }, v);
-				}
-			}
-		}
-		GameState {
-			board,
-			hands: match turn {
-				Player::A => [hand, Hand::default()],
-				Player::B => [Hand::default(), hand],
-			},
-			turn,
-			config: GameConfig::default(),
-		}
-	}
-
-	fn hand(pairs: &[(u8, u8)]) -> Hand {
-		let mut h = Hand::default();
-		for &(v, n) in pairs {
-			for _ in 0..n {
-				h.put(CardValue(v));
-			}
-		}
-		h
-	}
+	use super::{super::test_utils::fixtures::*, *};
 
 	#[test]
 	fn rollout_returns_legal_move() {
@@ -241,77 +207,12 @@ mod tests {
 		let state = make_state(grid, hand(&[(3, 2), (1, 1), (5, 1)]), Player::A);
 		let analysis = LineAnalysis::new(&state);
 		assert!(matches!(analysis.mode(), Mode::GreedyMax));
-		assert_eq!(Rollout {}.choose_move(&state), GreedyMax {}.choose_move(&state));
+		assert_eq!(Rollout {}.choose_move(&state), GreedyForNumber {}.choose_move(&state));
 	}
 
 	#[test]
 	fn game_rollout() {
-		let mut board = Board::<5>::default();
-		for (row, col, v) in [
-			(0u8, 2u8, 1u8),
-			(0, 3, 1),
-			(0, 4, 0),
-			(1, 1, 2),
-			(1, 3, 3),
-			(2, 0, 4),
-			(3, 1, 2),
-			(3, 4, 0),
-			(4, 0, 4),
-			(4, 1, 4),
-			(4, 2, 4),
-			(4, 3, 0),
-			(4, 4, 0),
-		] {
-			board.set(Pos { row, col }, v);
-		}
-
-		let mut hand_counts = [0u8; 6];
-		hand_counts[0] = 2;
-		hand_counts[1] = 2;
-		hand_counts[2] = 1;
-		hand_counts[3] = 1;
-		hand_counts[5] = 2;
-
-		fn make_hand_from_counts(counts: &[u8; 6]) -> Hand {
-			let mut h = Hand::default();
-			for (v, &n) in counts.iter().enumerate() {
-				for _ in 0..n {
-					h.put(CardValue(v as u8));
-				}
-			}
-			h
-		}
-
-		let mut moves: Vec<String> = Vec::new();
-		let turns = [Player::A, Player::B];
-		let mut bot = Rollout {};
-
-		for turn_idx in 0..10usize {
-			let turn = turns[turn_idx % 2];
-			let h = make_hand_from_counts(&hand_counts);
-			if h.is_empty() {
-				break;
-			}
-			let state = GameState {
-				board,
-				hands: match turn {
-					Player::A => [h, Hand::default()],
-					Player::B => [Hand::default(), h],
-				},
-				turn,
-				config: GameConfig::default(),
-			};
-			let m = bot.choose_move(&state);
-			let prev = board;
-			board.set(m.pos, m.card.0);
-			moves.push(format!("turn={turn:?}\n{}", board.display_diff(&prev)));
-			hand_counts[m.card.0 as usize] -= 1;
-			if hand_counts.iter().all(|&c| c == 0) {
-				break;
-			}
-		}
-
-		assert_snapshot!(moves.join("\n---\n"), @"
+		assert_snapshot!(run_midgame_rollout(&mut Rollout {}), @"
 		turn=A
 		-----------------------------
 		          0   1   2   3   4

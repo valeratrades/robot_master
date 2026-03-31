@@ -6321,6 +6321,7 @@ dependencies = [
  "derive-new",
  "pyo3",
  "rand 0.10.0",
+ "regex",
  "robot_master_arena",
  "robot_master_core",
  "robot_master_game",
@@ -7857,7 +7858,7 @@ dependencies = [
 
 [[package]]
 name = "v_utils"
-version = "2.15.36"
+version = "2.15.37"
 dependencies = [
  "bevy",
  "bon",
@@ -7893,7 +7894,7 @@ dependencies = [
 
 [[package]]
 name = "v_utils_macros"
-version = "2.11.36"
+version = "2.11.37"
 dependencies = [
  "eyre",
  "heck",

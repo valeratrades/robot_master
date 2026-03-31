@@ -1,5 +1,6 @@
 use std::io::{self, BufRead, Write};
 
+use regex::Regex;
 use robot_master_arena::{
 	BoardSize,
 	algos::{PlayerKind, rollout::Rollout},
@@ -39,7 +40,11 @@ fn resolve_players(filter: &[String], rating_db: &dyn RatingDb) -> Vec<PlayerKin
 	let matched: Vec<&Ustr> = if filter.is_empty() {
 		all_ids.iter().collect()
 	} else {
-		all_ids.iter().filter(|id| filter.iter().any(|pat| id.as_str().contains(pat.as_str()))).collect()
+		let patterns: Vec<Regex> = filter
+			.iter()
+			.map(|pat| Regex::new(pat).unwrap_or_else(|e| panic!("Invalid regex pattern {pat:?}: {e}")))
+			.collect();
+		all_ids.iter().filter(|id| patterns.iter().any(|re| re.is_match(id.as_str()))).collect()
 	};
 
 	matched
@@ -168,26 +173,51 @@ fn run_players(players_filter: Vec<String>, command: PlayersCommands, rating_db:
 	let matched: Vec<Ustr> = if players_filter.is_empty() {
 		ratings.keys().copied().collect()
 	} else {
-		ratings.keys().filter(|id| players_filter.iter().any(|pat| id.as_str().contains(pat.as_str()))).copied().collect()
+		let patterns: Vec<Regex> = players_filter
+			.iter()
+			.map(|pat| Regex::new(pat).unwrap_or_else(|e| panic!("Invalid regex pattern {pat:?}: {e}")))
+			.collect();
+		ratings.keys().filter(|id| patterns.iter().any(|re| re.is_match(id.as_str()))).copied().collect()
 	};
 
-	if let PlayersCommands::New { player } = command {
-		let kind: PlayerKind = player.parse().unwrap_or_else(|e| {
-			eprintln!("Unknown player spec: {e}");
-			std::process::exit(1);
-		});
-		if kind.is_manual() {
-			eprintln!("Cannot register manual players in arena");
-			std::process::exit(1);
+	if let PlayersCommands::New { players } = command {
+		let mut explicit: Vec<PlayerKind> = Vec::new();
+		for spec in &players {
+			let kind: PlayerKind = spec.parse().unwrap_or_else(|e| {
+				eprintln!("Unknown player spec: {e}");
+				std::process::exit(1);
+			});
+			if kind.is_manual() {
+				eprintln!("Cannot register manual players in arena");
+				std::process::exit(1);
+			}
+			explicit.push(kind);
 		}
-		let id = kind.id();
-		if ratings.contains_key(&id) {
-			eprintln!("Player already exists: {id}");
-			std::process::exit(1);
+
+		// Also auto-register any missing default variants
+		let mut to_register: Vec<PlayerKind> = explicit;
+		for kind in PlayerKind::defaults() {
+			if !to_register.iter().any(|k| k.id() == kind.id()) {
+				to_register.push(kind);
+			}
 		}
-		ratings.insert(id, Rating::default());
-		rating_db.save_ratings(&ratings);
-		eprintln!("Registered {id} (rating {:.0}, RD {:.0})", Rating::default().rating, Rating::default().deviation);
+
+		let mut registered = 0usize;
+		for kind in &to_register {
+			let id = kind.id();
+			if ratings.contains_key(&id) {
+				continue;
+			}
+			ratings.insert(id, Rating::default());
+			eprintln!("Registered {id} (rating {:.0}, RD {:.0})", Rating::default().rating, Rating::default().deviation);
+			registered += 1;
+		}
+
+		if registered > 0 {
+			rating_db.save_ratings(&ratings);
+		} else {
+			eprintln!("All players already registered.");
+		}
 		return;
 	}
 
