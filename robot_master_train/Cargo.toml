@@ -8,6 +8,8 @@ robot_master_arena = { path = "../robot_master_arena" }
 robot_master_core = { path = "../robot_master_core" }
 
 board-game = "0.8"
+bytemuck = "1"
+rayon = "1"
 
 rand.workspace = true
 ustr.workspace = true

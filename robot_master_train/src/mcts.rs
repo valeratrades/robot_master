@@ -60,6 +60,21 @@ pub struct MctsConfig {
 pub fn search<const N: usize>(state: &GameState<N>, evaluator: &impl Evaluator<N>, config: &MctsConfig) -> Move
 where
 	[(); N * N]:, {
+	let (counts, _) = run_tree(state, evaluator, config);
+	counts.into_iter().max_by_key(|(_, v)| *v).expect("root has no edges").0
+}
+
+/// Run MCTS from `state`, return visit counts for every edge off the root.
+pub fn search_visit_counts<const N: usize>(state: &GameState<N>, evaluator: &impl Evaluator<N>, config: &MctsConfig) -> Vec<(Move, u32)>
+where
+	[(); N * N]:, {
+	let (counts, _) = run_tree(state, evaluator, config);
+	counts
+}
+
+fn run_tree<const N: usize>(state: &GameState<N>, evaluator: &impl Evaluator<N>, config: &MctsConfig) -> (Vec<(Move, u32)>, Tree)
+where
+	[(); N * N]:, {
 	let mut tree = Tree::new();
 	let root = tree.expand(evaluator.evaluate(state));
 
@@ -67,14 +82,16 @@ where
 		simulate(&mut tree, root, state, evaluator, config.c_puct);
 	}
 
-	// Pick the most-visited child.
 	let root_node = &tree.nodes[root as usize];
-	root_node
+	let counts: Vec<(Move, u32)> = root_node
 		.edges
 		.iter()
-		.max_by_key(|e| if e.child == u32::MAX { 0 } else { tree.nodes[e.child as usize].visit_count })
-		.expect("root has no edges")
-		.mv
+		.map(|e| {
+			let visits = if e.child == u32::MAX { 0 } else { tree.nodes[e.child as usize].visit_count };
+			(e.mv, visits)
+		})
+		.collect();
+	(counts, tree)
 }
 /// MCTS-based bot: wraps `search` and implements `Bot<N>`.
 pub struct MctsBot<E> {

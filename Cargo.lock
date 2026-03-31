@@ -6407,8 +6407,10 @@ name = "robot_master_train"
 version = "0.1.0"
 dependencies = [
  "board-game",
+ "bytemuck",
  "insta",
  "rand 0.10.0",
+ "rayon",
  "robot_master_arena",
  "robot_master_core",
  "ustr",
