@@ -1,7 +1,6 @@
 use board_game::board::{Board as _, Outcome};
 use robot_master_arena::player::Bot;
 use robot_master_core::game::{GameState, Move};
-use ustr::{Ustr, ustr};
 
 /// Produces (policy, value) estimates for a game state.
 ///
@@ -244,10 +243,6 @@ where
 	E: Evaluator<N> + Send + Sync,
 	[(); N * N]:,
 {
-	fn id(&self) -> Ustr {
-		ustr("mcts")
-	}
-
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		search(game, &self.evaluator, &self.config)
 	}

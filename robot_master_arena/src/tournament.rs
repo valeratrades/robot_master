@@ -15,7 +15,7 @@ use crate::{
 ///
 /// Uses `dyn Player` — this is the orchestration layer, not the hot path.
 /// For self-play training (millions of games), use `Match` directly with concrete types.
-pub fn round_robin<const N: usize>(players: &mut [Box<dyn Bot<N>>], config: GameConfig, rounds: usize, rng: &mut impl Rng) -> Vec<MatchResult>
+pub fn round_robin<const N: usize>(players: &mut [(Ustr, Box<dyn Bot<N>>)], config: GameConfig, rounds: usize, rng: &mut impl Rng) -> Vec<MatchResult>
 where
 	[(); N * N]:, {
 	let n = players.len();
@@ -32,15 +32,9 @@ where
 				// We need to borrow two players mutably at once.
 				// Safe because p1_idx != p2_idx.
 				assert!(p1_idx != p2_idx);
-				let (p1, p2) = if p1_idx < p2_idx {
-					let (left, right) = players.split_at_mut(p2_idx);
-					(&mut *left[p1_idx], &mut *right[0])
-				} else {
-					let (left, right) = players.split_at_mut(p1_idx);
-					(&mut *right[0], &mut *left[p2_idx])
-				};
+				let (p1_id, p2_id, p1, p2) = borrow_two_mut(players, p1_idx, p2_idx);
 
-				let result = run_dyn_match::<N>(game, p1, p2);
+				let result = run_dyn_match::<N>(game, p1, p2, p1_id, p2_id);
 				results.push(result);
 			}
 		}
@@ -59,7 +53,7 @@ where
 ///
 /// Number of Swiss rounds = ceil(log2(n_players)).
 pub fn swiss<const N: usize>(
-	players: &mut [Box<dyn Bot<N>>],
+	players: &mut [(Ustr, Box<dyn Bot<N>>)],
 	ratings: &HashMap<Ustr, f64>,
 	config: GameConfig,
 	avg_rounds: usize,
@@ -73,18 +67,18 @@ where
 
 	let swiss_rounds = (n as f64).log2().ceil() as usize;
 	// tournament score: wins per player
-	let mut scores: HashMap<Ustr, u32> = players.iter().map(|p| (p.id(), 0)).collect();
+	let mut scores: HashMap<Ustr, u32> = players.iter().map(|(id, _)| (*id, 0)).collect();
 	let mut all_results = Vec::new();
 
 	for swiss_round in 0..swiss_rounds {
 		// Sort player indices by (score desc, rating desc)
 		let mut order: Vec<usize> = (0..n).collect();
 		order.sort_by(|&a, &b| {
-			let sa = scores[&players[a].id()];
-			let sb = scores[&players[b].id()];
+			let sa = scores[&players[a].0];
+			let sb = scores[&players[b].0];
 			sb.cmp(&sa).then_with(|| {
-				let ra = ratings.get(&players[a].id()).copied().unwrap_or(1500.0);
-				let rb = ratings.get(&players[b].id()).copied().unwrap_or(1500.0);
+				let ra = ratings.get(&players[a].0).copied().unwrap_or(1500.0);
+				let rb = ratings.get(&players[b].0).copied().unwrap_or(1500.0);
 				rb.partial_cmp(&ra).unwrap()
 			})
 		});
@@ -97,7 +91,7 @@ where
 		let raw_weights: Vec<f64> = pairs
 			.iter()
 			.map(|&(a, b)| {
-				let combined = scores[&players[a].id()] + scores[&players[b].id()];
+				let combined = scores[&players[a].0] + scores[&players[b].0];
 				(2.0 + combined as f64).ln()
 			})
 			.collect();
@@ -113,15 +107,9 @@ where
 				let game = GameState::<N>::new(config, rng);
 
 				assert!(p1_idx != p2_idx);
-				let (p1, p2) = if p1_idx < p2_idx {
-					let (left, right) = players.split_at_mut(p2_idx);
-					(&mut *left[p1_idx], &mut *right[0])
-				} else {
-					let (left, right) = players.split_at_mut(p1_idx);
-					(&mut *right[0], &mut *left[p2_idx])
-				};
+				let (p1_id, p2_id, p1, p2) = borrow_two_mut(players, p1_idx, p2_idx);
 
-				let mut result = run_dyn_match::<N>(game, p1, p2);
+				let mut result = run_dyn_match::<N>(game, p1, p2, p1_id, p2_id);
 				result.update_rating(rating_db);
 
 				// Update tournament scores
@@ -139,8 +127,22 @@ where
 	all_results
 }
 
-fn run_dyn_match<const N: usize>(game: GameState<N>, p1: &mut dyn Bot<N>, p2: &mut dyn Bot<N>) -> MatchResult
+/// Borrow two elements mutably from a slice, returning (id1, id2, bot1, bot2).
+fn borrow_two_mut<const N: usize>(players: &mut [(Ustr, Box<dyn Bot<N>>)], i: usize, j: usize) -> (Ustr, Ustr, &mut dyn Bot<N>, &mut dyn Bot<N>)
 where
 	[(); N * N]:, {
-	Match::new(game, p1, p2).run()
+	assert!(i != j);
+	if i < j {
+		let (left, right) = players.split_at_mut(j);
+		(left[i].0, right[0].0, &mut *left[i].1, &mut *right[0].1)
+	} else {
+		let (left, right) = players.split_at_mut(i);
+		(right[0].0, left[j].0, &mut *right[0].1, &mut *left[j].1)
+	}
+}
+
+fn run_dyn_match<const N: usize>(game: GameState<N>, p1: &mut dyn Bot<N>, p2: &mut dyn Bot<N>, p1_id: Ustr, p2_id: Ustr) -> MatchResult
+where
+	[(); N * N]:, {
+	Match::new(game, p1, p2, p1_id, p2_id).run()
 }

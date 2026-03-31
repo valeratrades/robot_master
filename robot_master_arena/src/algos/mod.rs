@@ -64,7 +64,7 @@ impl PlayerKind {
 	where
 		[(); N * N]:, {
 		match self {
-			PlayerKind::Manual { name } => Box::new(ManualPlayer::new(&name)),
+			PlayerKind::Manual { .. } => Box::new(ManualPlayer::new()),
 			PlayerKind::Random(_) => Box::new(random::RandomPlayer::new()),
 			PlayerKind::Greedy(_) => Box::new(greedy::Greedy {}),
 			PlayerKind::Sadist(_) => Box::new(sadist::Sadist {}),

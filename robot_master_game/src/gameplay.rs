@@ -3,14 +3,16 @@ use std::ops::ControlFlow;
 use bevy::{ecs::message::MessageReader, prelude::*};
 use robot_master_arena::{
 	BoardSize,
-	algos::PlayerKind,
+	algos::{PlayerKind, rollout::Rollout},
 	match_::{DynMatch, Match},
+	player::Bot,
 };
 use robot_master_core::{
 	board::{EMPTY, Pos},
 	cards::CardValue,
 	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
 };
+use robot_master_train::mcts::{MctsBot, MctsConfig, RolloutEval};
 use v_utils::bevy::{ModalActionFired, ModalState, PressedChars};
 
 use crate::{AppState, InitialPlayers, Textures, theme};
@@ -91,6 +93,22 @@ struct Warning {
 	timer: f32,
 }
 
+fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
+where
+	[(); N * N]:, {
+	match kind {
+		PlayerKind::Mcts(params) => {
+			let evaluator = RolloutEval::new(Rollout {});
+			let config = MctsConfig {
+				simulations: params.simulations,
+				c_puct: 1.41,
+			};
+			Box::new(MctsBot::new(evaluator, config))
+		}
+		other => other.into_bot(),
+	}
+}
+
 /// Helper: create a `Box<dyn DynMatch>` for the given board size.
 fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> Box<dyn DynMatch + Send + Sync> {
 	let mut rng: rand::rngs::SmallRng = rand::make_rng();
@@ -98,13 +116,15 @@ fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> Box<dyn DynMat
 		size: size.into(),
 		..GameConfig::default()
 	};
+	let p1_id = p1.id();
+	let p2_id = p2.id();
 
 	macro_rules! go {
 		($N:literal) => {{
 			let game = GameState::<$N>::new(config, &mut rng);
-			let p1 = p1.into_bot::<$N>();
-			let p2 = p2.into_bot::<$N>();
-			Box::new(Match::new(game, p1, p2))
+			let p1 = kind_into_bot::<$N>(p1);
+			let p2 = kind_into_bot::<$N>(p2);
+			Box::new(Match::new(game, p1, p2, p1_id, p2_id))
 		}};
 	}
 

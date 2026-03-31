@@ -1,5 +1,4 @@
 use robot_master_core::game::{GameState, Move};
-use ustr::{Ustr, ustr};
 
 /// Something that can decide which move to play given a game state.
 ///
@@ -10,9 +9,6 @@ use ustr::{Ustr, ustr};
 pub trait Bot<const N: usize>: Send + Sync
 where
 	[(); N * N]:, {
-	/// Stable identifier used for Elo tracking, display, serialization.
-	fn id(&self) -> Ustr;
-
 	/// Pick a move given the current game state.
 	fn choose_move(&mut self, game: &GameState<N>) -> Move;
 }
@@ -23,10 +19,6 @@ impl<const N: usize> Bot<N> for Box<dyn Bot<N>>
 where
 	[(); N * N]:,
 {
-	fn id(&self) -> Ustr {
-		(**self).id()
-	}
-
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		(**self).choose_move(game)
 	}
@@ -35,13 +27,11 @@ where
 /// Placeholder for human-controlled players.
 ///
 /// `choose_move` panics — the caller must always supply moves via `Match::next(Some(m))`.
-pub struct ManualPlayer {
-	id: Ustr,
-}
+pub struct ManualPlayer;
 
 impl ManualPlayer {
-	pub fn new(name: &str) -> Self {
-		Self { id: ustr(name) }
+	pub fn new() -> Self {
+		Self
 	}
 }
 
@@ -49,10 +39,6 @@ impl<const N: usize> Bot<N> for ManualPlayer
 where
 	[(); N * N]:,
 {
-	fn id(&self) -> Ustr {
-		self.id
-	}
-
 	fn choose_move(&mut self, _game: &GameState<N>) -> Move {
 		panic!("ManualPlayer::choose_move called — caller must supply moves via Match::next(Some(m))")
 	}
@@ -64,10 +50,6 @@ impl<const N: usize> Bot<N> for &mut dyn Bot<N>
 where
 	[(); N * N]:,
 {
-	fn id(&self) -> Ustr {
-		(**self).id()
-	}
-
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		(**self).choose_move(game)
 	}
