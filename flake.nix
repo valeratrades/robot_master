@@ -5,7 +5,7 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
     devenv.url = "github:cachix/devenv/v1.6.1";
     pre-commit-hooks.url = "github:cachix/git-hooks.nix";
-    v_flakes.url = "github:valeratrades/v_flakes?ref=v1.5";
+    v_flakes.url = "path:/home/v/s/v_flakes";
   };
 
   outputs = inputs@{ self, nixpkgs, rust-overlay, flake-parts, devenv, pre-commit-hooks, v_flakes }:
@@ -37,6 +37,12 @@
           rs = v_flakes.rs {
             inherit pkgs rust;
             targets."wasm32-unknown-unknown".rustflags = [ ''--cfg=getrandom_backend="wasm_js"'' ];
+            config = {
+              alias = {
+                t = "nextest run --workspace";
+                ta = "nextest run --workspace --no-fail-fast";
+              };
+            };
             build = {
               enable = true;
               workspace = {
