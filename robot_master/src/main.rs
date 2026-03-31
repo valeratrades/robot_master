@@ -1,4 +1,4 @@
-use std::{io::Write, process, str::FromStr, time::Duration};
+use std::{io::Write, process, str::FromStr, sync::Arc, time::Duration};
 
 use clap::Parser;
 use robot_master::config::{Cli, Commands, LiveSettings};
@@ -13,7 +13,7 @@ fn main() {
 	let auto_yes = cli.settings_flags.yes;
 	let settings = LiveSettings::new(cli.settings_flags, Duration::from_secs(5)).expect("failed to load config");
 	let config = settings.config().expect("failed to read config");
-	let rating_db = db::from_config(&config.arena);
+	let rating_db: Arc<dyn robot_master_arena::db::RatingDb> = Arc::from(db::from_config(&config.arena));
 
 	let size = cli.players.size;
 

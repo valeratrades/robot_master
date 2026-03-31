@@ -33,7 +33,7 @@ strum = { version = "0.28", features = ["derive"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt"] }
 ustr = { version = "1", features = ["serde"] }
-v_utils = { version = "2.15", path = "/home/v/s/v_utils/v_utils", features = ["macros", "cli"] }
+v_utils = { version = "^2.15", features = ["macros", "cli"] }
 
 [profile.wasm-release]
 inherits = "release"
@@ -41,3 +41,6 @@ opt-level = 'z'
 lto = true
 codegen-units = 1
 panic = "abort"
+
+[patch.crates-io]
+v_utils = { path = "/home/v/s/v_utils/v_utils" }

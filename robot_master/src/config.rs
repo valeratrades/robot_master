@@ -47,19 +47,46 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum ArenaCommands {
-	/// Run a Swiss tournament
+	/// Run a tournament
 	Tourney {
-		/// Average number of games per pairing
-		#[arg(default_value = "1")]
-		rounds: usize,
-		/// Number of threads for parallel game execution (0 = all cores)
-		#[arg(short, long, default_value = "0")]
-		threads: usize,
+		#[command(subcommand)]
+		mode: TourneyMode,
 	},
 	/// Player data management
 	Players {
 		#[command(subcommand)]
 		command: PlayersCommands,
+	},
+}
+
+#[derive(Subcommand)]
+pub enum TourneyMode {
+	/// True FIDE Swiss: 1 game/pairing, pair within score groups, runs N full brackets
+	Swiss {
+		/// Number of full Swiss brackets to run
+		#[arg(default_value = "10")]
+		cycles: usize,
+		/// Number of threads (0 = all cores)
+		#[arg(short, long, default_value = "0")]
+		threads: usize,
+	},
+	/// Rating-based: weighted-random pairing by ELO proximity, ceil(target_rounds / threads) cycles
+	Rating {
+		/// Total games to play (split across cycles of `threads` games each)
+		#[arg(default_value = "100")]
+		target_rounds: usize,
+		/// Number of threads (0 = all cores)
+		#[arg(short, long, default_value = "0")]
+		threads: usize,
+	},
+	/// Single-elimination: pair by ELO proximity, winners advance, repeat for N cycles
+	Elimination {
+		/// Number of full elimination brackets to run
+		#[arg(default_value = "10")]
+		cycles: usize,
+		/// Number of threads (0 = all cores)
+		#[arg(short, long, default_value = "0")]
+		threads: usize,
 	},
 }
 

@@ -1,4 +1,4 @@
-use std::ops::ControlFlow;
+use std::{ops::ControlFlow, sync::Arc};
 
 use board_game::board::Board as _;
 use robot_master_core::{
@@ -36,7 +36,7 @@ pub struct RatingUpdate {
 	pub p2_new: Rating,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct MatchResult {
 	pub p1_id: Ustr,
 	pub p2_id: Ustr,
@@ -47,10 +47,44 @@ pub struct MatchResult {
 	pub moves: Vec<SerMove>,
 	#[serde(skip)]
 	pub rating_update: Option<RatingUpdate>,
+	/// If set, `Drop` will automatically persist the Glicko-2 update to this db.
+	#[serde(skip)]
+	rating_db: Option<Arc<dyn RatingDb>>,
 }
 impl MatchResult {
+	pub fn new(p1_id: Ustr, p2_id: Ustr, p1_score: u16, p2_score: u16, p1_weak_line: usize, p2_weak_line: usize, moves: Vec<SerMove>, rating_db: Option<Arc<dyn RatingDb>>) -> Self {
+		Self {
+			p1_id,
+			p2_id,
+			p1_score,
+			p2_score,
+			p1_weak_line,
+			p2_weak_line,
+			moves,
+			rating_update: None,
+			rating_db,
+		}
+	}
+
+	/// Immediately compute and persist the Glicko-2 update, returning it.
+	/// Consumes `self` without triggering the Drop-based save a second time.
+	/// Use this when you need the `RatingUpdate` value synchronously.
+	pub fn commit(mut self) -> RatingUpdate {
+		let db = self.rating_db.take().expect("MatchResult::commit called without a rating_db set");
+		self.update_rating(db.as_ref());
+		let update = self.rating_update.take().expect("update_rating must populate rating_update");
+		std::mem::forget(self);
+		update
+	}
+
+	/// Consume `self` without saving ratings. Use inside tournament where ratings are
+	/// managed explicitly in-memory and saved once at the end.
+	pub fn forget(self) {
+		std::mem::forget(self);
+	}
+
 	/// Perform Glicko-2 rating update against the given db, populating `self.rating_update`.
-	pub fn update_rating(&mut self, rating_db: &dyn RatingDb) {
+	pub(crate) fn update_rating(&mut self, rating_db: &dyn RatingDb) {
 		let mut ratings = rating_db.load_ratings();
 
 		let outcome = match self.p1_score.cmp(&self.p2_score) {
@@ -75,6 +109,29 @@ impl MatchResult {
 		rating_db.save_ratings(&ratings);
 
 		self.rating_update = Some(update);
+	}
+}
+
+impl std::fmt::Debug for MatchResult {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("MatchResult")
+			.field("p1_id", &self.p1_id)
+			.field("p2_id", &self.p2_id)
+			.field("p1_score", &self.p1_score)
+			.field("p2_score", &self.p2_score)
+			.field("p1_weak_line", &self.p1_weak_line)
+			.field("p2_weak_line", &self.p2_weak_line)
+			.field("moves", &self.moves)
+			.field("rating_update", &self.rating_update)
+			.finish_non_exhaustive()
+	}
+}
+
+impl Drop for MatchResult {
+	fn drop(&mut self) {
+		if let Some(ref db) = self.rating_db.take() {
+			self.update_rating(db.as_ref());
+		}
 	}
 }
 
@@ -105,7 +162,7 @@ where
 	p1_id: Ustr,
 	p2_id: Ustr,
 	moves: Vec<Move>,
-	rating_db: Option<Box<dyn RatingDb>>,
+	rating_db: Option<Arc<dyn RatingDb>>,
 }
 
 impl<const N: usize, P1: Bot<N>, P2: Bot<N>> Match<N, P1, P2>
@@ -124,7 +181,7 @@ where
 		}
 	}
 
-	pub fn with_rating_db(mut self, db: Box<dyn RatingDb>) -> Self {
+	pub fn with_rating_db(mut self, db: Arc<dyn RatingDb>) -> Self {
 		self.rating_db = Some(db);
 		self
 	}
@@ -154,11 +211,7 @@ where
 		self.moves.push(m);
 
 		if self.game.is_done() {
-			let mut result = self.build_result();
-			if let Some(ref db) = self.rating_db {
-				result.update_rating(db.as_ref());
-			}
-			ControlFlow::Break(result)
+			ControlFlow::Break(self.build_result())
 		} else {
 			ControlFlow::Continue(&self.game)
 		}
@@ -185,6 +238,7 @@ where
 			p2_weak_line: i1,
 			moves: self.moves.iter().map(|&m| m.into()).collect(),
 			rating_update: None,
+			rating_db: self.rating_db.as_ref().map(|db| db.clone()),
 		}
 	}
 }

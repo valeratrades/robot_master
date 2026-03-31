@@ -13,5 +13,6 @@ NB: don't forget to mention:
     // here it's a tuple for `("B", "r", {3: 1})`, not an array (cause first two are positional)
   - mention I didn't know abt `IA_test.py` for a while, so it won't exist or pass until `v0.5.0`
 - all the links are to `gitlab` only, - github of this project is private (yet is source of truth).
+- include the current leaderboard in the submission (run `arena players list`)
 
 NB: when talking about fundamental design decisions and things that should go into docs/, - just put them in docs, then link. Despite what they say in the pdf file, we're writing more of a progress report, and actually important things should be persisted alongside the code itself not in some random compiled pdf.

@@ -1,6 +1,7 @@
 use std::{
 	io::{self, BufRead, Write},
 	ops::ControlFlow,
+	sync::Arc,
 };
 
 use rand::rngs::SmallRng;
@@ -18,7 +19,7 @@ use robot_master_core::{
 };
 use robot_master_train::mcts::{MctsBot, MctsConfig, RolloutEval};
 
-pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Box<dyn RatingDb>) {
+pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Arc<dyn RatingDb>) {
 	let stdout_handle = io::stdout();
 	let mut stdout = stdout_handle.lock();
 	let stdin_handle = io::stdin();
@@ -147,7 +148,7 @@ fn run_sized<const N: usize>(
 	rng: &mut SmallRng,
 	stdout: &mut impl Write,
 	stdin: &mut impl BufRead,
-	rating_db: Box<dyn RatingDb>,
+	rating_db: Arc<dyn RatingDb>,
 ) where
 	[(); N * N]:, {
 	let game: GameState<N> = GameState::new(config, rng);
