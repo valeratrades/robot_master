@@ -117,6 +117,7 @@ impl FromStr for PlayerKind {
 		// Manual players: "manual:<name>" or bare "manual".
 		let lower = s.to_lowercase();
 		if let Some(name) = lower.strip_prefix("manual:") {
+			validate_manual_name(name)?;
 			return Ok(PlayerKind::Manual { name: name.to_string() });
 		}
 		if lower == "manual" {
@@ -125,4 +126,15 @@ impl FromStr for PlayerKind {
 
 		Err(s.to_string())
 	}
+}
+
+/// Manual player names must be alphanumeric (plus `_` and `-`).
+pub fn validate_manual_name(name: &str) -> Result<(), String> {
+	if name.is_empty() {
+		return Err("manual player name cannot be empty".into());
+	}
+	if let Some(c) = name.chars().find(|c| !c.is_ascii_alphanumeric() && *c != '_' && *c != '-') {
+		return Err(format!("invalid character '{c}' in manual player name \"{name}\" (allowed: a-zA-Z0-9_-)"));
+	}
+	Ok(())
 }

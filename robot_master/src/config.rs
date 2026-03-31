@@ -29,7 +29,11 @@ pub enum Commands {
 	/// Play the game in the terminal
 	Tui,
 	/// Play the game with a graphical interface
-	Gui,
+	Gui {
+		/// Enable music and sound effects
+		#[arg(long, default_value = "false")]
+		sound: bool,
+	},
 	/// Arena: tournaments and data management
 	Arena {
 		/// Filter players by grepping these patterns against known IDs. If empty, all players.

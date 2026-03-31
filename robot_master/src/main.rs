@@ -2,7 +2,10 @@ use std::{io::Write, process, str::FromStr, time::Duration};
 
 use clap::Parser;
 use robot_master::config::{Cli, Commands, LiveSettings};
-use robot_master_arena::{algos::PlayerKind, db};
+use robot_master_arena::{
+	algos::{PlayerKind, validate_manual_name},
+	db,
+};
 use robot_master_core::game::GameConfig;
 
 fn main() {
@@ -24,11 +27,11 @@ fn main() {
 			};
 			robot_master::tui::run(game_config, size, p1, p2, rating_db);
 		}
-		Commands::Gui => {
+		Commands::Gui { sound } => {
 			let p1 = resolve_player(&cli.players.player1, auto_yes);
 			let p2 = resolve_player(&cli.players.player2, auto_yes);
 			let asset_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../robot_master_game/assets");
-			robot_master_game::create_app(asset_dir, size, p1, p2).run();
+			robot_master_game::create_app(asset_dir, size, p1, p2, sound).run();
 		}
 		Commands::Arena { players, command } => {
 			robot_master::arena::run(players, command, size, rating_db, auto_yes);
@@ -45,6 +48,11 @@ fn resolve_player(input: &str, auto_yes: bool) -> PlayerKind {
 	if let Ok(kind) = PlayerKind::from_str(input) {
 		return kind;
 	}
+
+	validate_manual_name(input).unwrap_or_else(|e| {
+		eprintln!("{e}");
+		process::exit(1);
+	});
 
 	if auto_yes {
 		return PlayerKind::Manual { name: input.to_string() };
