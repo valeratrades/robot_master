@@ -102,6 +102,8 @@ where
 	game: GameState<N>,
 	p1: P1,
 	p2: P2,
+	p1_id: Ustr,
+	p2_id: Ustr,
 	moves: Vec<Move>,
 	rating_db: Option<Box<dyn RatingDb>>,
 }
@@ -110,11 +112,13 @@ impl<const N: usize, P1: Bot<N>, P2: Bot<N>> Match<N, P1, P2>
 where
 	[(); N * N]:,
 {
-	pub fn new(game: GameState<N>, p1: P1, p2: P2) -> Self {
+	pub fn new(game: GameState<N>, p1: P1, p2: P2, p1_id: Ustr, p2_id: Ustr) -> Self {
 		Self {
 			game,
 			p1,
 			p2,
+			p1_id,
+			p2_id,
 			moves: Vec::new(),
 			rating_db: None,
 		}
@@ -173,8 +177,8 @@ where
 	fn build_result(&self) -> MatchResult {
 		let (s0, i0, s1, i1) = victoire(&self.game.board);
 		MatchResult {
-			p1_id: self.p1.id(),
-			p2_id: self.p2.id(),
+			p1_id: self.p1_id,
+			p2_id: self.p2_id,
 			p1_score: s0,
 			p2_score: s1,
 			p1_weak_line: i0,
@@ -235,10 +239,6 @@ mod tests {
 
 	struct DummyRandom(SmallRng);
 	impl Bot<5> for DummyRandom {
-		fn id(&self) -> Ustr {
-			ustr("test-random")
-		}
-
 		fn choose_move(&mut self, game: &GameState<5>) -> Move {
 			game.valid_moves().choose(&mut self.0).expect("no moves")
 		}
@@ -250,10 +250,10 @@ mod tests {
 		let game = GameState::new(GameConfig::default(), &mut rng);
 		let p1 = DummyRandom(SmallRng::seed_from_u64(1));
 		let p2 = DummyRandom(SmallRng::seed_from_u64(2));
-		let m = Match::new(game, p1, p2);
+		let m = Match::new(game, p1, p2, ustr("p1"), ustr("p2"));
 		let result = m.run();
 		assert_eq!(result.moves.len(), 24); // 5*5 - 1 center card
-		assert_eq!(result.p1_id, ustr("test-random"));
+		assert_eq!(result.p1_id, ustr("p1"));
 	}
 
 	#[test]
@@ -262,7 +262,7 @@ mod tests {
 		let game = GameState::new(GameConfig::default(), &mut rng);
 		let p1 = DummyRandom(SmallRng::seed_from_u64(1));
 		let p2 = DummyRandom(SmallRng::seed_from_u64(2));
-		let mut m = Match::new(game, p1, p2);
+		let mut m = Match::new(game, p1, p2, ustr("p1"), ustr("p2"));
 		let mut steps = 0;
 		while let ControlFlow::Continue(_) = m.next(None) {
 			steps += 1;

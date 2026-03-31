@@ -102,7 +102,13 @@ fn run_tournament(players_filter: Vec<String>, avg_rounds: usize, size: BoardSiz
 fn run_tournament_sized<const N: usize>(kinds: Vec<PlayerKind>, ratings: &std::collections::HashMap<Ustr, f64>, config: GameConfig, avg_rounds: usize, rating_db: Box<dyn RatingDb>)
 where
 	[(); N * N]:, {
-	let mut players: Vec<Box<dyn Bot<N>>> = kinds.into_iter().map(kind_into_bot::<N>).collect();
+	let mut players: Vec<(Ustr, Box<dyn Bot<N>>)> = kinds
+		.into_iter()
+		.map(|k| {
+			let id = k.id();
+			(id, kind_into_bot::<N>(k))
+		})
+		.collect();
 	let mut rng = rand::make_rng::<rand::rngs::SmallRng>();
 
 	let results = tournament::swiss::<N>(&mut players, ratings, config, avg_rounds, rating_db.as_ref(), &mut rng);

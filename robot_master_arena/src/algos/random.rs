@@ -1,6 +1,5 @@
 use rand::{rngs::SmallRng, seq::IteratorRandom};
 use robot_master_core::game::{GameState, Move};
-use ustr::{Ustr, ustr};
 use v_utils::macros::CompactFormatNamed;
 
 use crate::player::Bot;
@@ -29,10 +28,6 @@ impl<const N: usize> Bot<N> for RandomPlayer
 where
 	[(); N * N]:,
 {
-	fn id(&self) -> Ustr {
-		ustr(&Random {}.to_string())
-	}
-
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		game.valid_moves().choose(&mut self.rng).expect("no valid moves")
 	}

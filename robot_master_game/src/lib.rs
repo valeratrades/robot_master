@@ -27,9 +27,6 @@ pub struct InitialPlayers {
 	pub size: BoardSize,
 }
 
-#[derive(Clone, Copy, Debug, Resource)]
-struct SoundEnabled(bool);
-
 #[cfg(not(target_arch = "wasm32"))]
 pub fn create_app(asset_dir: &str, size: BoardSize, p1: PlayerKind, p2: PlayerKind, sound: bool) -> App {
 	let mut app = App::new();
@@ -50,6 +47,8 @@ pub fn create_app() -> App {
 	configure_app(&mut app, String::new());
 	app
 }
+#[derive(Clone, Copy, Debug, Resource)]
+struct SoundEnabled(bool);
 
 /// Shared texture handles, loaded once at startup.
 #[derive(Resource)]

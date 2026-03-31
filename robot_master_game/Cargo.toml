@@ -11,6 +11,7 @@ v_utils = { workspace = true, features = ["io", "bevy"] }
 [dependencies]
 robot_master_arena = { path = "../robot_master_arena" }
 robot_master_core = { path = "../robot_master_core" }
+robot_master_train = { path = "../robot_master_train" }
 
 bevy.workspace = true
 rand.workspace = true

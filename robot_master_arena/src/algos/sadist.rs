@@ -5,7 +5,6 @@ use robot_master_core::{
 	game::{GameState, Move, Player},
 	scoring::{LineCounts, line_counts, score_line},
 };
-use ustr::{Ustr, ustr};
 use v_utils::macros::CompactFormatNamed;
 
 use crate::player::Bot;
@@ -18,10 +17,6 @@ impl<const N: usize> Bot<N> for Sadist
 where
 	[(); N * N]:,
 {
-	fn id(&self) -> Ustr {
-		ustr(&self.to_string())
-	}
-
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		let opponent = game.turn.other();
 

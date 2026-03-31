@@ -158,9 +158,11 @@ fn run_sized<const N: usize>(
 	let p1_manual = p1_kind.is_manual();
 	let p2_manual = p2_kind.is_manual();
 
+	let p1_id = p1_kind.id();
+	let p2_id = p2_kind.id();
 	let p1 = kind_into_bot::<N>(p1_kind);
 	let p2 = kind_into_bot::<N>(p2_kind);
-	let mut m = Match::new(game, p1, p2).with_rating_db(rating_db);
+	let mut m = Match::new(game, p1, p2, p1_id, p2_id).with_rating_db(rating_db);
 
 	// Show initial board
 	let board_str = m.game().board.to_string();
