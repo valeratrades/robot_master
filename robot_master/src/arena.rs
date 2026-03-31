@@ -180,6 +180,12 @@ fn run_players(players_filter: Vec<String>, command: PlayersCommands, rating_db:
 		ratings.keys().filter(|id| patterns.iter().any(|re| re.is_match(id.as_str()))).copied().collect()
 	};
 
+	if let PlayersCommands::New { .. } = command {
+		if !players_filter.is_empty() {
+			eprintln!("--select cannot be used with `players new`");
+			std::process::exit(1);
+		}
+	}
 	if let PlayersCommands::New { players } = command {
 		let mut explicit: Vec<PlayerKind> = Vec::new();
 		for spec in &players {
