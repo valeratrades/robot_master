@@ -33,8 +33,8 @@ fn main() {
 			let asset_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../robot_master_game/assets");
 			robot_master_game::create_app(asset_dir, size, p1, p2, sound).run();
 		}
-		Commands::Arena { players, command } => {
-			robot_master::arena::run(players, command, size, rating_db, auto_yes);
+		Commands::Arena { select, command } => {
+			robot_master::arena::run(select, command, size, rating_db, auto_yes);
 		}
 	}
 }
@@ -67,7 +67,8 @@ fn resolve_player(input: &str, auto_yes: bool) -> PlayerKind {
 	}
 
 	// Fall back to fzf selection over algo names
-	let all_names: Vec<&str> = std::iter::once("manual").chain(PlayerKind::algo_names().iter().copied()).collect();
+	let algo_names: Vec<String> = PlayerKind::defaults().map(|k| k.to_string()).collect();
+	let all_names: Vec<&str> = std::iter::once("manual").chain(algo_names.iter().map(|s| s.as_str())).collect();
 	let fzf_input = all_names.join("\n");
 
 	let mut child = process::Command::new("fzf")

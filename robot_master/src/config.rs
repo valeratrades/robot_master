@@ -37,8 +37,8 @@ pub enum Commands {
 	/// Arena: tournaments and data management
 	Arena {
 		/// Filter players by grepping these patterns against known IDs. If empty, all players.
-		#[arg(trailing_var_arg = true)]
-		players: Vec<String>,
+		#[arg(short, long, value_delimiter = ',')]
+		select: Vec<String>,
 		#[command(subcommand)]
 		command: ArenaCommands,
 	},

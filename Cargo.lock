@@ -7854,7 +7854,7 @@ dependencies = [
 
 [[package]]
 name = "v_utils"
-version = "2.15.34"
+version = "2.15.36"
 dependencies = [
  "bevy",
  "bon",
@@ -7890,7 +7890,7 @@ dependencies = [
 
 [[package]]
 name = "v_utils_macros"
-version = "2.11.34"
+version = "2.11.36"
 dependencies = [
  "eyre",
  "heck",

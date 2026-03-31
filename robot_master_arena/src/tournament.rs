@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use rand::Rng;
 use robot_master_core::game::{GameConfig, GameState};
 use ustr::Ustr;
+use v_utils::io::ProgressBar;
 
 use crate::{
 	db::RatingDb,
@@ -59,6 +60,7 @@ pub fn swiss<const N: usize>(
 	avg_rounds: usize,
 	rating_db: &dyn RatingDb,
 	rng: &mut impl Rng,
+	mut pb: Option<&mut ProgressBar>,
 ) -> Vec<MatchResult>
 where
 	[(); N * N]:, {
@@ -120,6 +122,9 @@ where
 				}
 
 				all_results.push(result);
+				if let Some(ref mut pb) = pb {
+					pb.progress(all_results.len());
+				}
 			}
 		}
 	}
