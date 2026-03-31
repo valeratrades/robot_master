@@ -290,21 +290,24 @@ fn dropdown_system(
 }
 
 fn spawn_player_dropdown(commands: &mut Commands, player_idx: usize, ratings: &HashMap<Ustr, Rating>) {
-	let algo_names = PlayerKind::algo_names();
 	let mut kinds = vec![
 		PlayerKind::Manual { name: "Player".into() },
 		PlayerKind::Random(Random {}),
 		PlayerKind::Greedy(Greedy {}),
 		PlayerKind::Sadist(Sadist {}),
 	];
+	let default_ids: Vec<Ustr> = kinds.iter().map(|k| k.id()).collect();
 
-	// Discover manual players persisted in the ratings DB
+	// Discover players persisted in the ratings DB that aren't already in the hardcoded defaults
 	for key in ratings.keys() {
-		let s = key.as_str();
-		if s.eq_ignore_ascii_case("player") || algo_names.contains(&s) {
+		if default_ids.contains(key) {
 			continue;
 		}
-		kinds.push(PlayerKind::Manual { name: s.to_string() });
+		let s = key.as_str();
+		match s.parse::<PlayerKind>() {
+			Ok(kind) => kinds.push(kind),
+			Err(_) => kinds.push(PlayerKind::Manual { name: s.to_string() }),
+		}
 	}
 
 	kinds.sort_by(|a, b| {
