@@ -39,7 +39,7 @@ pub fn create_app() -> App {
 	let mut app = App::new();
 	app.insert_resource(InitialPlayers {
 		p1: PlayerKind::Manual { name: "Player".into() },
-		p2: PlayerKind::Random,
+		p2: PlayerKind::Random(robot_master_arena::algos::Random {}),
 		size: BoardSize::DEFAULT,
 	});
 	configure_app(&mut app, String::new());

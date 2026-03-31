@@ -43,23 +43,27 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum ArenaCommands {
-	/// Run a bracket tournament
-	Tournament {
-		/// Number of rounds per matchup
+	/// Run a Swiss tournament
+	Tourney {
+		/// Average number of games per pairing
 		#[arg(default_value = "1")]
 		rounds: usize,
 	},
-	/// Data management
-	Data {
+	/// Player data management
+	Players {
 		#[command(subcommand)]
-		command: DataCommands,
+		command: PlayersCommands,
 	},
 }
 
 #[derive(Subcommand)]
-pub enum DataCommands {
-	/// Reset ratings (all if no players filter, otherwise only matched)
+pub enum PlayersCommands {
+	/// List all players and their ratings
+	List,
+	/// Reset ratings to default (all if no players filter, otherwise only matched)
 	ResetRatings,
+	/// Remove players from the database entirely
+	Nuke,
 }
 
 #[derive(Clone, Debug, Default, v_macros::LiveSettings, v_macros::MyConfigPrimitives, v_macros::Settings)]

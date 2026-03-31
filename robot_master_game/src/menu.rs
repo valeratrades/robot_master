@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use robot_master_arena::{BoardSize, algos::PlayerKind, rating::Rating};
+use robot_master_arena::{
+	BoardSize,
+	algos::{Greedy, PlayerKind, Random, Sadist},
+	rating::Rating,
+};
 use strum::IntoEnumIterator;
 use ustr::Ustr;
 
@@ -286,14 +290,18 @@ fn dropdown_system(
 }
 
 fn spawn_player_dropdown(commands: &mut Commands, player_idx: usize, ratings: &HashMap<Ustr, Rating>) {
-	use robot_master_arena::algos::ALGO_NAMES;
-
-	let mut kinds = vec![PlayerKind::Manual { name: "Player".into() }, PlayerKind::Random, PlayerKind::Greedy, PlayerKind::Sadist];
+	let algo_names = PlayerKind::algo_names();
+	let mut kinds = vec![
+		PlayerKind::Manual { name: "Player".into() },
+		PlayerKind::Random(Random {}),
+		PlayerKind::Greedy(Greedy {}),
+		PlayerKind::Sadist(Sadist {}),
+	];
 
 	// Discover manual players persisted in the ratings DB
 	for key in ratings.keys() {
 		let s = key.as_str();
-		if s.eq_ignore_ascii_case("player") || ALGO_NAMES.contains(&s) {
+		if s.eq_ignore_ascii_case("player") || algo_names.contains(&s) {
 			continue;
 		}
 		kinds.push(PlayerKind::Manual { name: s.to_string() });

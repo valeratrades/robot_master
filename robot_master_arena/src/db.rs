@@ -1,5 +1,7 @@
 use std::{collections::HashMap, fs, path::PathBuf};
 
+use miette::Diagnostic;
+use thiserror::Error;
 use ustr::Ustr;
 use v_utils::io::xdg::xdg_data_fallback;
 
@@ -15,6 +17,30 @@ pub trait RatingDb: Send + Sync {
 	fn load_ratings(&self) -> HashMap<Ustr, Rating>;
 	fn save_ratings(&self, ratings: &HashMap<Ustr, Rating>);
 }
+/// Single-file JSON store for Elo ratings at `$XDG_DATA_HOME/robot_master/ratings.json`.
+pub struct JsonRatingDb {
+	path: PathBuf,
+}
+/// Construct the appropriate `RatingDb` from config.
+pub fn from_config(config: &ArenaConfig) -> Box<dyn RatingDb> {
+	match &config.db_backend {
+		DbBackend::Json => Box::new(JsonRatingDb::default()),
+		#[cfg(feature = "clickhouse")]
+		DbBackend::Clickhouse { url } => Box::new(clickhouse_db::ClickhouseDb::new(url)),
+		#[cfg(not(feature = "clickhouse"))]
+		DbBackend::Clickhouse { .. } => panic!("compiled without `clickhouse` feature — enable it in robot_master_arena/Cargo.toml"),
+	}
+}
+#[derive(Debug, Diagnostic, Error, derive_new::new)]
+#[error("failed to load ratings from {path}")]
+#[diagnostic(help("the ratings file schema may have changed (e.g. Elo → Glicko-2).\ndelete it and start fresh: rm {path}"))]
+struct CorruptRatingsDb {
+	path: String,
+	#[source]
+	source: serde_json::Error,
+	#[new(value = "std::backtrace::Backtrace::capture()")]
+	backtrace: std::backtrace::Backtrace,
+}
 
 impl<T: RatingDb + ?Sized> RatingDb for &T {
 	fn load_ratings(&self) -> HashMap<Ustr, Rating> {
@@ -24,11 +50,6 @@ impl<T: RatingDb + ?Sized> RatingDb for &T {
 	fn save_ratings(&self, ratings: &HashMap<Ustr, Rating>) {
 		(*self).save_ratings(ratings)
 	}
-}
-
-/// Single-file JSON store for Elo ratings at `$XDG_DATA_HOME/robot_master/ratings.json`.
-pub struct JsonRatingDb {
-	path: PathBuf,
 }
 
 impl Default for JsonRatingDb {
@@ -43,8 +64,11 @@ impl RatingDb for JsonRatingDb {
 	fn load_ratings(&self) -> HashMap<Ustr, Rating> {
 		match fs::read_to_string(&self.path) {
 			Ok(contents) => {
-				let raw: HashMap<String, Rating> = serde_json::from_str(&contents).expect("corrupt ratings.json");
-				raw.into_iter().map(|(k, v)| (Ustr::from(&k), v)).collect()
+				let raw: HashMap<String, Rating> = serde_json::from_str(&contents).unwrap_or_else(|e| {
+					let report: miette::Report = CorruptRatingsDb::new(self.path.display().to_string(), e).into();
+					panic!("{report:?}");
+				});
+				raw.into_iter().map(|(k, v)| (Ustr::from(&k.to_lowercase()), v)).collect()
 			}
 			Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
 			Err(e) => panic!("failed to read {}: {e}", self.path.display()),
@@ -52,20 +76,9 @@ impl RatingDb for JsonRatingDb {
 	}
 
 	fn save_ratings(&self, ratings: &HashMap<Ustr, Rating>) {
-		let raw: HashMap<String, &Rating> = ratings.iter().map(|(k, v)| (k.to_string(), v)).collect();
+		let raw: HashMap<String, &Rating> = ratings.iter().map(|(k, v)| (k.to_string().to_lowercase(), v)).collect();
 		let json = serde_json::to_string_pretty(&raw).expect("failed to serialize ratings");
 		fs::write(&self.path, json).expect("failed to write ratings.json");
-	}
-}
-
-/// Construct the appropriate `RatingDb` from config.
-pub fn from_config(config: &ArenaConfig) -> Box<dyn RatingDb> {
-	match &config.db_backend {
-		DbBackend::Json => Box::new(JsonRatingDb::default()),
-		#[cfg(feature = "clickhouse")]
-		DbBackend::Clickhouse { url } => Box::new(clickhouse_db::ClickhouseDb::new(url)),
-		#[cfg(not(feature = "clickhouse"))]
-		DbBackend::Clickhouse { .. } => panic!("compiled without `clickhouse` feature — enable it in robot_master_arena/Cargo.toml"),
 	}
 }
 
@@ -174,7 +187,7 @@ pub mod clickhouse_db {
 					.await
 					.expect("failed to load ratings from ClickHouse");
 				rows.into_iter()
-					.map(|(id, rating, deviation, volatility)| (Ustr::from(&id), Rating { rating, deviation, volatility }))
+					.map(|(id, rating, deviation, volatility)| (Ustr::from(&id.to_lowercase()), Rating { rating, deviation, volatility }))
 					.collect()
 			})
 		}
@@ -182,9 +195,10 @@ pub mod clickhouse_db {
 		fn save_ratings(&self, ratings: &HashMap<Ustr, Rating>) {
 			tokio::runtime::Handle::current().block_on(async {
 				for (id, r) in ratings {
+					let id_lower = id.as_str().to_lowercase();
 					self.client
 						.query("INSERT INTO ratings (player_id, rating, deviation, volatility) VALUES (?, ?, ?, ?)")
-						.bind(id.as_str())
+						.bind(&id_lower)
 						.bind(r.rating)
 						.bind(r.deviation)
 						.bind(r.volatility)
