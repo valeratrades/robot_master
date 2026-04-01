@@ -23,6 +23,9 @@ pub struct PlayerArgs {
 	/// Board size (5, 7, 9, or 11)
 	#[arg(short = 's', long, default_value = "5")]
 	pub size: BoardSize,
+	/// Directory containing .onnx model files
+	#[arg(long, default_value = "./models")]
+	pub models_dir: std::path::PathBuf,
 }
 #[derive(Subcommand)]
 pub enum Commands {
@@ -39,9 +42,6 @@ pub enum Commands {
 		/// Filter players by grepping these patterns against known IDs. If empty, all players.
 		#[arg(short, long, value_delimiter = ',')]
 		select: Vec<String>,
-		/// Directory containing .onnx model files
-		#[arg(long, default_value = "./models")]
-		models_dir: std::path::PathBuf,
 		#[command(subcommand)]
 		command: ArenaCommands,
 	},

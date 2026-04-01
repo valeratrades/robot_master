@@ -6607,6 +6607,7 @@ dependencies = [
  "board-game",
  "bytemuck",
  "clap",
+ "derive-new",
  "insta",
  "ort",
  "rand 0.10.0",

@@ -12,6 +12,7 @@ ort = { version = "=2.0.0-rc.12", features = ["cuda"] }
 
 board-game.workspace = true
 clap.workspace = true
+derive-new.workspace = true
 rand.workspace = true
 rand_distr.workspace = true
 rayon.workspace = true

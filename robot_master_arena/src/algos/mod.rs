@@ -15,6 +15,15 @@ use ustr::{Ustr, ustr};
 
 use crate::player::{Bot, ManualPlayer};
 
+/// Which search algorithm wraps the inner evaluator.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SearchKind {
+	/// Vanilla UCT-MCTS: uniform exploration, picks most-visited child.
+	Vanilla,
+	/// Gumbel Sequential Halving: guided by learned priors + Gumbel noise.
+	Gumbel,
+}
+
 /// An ONNX model file exposed as a player. Carries only the stem; path resolution
 /// happens in the binary crate against the user-specified models dir.
 ///
@@ -78,16 +87,17 @@ impl InnerKind {
 	}
 }
 
-/// A player: an algorithm optionally wrapped in Gumbel search.
+/// A player: an algorithm optionally wrapped in a search.
 ///
 /// `sims = None` → run the algorithm directly.
-/// `sims = Some(n)` → wrap in Gumbel with n simulations.
+/// `sims = Some((Vanilla, n))` → wrap in vanilla UCT-MCTS with n simulations.
+/// `sims = Some((Gumbel, n))` → wrap in Gumbel Sequential Halving with n simulations.
 ///
-/// Display: `rollout`, `rollout|800`, `onnx:model_v5`, `onnx:model_v5|400`.
+/// Display: `rollout`, `rollout|v800`, `rollout|g800`, `onnx:model_v5|g400`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlayerKind {
 	pub inner: InnerKind,
-	pub sims: Option<u32>,
+	pub sims: Option<(SearchKind, u32)>,
 }
 impl PlayerKind {
 	pub fn is_manual(&self) -> bool {
@@ -102,7 +112,7 @@ impl PlayerKind {
 		ustr(&self.to_string())
 	}
 
-	/// All non-Manual inner variants with no Gumbel wrapping, plus common Gumbel-wrapped rollout sims.
+	/// All non-Manual inner variants unwrapped, plus common vanilla-MCTS-wrapped rollout sims.
 	pub fn defaults() -> Vec<PlayerKind> {
 		let mut out: Vec<PlayerKind> = InnerKind::iter()
 			.filter(|k| !k.is_manual() && !k.is_onnx())
@@ -111,18 +121,18 @@ impl PlayerKind {
 		for sims in [50, 200, 800] {
 			out.push(PlayerKind {
 				inner: InnerKind::Rollout(Rollout {}),
-				sims: Some(sims),
+				sims: Some((SearchKind::Vanilla, sims)),
 			});
 		}
 		out
 	}
 
-	/// Construct a direct (non-Gumbel) `Bot<N>`. Panics if `sims.is_some()` or for OnnxPlayer.
-	/// Prefer using `kind_into_bot` in the binary crate which handles Gumbel wrapping.
+	/// Construct a direct (unwrapped) `Bot<N>`. Panics if `sims.is_some()` or for OnnxPlayer.
+	/// Prefer using `kind_into_bot` in the binary crate which handles search wrapping.
 	pub fn into_bot<const N: usize>(self) -> Box<dyn Bot<N>>
 	where
 		[(); N * N]:, {
-		assert!(self.sims.is_none(), "into_bot called on Gumbel-wrapped player; use kind_into_bot in the binary crate");
+		assert!(self.sims.is_none(), "into_bot called on search-wrapped player; use kind_into_bot in the binary crate");
 		self.inner.into_bot()
 	}
 }
@@ -131,7 +141,8 @@ impl std::fmt::Display for PlayerKind {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self.sims {
 			None => write!(f, "{}", self.inner),
-			Some(n) => write!(f, "{}|{n}", self.inner),
+			Some((SearchKind::Vanilla, n)) => write!(f, "{}|v{n}", self.inner),
+			Some((SearchKind::Gumbel, n)) => write!(f, "{}|g{n}", self.inner),
 		}
 	}
 }
@@ -140,16 +151,21 @@ impl std::str::FromStr for PlayerKind {
 	type Err = String;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		// Try stripping a trailing `|<digits>` suffix for sims.
-		// OnnxPlayer has the form `onnx:<stem>` or `onnx:<stem>|<sims>`.
+		// Try stripping a trailing `|v<digits>` or `|g<digits>` suffix for sims.
 		let (base, sims) = if let Some(pos) = s.rfind('|') {
 			let suffix = &s[pos + 1..];
-			if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
-				let n: u32 = suffix.parse().map_err(|e| format!("{e}"))?;
-				(&s[..pos], Some(n))
+			let (kind, digits) = if let Some(rest) = suffix.strip_prefix('v') {
+				(SearchKind::Vanilla, rest)
+			} else if let Some(rest) = suffix.strip_prefix('g') {
+				(SearchKind::Gumbel, rest)
 			} else {
-				(s, None)
+				return Err(s.to_string());
+			};
+			if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+				return Err(s.to_string());
 			}
+			let n: u32 = digits.parse().map_err(|e| format!("{e}"))?;
+			(&s[..pos], Some((kind, n)))
 		} else {
 			(s, None)
 		};

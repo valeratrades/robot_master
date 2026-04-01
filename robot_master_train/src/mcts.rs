@@ -103,6 +103,12 @@ pub(crate) struct Tree {
 	pub(crate) nodes: Vec<Node>,
 }
 
+impl Default for Tree {
+	fn default() -> Self {
+		Self { nodes: Vec::new() }
+	}
+}
+
 impl Tree {
 	/// Create a tree with a root node already expanded from the given moves and priors.
 	/// Used by Gumbel search to set up the root without going through `Evaluation`.
@@ -341,5 +347,58 @@ fn backpropagate(tree: &mut Tree, path: &[u32], leaf_value: f64) {
 		let n = &mut tree.nodes[n_idx as usize];
 		n.visit_count += 1;
 		n.total_value += value;
+	}
+}
+
+// --- SearchBot trait + VanillaBot ---
+
+/// Unified interface for search-wrapped bots (Vanilla MCTS, Gumbel).
+/// Implementors wrap an `Evaluator<N>` and expose construction from a sim count.
+pub trait SearchBot<E, const N: usize>: Bot<N>
+where
+	[(); N * N]:, {
+	fn with_sims(evaluator: E, sims: u32) -> Self;
+}
+
+/// Vanilla UCT-MCTS bot. Runs `sims` full simulations from the root, picks most-visited child.
+pub struct VanillaBot<E> {
+	evaluator: E,
+	sims: u32,
+	c_puct: f32,
+}
+
+impl<E> VanillaBot<E> {
+	pub fn new(evaluator: E, sims: u32) -> Self {
+		Self { evaluator, sims, c_puct: 1.41 }
+	}
+}
+
+impl<E, const N: usize> SearchBot<E, N> for VanillaBot<E>
+where
+	E: Evaluator<N> + Send + Sync,
+	[(); N * N]:,
+{
+	fn with_sims(evaluator: E, sims: u32) -> Self {
+		Self::new(evaluator, sims)
+	}
+}
+
+impl<E, const N: usize> Bot<N> for VanillaBot<E>
+where
+	E: Evaluator<N> + Send + Sync,
+	[(); N * N]:,
+{
+	fn choose_move(&mut self, game: &GameState<N>) -> Move {
+		let mut tree = Tree::default();
+		let root = tree.expand(self.evaluator.evaluate(game));
+		for _ in 0..self.sims {
+			simulate(&mut tree, root, None, game, &self.evaluator, self.c_puct);
+		}
+		tree.nodes[root as usize]
+			.edges
+			.iter()
+			.max_by_key(|e| if e.child == u32::MAX { 0 } else { tree.nodes[e.child as usize].visit_count })
+			.expect("root has no edges")
+			.mv
 	}
 }

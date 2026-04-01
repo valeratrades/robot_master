@@ -45,7 +45,7 @@ fn main() {
 	let total_steps = train_steps * args.iterations;
 	let run_id = format!("{}:g{}:s{}/{}x{}", args.generation, args.games, args.sims, args.size, args.size);
 	let data_dir = xdg_cache_dir(&format!("{run_id}/training_data"));
-	let models_dir = xdg_cache_dir(&format!("{run_id}/models"));
+	let models_out = xdg_cache_dir(&format!("{run_id}/models"));
 
 	// Detect the zlib path once (needed for Python/numpy on NixOS)
 	let zlib_path = zlib_ld_path();
@@ -56,9 +56,9 @@ fn main() {
 	let export_py = repo_root.join("training/export_onnx.py");
 
 	// Find the highest existing model version to resume from
-	let mut version = latest_model_version(&models_dir);
+	let mut version = latest_model_version(&models_out);
 	let current_model: Option<PathBuf> = if version > 0 {
-		let p = models_dir.join(format!("model_v{version}.onnx"));
+		let p = models_out.join(format!("model_v{version}.onnx"));
 		if p.exists() {
 			eprintln!("Resuming from model_v{version}.onnx");
 			Some(p)
@@ -113,12 +113,12 @@ fn main() {
 		// iterations. AlphaZero and MiniZero train continuously — cold-restarting the optimizer
 		// every iteration discards accumulated momentum (m=0.9), effectively halving the
 		// usable LR and slowing convergence. See docs/references/MiniZero/final.tex §IV-A.
-		let resume_checkpoint = latest_checkpoint(&models_dir);
+		let resume_checkpoint = latest_checkpoint(&models_out);
 		let output = retry_on_clock_error(|| {
 			let mut cmd = Command::new("python");
 			cmd.args([train_py.to_str().unwrap()])
 				.args(["--data-dir", data_dir.to_str().unwrap()])
-				.args(["--output-dir", models_dir.to_str().unwrap()])
+				.args(["--output-dir", models_out.to_str().unwrap()])
 				.args(["--board-size", &args.size.to_string()])
 				.args(["--steps", &train_steps.to_string()])
 				.args(["--total-steps", &total_steps.to_string()])
@@ -142,8 +142,8 @@ fn main() {
 
 		// 3. Export ONNX — always promote, AlphaZero-style (no separate evaluation step)
 		version += 1;
-		let onnx_path = models_dir.join(format!("model_v{version}.onnx"));
-		let checkpoint = latest_checkpoint(&models_dir).expect("no checkpoint found after training");
+		let onnx_path = models_out.join(format!("model_v{version}.onnx"));
+		let checkpoint = latest_checkpoint(&models_out).expect("no checkpoint found after training");
 		eprint!("  [3/3] Exporting {} → model_v{version}.onnx... ", checkpoint.file_name().unwrap().to_str().unwrap());
 		let export_start = Instant::now();
 		let export_out = retry_on_clock_error(|| {
@@ -176,7 +176,7 @@ fn main() {
 
 	bar.finish_and_clear();
 	eprintln!("\nDone. Final model: {}", current_model.unwrap().display());
-	eprintln!("To run in the arena:  robot_master arena --models-dir {} tourney rating 200", models_dir.display());
+	eprintln!("To run in the arena:  robot_master arena --models-dir {} tourney rating 200", models_out.display());
 }
 
 /// How many of the most-recent iteration files to feed into training (replay buffer window).
@@ -232,8 +232,8 @@ fn zlib_ld_path() -> String {
 	format!("{nix_path}/lib")
 }
 
-fn latest_model_version(models_dir: &Path) -> u32 {
-	fs::read_dir(models_dir)
+fn latest_model_version(models_out: &Path) -> u32 {
+	fs::read_dir(models_out)
 		.map(|entries| {
 			entries
 				.flatten()
@@ -249,8 +249,8 @@ fn latest_model_version(models_dir: &Path) -> u32 {
 		.unwrap_or(0)
 }
 
-fn latest_checkpoint(models_dir: &Path) -> Option<PathBuf> {
-	fs::read_dir(models_dir)
+fn latest_checkpoint(models_out: &Path) -> Option<PathBuf> {
+	fs::read_dir(models_out)
 		.ok()?
 		.flatten()
 		.filter(|e| e.file_name().to_str().map(|s| s.ends_with(".pt")).unwrap_or(false))

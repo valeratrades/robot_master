@@ -3,19 +3,15 @@ use std::ops::ControlFlow;
 use bevy::{ecs::message::MessageReader, prelude::*};
 use robot_master_arena::{
 	BoardSize,
-	algos::{InnerKind, PlayerKind},
+	algos::PlayerKind,
 	match_::{DynMatch, Match},
-	player::Bot,
 };
 use robot_master_core::{
 	board::{EMPTY, Pos},
 	cards::CardValue,
 	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
 };
-use robot_master_train::{
-	gumbel::{GumbelBot, GumbelConfig},
-	mcts::RolloutEval,
-};
+use robot_master_train::player_kind::kind_into_bot;
 use v_utils::bevy::{ModalActionFired, ModalState, PressedChars};
 
 use crate::{AppState, InitialPlayers, Textures, theme};
@@ -96,30 +92,8 @@ struct Warning {
 	timer: f32,
 }
 
-fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
-where
-	[(); N * N]:, {
-	if let Some(sims) = kind.sims {
-		let config = GumbelConfig {
-			n_simulations: sims,
-			m_actions: sims.min(16),
-			..GumbelConfig::default()
-		};
-		return match kind.inner {
-			InnerKind::RandomPlayer(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
-			InnerKind::GreedyForNumber(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
-			InnerKind::GreedyForScocre(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
-			InnerKind::Sadist(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
-			InnerKind::Rollout(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
-			InnerKind::ManualPlayer(_) => panic!("cannot wrap ManualPlayer in Gumbel"),
-			InnerKind::OnnxPlayer(_) => panic!("OnnxPlayer with Gumbel not supported in game"),
-		};
-	}
-	kind.into_bot()
-}
-
 /// Helper: create a `Box<dyn DynMatch>` for the given board size.
-fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> Box<dyn DynMatch + Send + Sync> {
+fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind, models_dir: &std::path::Path) -> Box<dyn DynMatch + Send + Sync> {
 	let mut rng: rand::rngs::SmallRng = rand::make_rng();
 	let config = GameConfig {
 		size: size.into(),
@@ -131,8 +105,8 @@ fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> Box<dyn DynMat
 	macro_rules! go {
 		($N:literal) => {{
 			let game = GameState::<$N>::new(config, &mut rng);
-			let p1 = kind_into_bot::<$N>(p1);
-			let p2 = kind_into_bot::<$N>(p2);
+			let p1 = kind_into_bot::<$N>(&p1, models_dir).unwrap_or_else(|e| panic!("{e}"));
+			let p2 = kind_into_bot::<$N>(&p2, models_dir).unwrap_or_else(|e| panic!("{e}"));
 			Box::new(Match::new(game, p1, p2, p1_id, p2_id))
 		}};
 	}
@@ -164,8 +138,9 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 
 	let p1_kind = init.p1.clone();
 	let p2_kind = init.p2.clone();
+	let models_dir = init.models_dir.clone();
 
-	let m = make_match(size, p1_kind.clone(), p2_kind.clone());
+	let m = make_match(size, p1_kind.clone(), p2_kind.clone(), &models_dir);
 
 	// Snapshot initial state before handing ownership to the resource.
 	let hands = m.hands();

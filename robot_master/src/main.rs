@@ -16,6 +16,7 @@ fn main() {
 	let rating_db: Arc<dyn robot_master_arena::db::RatingDb> = Arc::from(db::from_config(&config.arena));
 
 	let size = cli.players.size;
+	let models_dir = cli.players.models_dir.clone();
 
 	match cli.command {
 		Commands::Tui => {
@@ -25,15 +26,15 @@ fn main() {
 				size: size.into(),
 				..GameConfig::default()
 			};
-			robot_master::tui::run(game_config, size, p1, p2, rating_db);
+			robot_master::tui::run(game_config, size, p1, p2, rating_db, models_dir);
 		}
 		Commands::Gui { sound } => {
 			let p1 = resolve_player(&cli.players.player1, auto_yes);
 			let p2 = resolve_player(&cli.players.player2, auto_yes);
 			let asset_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../robot_master_game/assets");
-			robot_master_game::create_app(asset_dir, size, p1, p2, sound).run();
+			robot_master_game::create_app(asset_dir, size, p1, p2, sound, models_dir).run();
 		}
-		Commands::Arena { select, models_dir, command } => {
+		Commands::Arena { select, command } => {
 			robot_master::arena::run(select, models_dir, command, size, rating_db, auto_yes);
 		}
 	}

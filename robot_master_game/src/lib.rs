@@ -25,12 +25,13 @@ pub struct InitialPlayers {
 	pub p1: PlayerKind,
 	pub p2: PlayerKind,
 	pub size: BoardSize,
+	pub models_dir: std::path::PathBuf,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn create_app(asset_dir: &str, size: BoardSize, p1: PlayerKind, p2: PlayerKind, sound: bool) -> App {
+pub fn create_app(asset_dir: &str, size: BoardSize, p1: PlayerKind, p2: PlayerKind, sound: bool, models_dir: std::path::PathBuf) -> App {
 	let mut app = App::new();
-	app.insert_resource(InitialPlayers { p1, p2, size });
+	app.insert_resource(InitialPlayers { p1, p2, size, models_dir });
 	app.insert_resource(SoundEnabled(sound));
 	configure_app(&mut app, asset_dir.to_string());
 	app
@@ -54,6 +55,7 @@ pub fn create_app() -> App {
 			sims: None,
 		},
 		size: BoardSize::DEFAULT,
+		models_dir: std::path::PathBuf::new(),
 	});
 	app.insert_resource(SoundEnabled(true));
 	configure_app(&mut app, String::new());

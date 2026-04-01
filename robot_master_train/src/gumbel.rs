@@ -15,7 +15,7 @@ use rand_distr::{Distribution as _, Gumbel};
 use robot_master_arena::player::Bot;
 use robot_master_core::game::{GameState, Move};
 
-use crate::mcts::{Evaluation, Evaluator, SelectResult, Tree, backpropagate_pub, expand_and_backprop, select, simulate};
+use crate::mcts::{Evaluation, Evaluator, SearchBot, SelectResult, Tree, backpropagate_pub, expand_and_backprop, select, simulate};
 
 #[derive(Clone)]
 pub struct GumbelConfig {
@@ -382,6 +382,7 @@ pub struct GumbelBot<E> {
 	evaluator: E,
 	config: GumbelConfig,
 }
+
 impl<E> GumbelBot<E> {
 	pub fn new(evaluator: E, config: GumbelConfig) -> Self {
 		Self { evaluator, config }
@@ -534,6 +535,23 @@ where
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		let mut rng = rand::make_rng::<rand::rngs::SmallRng>();
 		gumbel_search(game, &self.evaluator, &self.config, &mut rng).mv
+	}
+}
+
+impl<E, const N: usize> SearchBot<E, N> for GumbelBot<E>
+where
+	E: Evaluator<N> + Send + Sync,
+	[(); N * N]:,
+{
+	fn with_sims(evaluator: E, sims: u32) -> Self {
+		Self::new(
+			evaluator,
+			GumbelConfig {
+				n_simulations: sims,
+				m_actions: sims.min(16),
+				..GumbelConfig::default()
+			},
+		)
 	}
 }
 

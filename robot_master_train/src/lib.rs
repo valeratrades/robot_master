@@ -5,4 +5,5 @@ pub mod encoding;
 pub mod gumbel;
 pub mod mcts;
 pub mod nn_eval;
+pub mod player_kind;
 pub mod selfplay;

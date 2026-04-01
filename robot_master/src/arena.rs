@@ -14,11 +14,7 @@ use robot_master_arena::{
 	tournament,
 };
 use robot_master_core::game::GameConfig;
-use robot_master_train::{
-	gumbel::{GumbelBot, GumbelConfig},
-	mcts::RolloutEval,
-	nn_eval::NnEval,
-};
+use robot_master_train::player_kind::kind_into_bot;
 use thiserror::Error;
 use ustr::{Ustr, ustr};
 use v_utils::io::ProgressBar;
@@ -32,15 +28,6 @@ pub fn run(players_filter: Vec<String>, models_dir: std::path::PathBuf, command:
 	}
 }
 #[derive(Debug, Diagnostic, Error)]
-#[error("failed to load ONNX model {path:?}: {message}")]
-#[diagnostic(help("check that the file is a valid ONNX model for board size N={board_size}"))]
-struct OnnxLoadFailed {
-	path: std::path::PathBuf,
-	board_size: usize,
-	message: String,
-}
-
-#[derive(Debug, Diagnostic, Error)]
 #[error("invalid regex pattern {pattern:?}")]
 struct InvalidRegex {
 	pattern: String,
@@ -50,7 +37,7 @@ struct InvalidRegex {
 
 #[derive(Debug, Diagnostic, Error)]
 #[error("unknown player spec: {spec}")]
-#[diagnostic(help("valid specs: random, greedy, sadist, rollout, rollout|50, rollout|200, rollout|800, onnx:<stem>"))]
+#[diagnostic(help("valid specs: random, greedy, sadist, rollout, rollout|v50, rollout|v800, rollout|g800, onnx:<stem>|g400"))]
 struct UnknownPlayerSpec {
 	spec: String,
 }
@@ -130,47 +117,10 @@ fn resolve_players(filter: &[String], models_dir: &std::path::Path, rating_db: &
 		.collect()
 }
 
-fn kind_into_bot<const N: usize>(kind: &PlayerKind, models_dir: &std::path::Path) -> Box<dyn Bot<N>>
+fn bot_from_kind<const N: usize>(kind: &PlayerKind, models_dir: &std::path::Path) -> Box<dyn Bot<N>>
 where
 	[(); N * N]:, {
-	if let InnerKind::OnnxPlayer(p) = &kind.inner {
-		let path = models_dir.join(format!("{}.onnx", p.stem));
-		let evaluator = NnEval::new(path.to_str().expect("non-UTF8 model path"), N, false).unwrap_or_else(|e| {
-			die(OnnxLoadFailed {
-				path: path.clone(),
-				board_size: N,
-				message: e.to_string(),
-			})
-		});
-		return match kind.sims {
-			None => Box::new(evaluator),
-			Some(sims) => Box::new(GumbelBot::new(
-				evaluator,
-				GumbelConfig {
-					n_simulations: sims,
-					m_actions: sims.min(16),
-					..GumbelConfig::default()
-				},
-			)),
-		};
-	}
-	if let Some(sims) = kind.sims {
-		let config = GumbelConfig {
-			n_simulations: sims,
-			m_actions: sims.min(16),
-			..GumbelConfig::default()
-		};
-		return match &kind.inner {
-			InnerKind::RandomPlayer(p) => Box::new(GumbelBot::new(RolloutEval::new(p.clone()), config)),
-			InnerKind::GreedyForNumber(p) => Box::new(GumbelBot::new(RolloutEval::new(p.clone()), config)),
-			InnerKind::GreedyForScocre(p) => Box::new(GumbelBot::new(RolloutEval::new(p.clone()), config)),
-			InnerKind::Sadist(p) => Box::new(GumbelBot::new(RolloutEval::new(p.clone()), config)),
-			InnerKind::Rollout(p) => Box::new(GumbelBot::new(RolloutEval::new(p.clone()), config)),
-			InnerKind::ManualPlayer(_) => panic!("cannot wrap ManualPlayer in Gumbel"),
-			InnerKind::OnnxPlayer(_) => unreachable!(),
-		};
-	}
-	kind.clone().into_bot()
+	kind_into_bot(kind, models_dir).unwrap_or_else(|e| die(miette::miette!("{e}")))
 }
 
 fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, rating_db: Arc<dyn RatingDb>) {
@@ -227,7 +177,7 @@ fn run_tournament_sized<const N: usize>(
 
 	let factory = move |id: Ustr| -> Box<dyn Bot<N>> {
 		let kind = &kind_map[&id];
-		kind_into_bot::<N>(kind, &models_dir)
+		bot_from_kind::<N>(kind, &models_dir)
 	};
 
 	let mut rng = rand::make_rng::<rand::rngs::SmallRng>();

@@ -7,22 +7,18 @@ use std::{
 use rand::rngs::SmallRng;
 use robot_master_arena::{
 	BoardSize,
-	algos::{InnerKind, PlayerKind},
+	algos::PlayerKind,
 	db::RatingDb,
 	match_::{Match, MatchResult},
-	player::Bot,
 };
 use robot_master_core::{
 	board::{Board, Pos},
 	cards::{CardValue, Hand},
 	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
 };
-use robot_master_train::{
-	gumbel::{GumbelBot, GumbelConfig},
-	mcts::RolloutEval,
-};
+use robot_master_train::player_kind::kind_into_bot;
 
-pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Arc<dyn RatingDb>) {
+pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Arc<dyn RatingDb>, models_dir: std::path::PathBuf) {
 	let stdout_handle = io::stdout();
 	let mut stdout = stdout_handle.lock();
 	let stdin_handle = io::stdin();
@@ -30,34 +26,12 @@ pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, 
 	let mut rng = rand::make_rng();
 
 	match size {
-		BoardSize::Five => run_sized::<5>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
-		BoardSize::Seven => run_sized::<7>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
-		BoardSize::Nine => run_sized::<9>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
-		BoardSize::Eleven => run_sized::<11>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
+		BoardSize::Five => run_sized::<5>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db, &models_dir),
+		BoardSize::Seven => run_sized::<7>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db, &models_dir),
+		BoardSize::Nine => run_sized::<9>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db, &models_dir),
+		BoardSize::Eleven => run_sized::<11>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db, &models_dir),
 	}
 }
-fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
-where
-	[(); N * N]:, {
-	if let Some(sims) = kind.sims {
-		let config = GumbelConfig {
-			n_simulations: sims,
-			m_actions: sims.min(16),
-			..GumbelConfig::default()
-		};
-		return match kind.inner {
-			InnerKind::RandomPlayer(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
-			InnerKind::GreedyForNumber(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
-			InnerKind::GreedyForScocre(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
-			InnerKind::Sadist(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
-			InnerKind::Rollout(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
-			InnerKind::ManualPlayer(_) => panic!("cannot wrap ManualPlayer in Gumbel"),
-			InnerKind::OnnxPlayer(_) => panic!("OnnxPlayer with Gumbel not supported in TUI"),
-		};
-	}
-	kind.into_bot()
-}
-
 /// Returns the move and erases all its own output, so the caller can re-display the board uniformly.
 fn read_manual_move<const N: usize>(board: &Board<N>, hand: &Hand, name: &str, stdout: &mut impl Write, stdin: &mut impl BufRead) -> Move
 where
@@ -158,6 +132,7 @@ fn run_sized<const N: usize>(
 	stdout: &mut impl Write,
 	stdin: &mut impl BufRead,
 	rating_db: Arc<dyn RatingDb>,
+	models_dir: &std::path::Path,
 ) where
 	[(); N * N]:, {
 	let game: GameState<N> = GameState::new(config, rng);
@@ -170,8 +145,8 @@ fn run_sized<const N: usize>(
 
 	let p1_id = p1_kind.id();
 	let p2_id = p2_kind.id();
-	let p1 = kind_into_bot::<N>(p1_kind);
-	let p2 = kind_into_bot::<N>(p2_kind);
+	let p1 = kind_into_bot::<N>(&p1_kind, models_dir).unwrap_or_else(|e| panic!("{e}"));
+	let p2 = kind_into_bot::<N>(&p2_kind, models_dir).unwrap_or_else(|e| panic!("{e}"));
 	let mut m = Match::new(game, p1, p2, p1_id, p2_id).with_rating_db(rating_db);
 
 	// Show initial board
