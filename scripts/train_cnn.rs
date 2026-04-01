@@ -32,6 +32,10 @@ struct Args {
 	/// Training epochs per iteration
 	#[arg(long, default_value = "5")]
 	epochs: u32,
+	/// Replay buffer cap: only use the most recent N games for training (0 = no cap).
+	/// AlphaGo Zero uses last 500k games (~20 iterations). Scale with your iteration count.
+	#[arg(long, default_value = "0")]
+	max_games: u32,
 }
 
 fn main() {
@@ -103,6 +107,7 @@ fn main() {
 				.args(["--data-dir", data_dir.to_str().unwrap()])
 				.args(["--output-dir", models_dir.to_str().unwrap()])
 				.args(["--epochs", &args.epochs.to_string()])
+				.args(["--max-games", &args.max_games.to_string()])
 				.env("LD_LIBRARY_PATH", &zlib_path)
 				.current_dir(&repo_root)
 				.output()

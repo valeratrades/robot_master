@@ -61,63 +61,6 @@ where
 	}
 }
 
-pub struct MctsConfig {
-	pub simulations: u32,
-	pub c_puct: f32,
-}
-/// Run MCTS from `state`, return the best move.
-pub fn search<const N: usize>(state: &GameState<N>, evaluator: &impl Evaluator<N>, config: &MctsConfig) -> Move
-where
-	[(); N * N]:, {
-	let root_eval = evaluator.evaluate(state);
-	let (counts, _) = run_tree(state, evaluator, config, root_eval);
-	counts.into_iter().max_by_key(|(_, v)| *v).expect("root has no edges").0
-}
-
-/// Run MCTS from `state`, return visit counts for every edge off the root.
-///
-/// `root_eval` is used to initialize the root node. Pass `evaluator.evaluate(state)` directly,
-/// or a noise-perturbed version for self-play exploration.
-pub fn search_visit_counts<const N: usize>(state: &GameState<N>, evaluator: &impl Evaluator<N>, config: &MctsConfig, root_eval: Evaluation) -> Vec<(Move, u32)>
-where
-	[(); N * N]:, {
-	let (counts, _) = run_tree(state, evaluator, config, root_eval);
-	counts
-}
-
-/// MCTS-based bot: wraps `search` and implements `Bot<N>`.
-pub struct MctsBot<E> {
-	evaluator: E,
-	config: MctsConfig,
-}
-impl<E> MctsBot<E> {
-	pub fn new(evaluator: E, config: MctsConfig) -> Self {
-		Self { evaluator, config }
-	}
-}
-
-fn run_tree<const N: usize>(state: &GameState<N>, evaluator: &impl Evaluator<N>, config: &MctsConfig, root_eval: Evaluation) -> (Vec<(Move, u32)>, Tree)
-where
-	[(); N * N]:, {
-	let mut tree = Tree::new();
-	let root = tree.expand(root_eval);
-
-	for _ in 0..config.simulations {
-		simulate(&mut tree, root, None, state, evaluator, config.c_puct);
-	}
-
-	let root_node = &tree.nodes[root as usize];
-	let counts: Vec<(Move, u32)> = root_node
-		.edges
-		.iter()
-		.map(|e| {
-			let visits = if e.child == u32::MAX { 0 } else { tree.nodes[e.child as usize].visit_count };
-			(e.mv, visits)
-		})
-		.collect();
-	(counts, tree)
-}
-
 /// +1 if player won, -1 if lost, 0 if draw.
 fn outcome_value(outcome: Outcome, player: board_game::board::Player) -> f32 {
 	match outcome {
@@ -154,10 +97,6 @@ pub(crate) struct Tree {
 }
 
 impl Tree {
-	fn new() -> Self {
-		Self { nodes: Vec::new() }
-	}
-
 	/// Create a tree with a root node already expanded from the given moves and priors.
 	/// Used by Gumbel search to set up the root without going through `Evaluation`.
 	pub(crate) fn new_with_root(root_value: f32, moves: &[Move], priors: &[f32]) -> Self {
@@ -251,12 +190,6 @@ impl Tree {
 	}
 }
 
-impl Default for MctsConfig {
-	fn default() -> Self {
-		Self { simulations: 800, c_puct: 1.41 }
-	}
-}
-
 /// One simulation: select -> expand -> backpropagate.
 ///
 /// `forced_root_action`: if `Some(i)`, always take root edge `i` on the first step (Gumbel).
@@ -339,53 +272,5 @@ fn backpropagate(tree: &mut Tree, path: &[u32], leaf_value: f64) {
 		let n = &mut tree.nodes[n_idx as usize];
 		n.visit_count += 1;
 		n.total_value += value;
-	}
-}
-
-impl<E, const N: usize> Bot<N> for MctsBot<E>
-where
-	E: Evaluator<N> + Send + Sync,
-	[(); N * N]:,
-{
-	fn choose_move(&mut self, game: &GameState<N>) -> Move {
-		search(game, &self.evaluator, &self.config)
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use board_game::board::Board as _;
-	use rand::{SeedableRng, rngs::SmallRng};
-	use robot_master_arena::algos::rollout::Rollout;
-	use robot_master_core::game::{GameConfig, GameState};
-
-	use super::*;
-
-	fn state5() -> GameState<5> {
-		let mut rng = SmallRng::seed_from_u64(42);
-		GameState::new(GameConfig::default(), &mut rng)
-	}
-
-	#[test]
-	fn mcts_returns_legal_move() {
-		let state = state5();
-		let evaluator = RolloutEval::new(Rollout {});
-		let config = MctsConfig { simulations: 50, c_puct: 1.41 };
-		let mv = search(&state, &evaluator, &config);
-
-		assert!(state.valid_moves().any(|m| m == mv), "MCTS returned illegal move: {mv}");
-	}
-
-	#[test]
-	fn mcts_bot_plays_full_game() {
-		let mut state = state5();
-		let mut bot = MctsBot::new(RolloutEval::new(Rollout {}), MctsConfig { simulations: 20, c_puct: 1.41 });
-
-		while state.outcome().is_none() {
-			let mv = bot.choose_move(&state);
-			state.play(mv).expect("illegal move");
-		}
-
-		assert!(state.outcome().is_some());
 	}
 }

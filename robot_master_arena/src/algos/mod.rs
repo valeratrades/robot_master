@@ -18,7 +18,7 @@ use crate::player::{Bot, ManualPlayer};
 /// An ONNX model file exposed as a player. Carries only the stem; path resolution
 /// happens in the binary crate against the user-specified models dir.
 ///
-/// Does not implement `Bot<N>` — the binary crate constructs the actual MctsBot+NnEval.
+/// Does not implement `Bot<N>` — the binary crate constructs the actual GumbelBot+NnEval.
 #[derive(Clone, Debug, Default, derive_more::Display, Eq, PartialEq)]
 #[display("onnx:{stem}")]
 pub struct OnnxPlayer {
@@ -62,7 +62,7 @@ impl InnerKind {
 	/// Construct a direct (non-MCTS) `Bot<N>`.
 	///
 	/// # Panics
-	/// Panics for `OnnxPlayer` — the binary crate must construct `MctsBot<NnEval>`.
+	/// Panics for `OnnxPlayer` — the binary crate must construct `GumbelBot<NnEval>`.
 	pub fn into_bot<const N: usize>(self) -> Box<dyn Bot<N>>
 	where
 		[(); N * N]:, {
@@ -73,17 +73,17 @@ impl InnerKind {
 			InnerKind::GreedyForScocre(p) => Box::new(p),
 			InnerKind::Sadist(p) => Box::new(p),
 			InnerKind::Rollout(p) => Box::new(p),
-			InnerKind::OnnxPlayer(_) => panic!("OnnxPlayer cannot be constructed via into_bot; use MctsBot + NnEval"),
+			InnerKind::OnnxPlayer(_) => panic!("OnnxPlayer cannot be constructed via into_bot; use GumbelBot + NnEval"),
 		}
 	}
 }
 
-/// A player: an algorithm optionally wrapped in MCTS.
+/// A player: an algorithm optionally wrapped in Gumbel search.
 ///
 /// `sims = None` → run the algorithm directly.
-/// `sims = Some(n)` → wrap in MCTS with n simulations.
+/// `sims = Some(n)` → wrap in Gumbel with n simulations.
 ///
-/// Display: `rollout`, `rollout_800`, `onnx:model_v5`, `onnx:model_v5_400`.
+/// Display: `rollout`, `rollout|800`, `onnx:model_v5`, `onnx:model_v5|400`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlayerKind {
 	pub inner: InnerKind,
@@ -117,12 +117,12 @@ impl PlayerKind {
 		out
 	}
 
-	/// Construct a direct (non-MCTS) `Bot<N>`. Panics if `sims.is_some()` or for OnnxPlayer.
-	/// Prefer using `kind_into_bot` in the binary crate which handles MCTS wrapping.
+	/// Construct a direct (non-Gumbel) `Bot<N>`. Panics if `sims.is_some()` or for OnnxPlayer.
+	/// Prefer using `kind_into_bot` in the binary crate which handles Gumbel wrapping.
 	pub fn into_bot<const N: usize>(self) -> Box<dyn Bot<N>>
 	where
 		[(); N * N]:, {
-		assert!(self.sims.is_none(), "into_bot called on MCTS-wrapped player; use kind_into_bot in the binary crate");
+		assert!(self.sims.is_none(), "into_bot called on Gumbel-wrapped player; use kind_into_bot in the binary crate");
 		self.inner.into_bot()
 	}
 }
@@ -131,7 +131,7 @@ impl std::fmt::Display for PlayerKind {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self.sims {
 			None => write!(f, "{}", self.inner),
-			Some(n) => write!(f, "{}_{n}", self.inner),
+			Some(n) => write!(f, "{}|{n}", self.inner),
 		}
 	}
 }
@@ -140,10 +140,9 @@ impl std::str::FromStr for PlayerKind {
 	type Err = String;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		// Try stripping a trailing `_<digits>` suffix for sims.
-		// OnnxPlayer has the form `onnx:<stem>` or `onnx:<stem>_<sims>` — the stem
-		// itself may contain underscores, but sims suffix is always pure digits at the end.
-		let (base, sims) = if let Some(pos) = s.rfind('_') {
+		// Try stripping a trailing `|<digits>` suffix for sims.
+		// OnnxPlayer has the form `onnx:<stem>` or `onnx:<stem>|<sims>`.
+		let (base, sims) = if let Some(pos) = s.rfind('|') {
 			let suffix = &s[pos + 1..];
 			if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
 				let n: u32 = suffix.parse().map_err(|e| format!("{e}"))?;

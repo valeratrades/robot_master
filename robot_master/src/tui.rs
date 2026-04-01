@@ -17,7 +17,10 @@ use robot_master_core::{
 	cards::{CardValue, Hand},
 	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
 };
-use robot_master_train::mcts::{MctsBot, MctsConfig, RolloutEval};
+use robot_master_train::{
+	gumbel::{GumbelBot, GumbelConfig},
+	mcts::RolloutEval,
+};
 
 pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Arc<dyn RatingDb>) {
 	let stdout_handle = io::stdout();
@@ -37,15 +40,19 @@ fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
 where
 	[(); N * N]:, {
 	if let Some(sims) = kind.sims {
-		let config = MctsConfig { simulations: sims, c_puct: 1.41 };
+		let config = GumbelConfig {
+			n_simulations: sims,
+			m_actions: sims.min(16),
+			..GumbelConfig::default()
+		};
 		return match kind.inner {
-			InnerKind::RandomPlayer(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
-			InnerKind::GreedyForNumber(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
-			InnerKind::GreedyForScocre(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
-			InnerKind::Sadist(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
-			InnerKind::Rollout(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
-			InnerKind::ManualPlayer(_) => panic!("cannot wrap ManualPlayer in MCTS"),
-			InnerKind::OnnxPlayer(_) => panic!("OnnxPlayer with MCTS not supported in TUI"),
+			InnerKind::RandomPlayer(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
+			InnerKind::GreedyForNumber(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
+			InnerKind::GreedyForScocre(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
+			InnerKind::Sadist(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
+			InnerKind::Rollout(p) => Box::new(GumbelBot::new(RolloutEval::new(p), config)),
+			InnerKind::ManualPlayer(_) => panic!("cannot wrap ManualPlayer in Gumbel"),
+			InnerKind::OnnxPlayer(_) => panic!("OnnxPlayer with Gumbel not supported in TUI"),
 		};
 	}
 	kind.into_bot()

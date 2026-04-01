@@ -12,6 +12,7 @@
 /// See docs/references/gumbel_alphazero.md for full details.
 use rand::Rng;
 use rand_distr::{Distribution as _, Gumbel};
+use robot_master_arena::player::Bot;
 use robot_master_core::game::{GameState, Move};
 
 use crate::mcts::{Evaluator, Tree, simulate};
@@ -205,6 +206,29 @@ fn softmax_to_moves(moves: &[Move], logits: &[f32]) -> Vec<(Move, f32)> {
 	let exps: Vec<f32> = logits.iter().map(|&l| (l - max).exp()).collect();
 	let sum: f32 = exps.iter().sum();
 	moves.iter().copied().zip(exps.iter().map(|&e| e / sum)).collect()
+}
+
+/// Gumbel-based bot: wraps `gumbel_search` and implements `Bot<N>`.
+pub struct GumbelBot<E> {
+	evaluator: E,
+	config: GumbelConfig,
+}
+
+impl<E> GumbelBot<E> {
+	pub fn new(evaluator: E, config: GumbelConfig) -> Self {
+		Self { evaluator, config }
+	}
+}
+
+impl<E, const N: usize> Bot<N> for GumbelBot<E>
+where
+	E: Evaluator<N> + Send + Sync,
+	[(); N * N]:,
+{
+	fn choose_move(&mut self, game: &GameState<N>) -> Move {
+		let mut rng = rand::make_rng::<rand::rngs::SmallRng>();
+		gumbel_search(game, &self.evaluator, &self.config, &mut rng).mv
+	}
 }
 
 /// Run one MCTS simulation forced through `action_idx` at the root.

@@ -15,7 +15,8 @@ use robot_master_arena::{
 };
 use robot_master_core::game::GameConfig;
 use robot_master_train::{
-	mcts::{MctsBot, MctsConfig, RolloutEval},
+	gumbel::{GumbelBot, GumbelConfig},
+	mcts::RolloutEval,
 	nn_eval::NnEval,
 };
 use thiserror::Error;
@@ -49,7 +50,7 @@ struct InvalidRegex {
 
 #[derive(Debug, Diagnostic, Error)]
 #[error("unknown player spec: {spec}")]
-#[diagnostic(help("valid specs: random, greedy, sadist, rollout, rollout_50, rollout_200, rollout_800, onnx:<stem>"))]
+#[diagnostic(help("valid specs: random, greedy, sadist, rollout, rollout|50, rollout|200, rollout|800, onnx:<stem>"))]
 struct UnknownPlayerSpec {
 	spec: String,
 }
@@ -143,18 +144,29 @@ where
 		});
 		return match kind.sims {
 			None => Box::new(evaluator),
-			Some(sims) => Box::new(MctsBot::new(evaluator, MctsConfig { simulations: sims, c_puct: 1.41 })),
+			Some(sims) => Box::new(GumbelBot::new(
+				evaluator,
+				GumbelConfig {
+					n_simulations: sims,
+					m_actions: sims.min(16),
+					..GumbelConfig::default()
+				},
+			)),
 		};
 	}
 	if let Some(sims) = kind.sims {
-		let config = MctsConfig { simulations: sims, c_puct: 1.41 };
+		let config = GumbelConfig {
+			n_simulations: sims,
+			m_actions: sims.min(16),
+			..GumbelConfig::default()
+		};
 		return match &kind.inner {
-			InnerKind::RandomPlayer(p) => Box::new(MctsBot::new(RolloutEval::new(p.clone()), config)),
-			InnerKind::GreedyForNumber(p) => Box::new(MctsBot::new(RolloutEval::new(p.clone()), config)),
-			InnerKind::GreedyForScocre(p) => Box::new(MctsBot::new(RolloutEval::new(p.clone()), config)),
-			InnerKind::Sadist(p) => Box::new(MctsBot::new(RolloutEval::new(p.clone()), config)),
-			InnerKind::Rollout(p) => Box::new(MctsBot::new(RolloutEval::new(p.clone()), config)),
-			InnerKind::ManualPlayer(_) => panic!("cannot wrap ManualPlayer in MCTS"),
+			InnerKind::RandomPlayer(p) => Box::new(GumbelBot::new(RolloutEval::new(p.clone()), config)),
+			InnerKind::GreedyForNumber(p) => Box::new(GumbelBot::new(RolloutEval::new(p.clone()), config)),
+			InnerKind::GreedyForScocre(p) => Box::new(GumbelBot::new(RolloutEval::new(p.clone()), config)),
+			InnerKind::Sadist(p) => Box::new(GumbelBot::new(RolloutEval::new(p.clone()), config)),
+			InnerKind::Rollout(p) => Box::new(GumbelBot::new(RolloutEval::new(p.clone()), config)),
+			InnerKind::ManualPlayer(_) => panic!("cannot wrap ManualPlayer in Gumbel"),
 			InnerKind::OnnxPlayer(_) => unreachable!(),
 		};
 	}

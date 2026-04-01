@@ -2,7 +2,7 @@
 
 The main binary is `robot_master`. It takes two players (`-a`, `-b`), an optional board size (`-s`), and a subcommand for the interface.
 
-Players: `manual`, `random`, `greedy`, `sadist`, `rollout`. MCTS wrapping: append `_N` sims to any player — `rollout_800`, `sadist_200`. Unrecognized names prompt registration as a named manual player (with Elo tracking), or fall back to `fzf` selection.
+Players: `manual`, `random`, `greedy`, `sadist`, `rollout`. Gumbel wrapping: append `|N` sims to any player — `rollout|800`, `sadist|200`. Unrecognized names prompt registration as a named manual player (with Elo tracking), or fall back to `fzf` selection.
 
 Board sizes: `5` (default), `7`, `9`, `11`.
 
@@ -35,7 +35,7 @@ robot_master arena -s 'rollout,sadist' tourney swiss 10   # filter by regex
 ```sh
 robot_master arena players list                 # show all players and ratings
 robot_master arena players new                  # register all default variants
-robot_master arena players new rollout_800      # register a specific variant
+robot_master arena players new rollout|800      # register a specific variant
 robot_master arena players reset-ratings        # reset all ratings to default
 robot_master arena players nuke                 # remove players from DB entirely
 ```
@@ -45,11 +45,11 @@ robot_master arena players nuke                 # remove players from DB entirel
 # bare: runs policy head directly (greedy argmax, no search)
 robot_master arena players new 'onnx:model_v15'
 
-# with MCTS: wraps the policy+value head in N-sim tree search
-robot_master arena players new 'onnx:model_v15_200'
+# with Gumbel: wraps the policy+value head in N-sim Gumbel search
+robot_master arena players new 'onnx:model_v15|200'
 
 # then run against other players
-robot_master arena -s 'onnx:model_v15_200,rollout$,sadist' tourney swiss 20
+robot_master arena -s 'onnx:model_v15|200,rollout$,sadist' tourney swiss 20
 ```
 
 Models are looked up in `./models` by default. Override with `--models-dir`.
@@ -57,7 +57,7 @@ Models are looked up in `./models` by default. Override with `--models-dir`.
 ### Training (AlphaZero CNN)
 
 One iteration of the training loop:
-1. **Self-play** (Rust) — MCTS-guided games write `(state, policy, value)` samples to `$XDG_CACHE_HOME/robot_master_train/training_data/`
+1. **Self-play** (Rust) — Gumbel-guided games write `(state, policy, value)` samples to `$XDG_CACHE_HOME/robot_master_train/training_data/`
 2. **Train** (Python) — SE-ResNet fits on the new samples, saves checkpoint to `$XDG_CACHE_HOME/robot_master_train/models/`
 3. **Export** (Python) — checkpoint → `models/model_vN.onnx` for the next self-play iteration
 
@@ -74,7 +74,7 @@ Run the full loop with the included script:
 |------|---------|-------------|
 | `--iterations` | `20` | Number of selfplay → train → export cycles |
 | `--games` | `200` | Self-play games per iteration |
-| `--sims` | `25` | MCTS simulations per move |
+| `--sims` | `25` | Gumbel simulations per move |
 | `--epochs` | `5` | Training epochs per iteration |
 | `--data-dir` | `$XDG_CACHE_HOME/robot_master_train/training_data` | Where `.bin` game files are written |
 | `--models-dir` | `$XDG_CACHE_HOME/robot_master_train/models` | Where checkpoints and `.onnx` files live |

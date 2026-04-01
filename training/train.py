@@ -28,7 +28,7 @@ class SelfPlayDataset(Dataset):
         value:  1 float32 (+1 or -1, game outcome from perspective of player to move)
     """
 
-    def __init__(self, data_dir: str, board_size: int = 5):
+    def __init__(self, data_dir: str, board_size: int = 5, max_games: int = 0):
         self.board_size = board_size
         n2 = board_size * board_size
         self.state_size = IN_CHANNELS * n2
@@ -36,10 +36,27 @@ class SelfPlayDataset(Dataset):
         self.sample_floats = self.state_size + self.policy_size + 1
         self.sample_bytes = self.sample_floats * 4
 
-        self.data = bytearray()
+        # Sort newest-first so we consume recent data first when applying max_games cap.
+        # Each 5x5 game produces 24 samples; one .bin file = one selfplay run = many games.
         data_path = Path(data_dir)
-        for f in sorted(data_path.glob("*.bin")):
-            self.data.extend(f.read_bytes())
+        files = sorted(data_path.glob("*.bin"), key=lambda f: f.stat().st_mtime, reverse=True)
+
+        self.data = bytearray()
+        games_loaded = 0
+        samples_per_game = n2 - 1  # 5x5 → 24 moves per game
+        for f in files:
+            raw = f.read_bytes()
+            if max_games > 0:
+                games_in_file = (len(raw) // self.sample_bytes) // samples_per_game
+                if games_loaded + games_in_file > max_games:
+                    # Partial load: take only enough samples to hit max_games
+                    samples_to_take = (max_games - games_loaded) * samples_per_game
+                    raw = raw[: samples_to_take * self.sample_bytes]
+            self.data.extend(raw)
+            if max_games > 0:
+                games_loaded += len(raw) // self.sample_bytes // samples_per_game
+                if games_loaded >= max_games:
+                    break
 
         total_bytes = len(self.data)
         if total_bytes % self.sample_bytes != 0:
@@ -85,7 +102,7 @@ def train(args: argparse.Namespace) -> None:
         model.load_state_dict(ckpt["model"])
     model.to(device)
 
-    dataset = SelfPlayDataset(args.data_dir, board_size=args.board_size)
+    dataset = SelfPlayDataset(args.data_dir, board_size=args.board_size, max_games=args.max_games)
     print(f"Samples: {len(dataset)}")
     if len(dataset) == 0:
         print("No training data found.")
@@ -150,4 +167,5 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0.02)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--resume", default=None, help="Resume from checkpoint")
+    parser.add_argument("--max-games", type=int, default=0, help="Cap replay buffer to this many most-recent games (0 = no cap)")
     train(parser.parse_args())
