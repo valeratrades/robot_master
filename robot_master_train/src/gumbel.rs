@@ -181,13 +181,14 @@ where
 	n: usize,
 	/// Phases of Sequential Halving.
 	phases: usize,
-	/// Current phase index (phases..=phases means "drain remaining budget" tail).
+	/// Current phase index (>= phases means "drain remaining budget" tail).
 	phase: usize,
 	survivors: Vec<usize>,
 	sims_used: usize,
 	/// Selections from the last `collect_pending_selections` call, waiting for evals.
 	pending: Vec<PendingLeaf<N>>,
-	/// Duplicate-edge fallback sims that already ran (via `simulate`) within current step.
+	/// Whether the phase just dispatched needs survivor halving after evals are applied.
+	phase_needs_halving: bool,
 	done: bool,
 }
 impl<const N: usize> GumbelSearch<N>
@@ -222,6 +223,7 @@ where
 			survivors: top_m,
 			sims_used: 0,
 			pending: Vec::new(),
+			phase_needs_halving: false,
 			done: false,
 		}
 	}
@@ -273,29 +275,38 @@ where
 			}
 		}
 
-		// Advance phase after collecting this batch's selections
+		// Mark that this phase's sims are dispatched; halving happens in apply_evals
+		// once the Q-values are actually updated by backpropagation.
 		if self.phase < self.phases {
 			self.phase += 1;
-
-			if self.survivors.len() > 1 {
-				let max_visits = self.tree.max_root_visits();
-				self.survivors.sort_unstable_by(|&a, &b| {
-					let sa = self.gumbel_scores[a] + sigma(self.tree.root_q(a), max_visits, &self.config);
-					let sb = self.gumbel_scores[b] + sigma(self.tree.root_q(b), max_visits, &self.config);
-					sb.partial_cmp(&sa).expect("NaN in Gumbel score")
-				});
-				self.survivors.truncate((self.survivors.len() + 1) / 2);
-			}
+			self.phase_needs_halving = self.survivors.len() > 1;
 		}
 
 		if self.pending.is_empty() {
-			// All sims resolved without NN — check if fully done
+			// All sims resolved as terminals — no evals needed, so halve now.
+			self.halve_survivors_if_needed();
 			if self.sims_used >= self.n {
 				self.done = true;
 			}
 		}
 
 		&self.pending
+	}
+
+	/// Halve survivors using up-to-date Q values. Must only be called after the
+	/// current phase's backpropagation is complete.
+	fn halve_survivors_if_needed(&mut self) {
+		if !self.phase_needs_halving {
+			return;
+		}
+		self.phase_needs_halving = false;
+		let max_visits = self.tree.max_root_visits();
+		self.survivors.sort_unstable_by(|&a, &b| {
+			let sa = self.gumbel_scores[a] + sigma(self.tree.root_q(a), max_visits, &self.config);
+			let sb = self.gumbel_scores[b] + sigma(self.tree.root_q(b), max_visits, &self.config);
+			sb.partial_cmp(&sa).expect("NaN in Gumbel score")
+		});
+		self.survivors.truncate((self.survivors.len() + 1) / 2);
 	}
 
 	/// Expand and backpropagate results from the last `collect_pending_selections`.
@@ -308,6 +319,9 @@ where
 		for (p, eval) in pending.into_iter().zip(evals) {
 			expand_and_backprop(&mut self.tree, p.path, p.parent, p.edge_idx, &p.leaf_state, eval);
 		}
+
+		// Halve survivors now that Q-values are updated from this phase's backprop.
+		self.halve_survivors_if_needed();
 
 		if self.sims_used >= self.n {
 			self.done = true;
@@ -503,20 +517,24 @@ fn normalize_q(raw_q: f32, (q_min, q_max): (f32, f32)) -> f32 {
 }
 
 /// v_mix: interpolation between v̂_π and prior-weighted average of observed Q-values.
-/// Appendix D, Eq. 33 from the paper.
+/// Appendix D, Eq. 33 from the paper:
+///   v_mix = [v̂_π + N_visited · (Σ_{a visited} π(a)·q(a) / Σ_{a visited} π(a))] / (1 + N_visited)
+/// where N_visited = total visit count across all visited root edges.
 fn compute_v_mix(v_pi: f32, priors: &[f32], tree: &Tree, k: usize) -> f32 {
 	let mut visited_prior_sum = 0.0f32;
 	let mut weighted_q_sum = 0.0f32;
+	let mut n_visited = 0u32;
 	for i in 0..k {
 		if tree.root_visited(i) {
 			visited_prior_sum += priors[i];
 			weighted_q_sum += priors[i] * tree.root_q_raw(i);
+			n_visited += tree.root_visit_count(i);
 		}
 	}
 	if visited_prior_sum < 1e-8 {
 		return v_pi;
 	}
-	(v_pi + weighted_q_sum / visited_prior_sum) / 2.0
+	(v_pi + n_visited as f32 * (weighted_q_sum / visited_prior_sum)) / (1.0 + n_visited as f32)
 }
 
 /// Compute softmax and pair with moves.

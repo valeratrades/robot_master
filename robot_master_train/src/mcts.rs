@@ -18,6 +18,13 @@ where
 		states.iter().map(|s| self.evaluate(s)).collect()
 	}
 }
+/// Unified interface for search-wrapped bots (Vanilla MCTS, Gumbel).
+/// Implementors wrap an `Evaluator<N>` and expose construction from a sim count.
+pub trait SearchBot<E, const N: usize>: Bot<N>
+where
+	[(); N * N]:, {
+	fn with_sims(evaluator: E, sims: u32) -> Self;
+}
 /// Evaluation result for a leaf node: policy prior over moves and a value estimate.
 #[derive(Clone)]
 pub struct Evaluation {
@@ -68,6 +75,18 @@ where
 	}
 }
 
+/// Vanilla UCT-MCTS bot. Runs `sims` full simulations from the root, picks most-visited child.
+pub struct VanillaBot<E> {
+	evaluator: E,
+	sims: u32,
+	c_puct: f32,
+}
+impl<E> VanillaBot<E> {
+	pub fn new(evaluator: E, sims: u32) -> Self {
+		Self { evaluator, sims, c_puct: 1.41 }
+	}
+}
+
 /// +1 if player won, -1 if lost, 0 if draw.
 fn outcome_value(outcome: Outcome, player: board_game::board::Player) -> f32 {
 	match outcome {
@@ -102,13 +121,6 @@ impl Node {
 pub(crate) struct Tree {
 	pub(crate) nodes: Vec<Node>,
 }
-
-impl Default for Tree {
-	fn default() -> Self {
-		Self { nodes: Vec::new() }
-	}
-}
-
 impl Tree {
 	/// Create a tree with a root node already expanded from the given moves and priors.
 	/// Used by Gumbel search to set up the root without going through `Evaluation`.
@@ -178,6 +190,12 @@ impl Tree {
 		self.nodes[0].edges[action_idx].child != u32::MAX
 	}
 
+	/// Visit count of root edge `action_idx` (0 if unvisited).
+	pub(crate) fn root_visit_count(&self, action_idx: usize) -> u32 {
+		let edge = &self.nodes[0].edges[action_idx];
+		if edge.child == u32::MAX { 0 } else { self.nodes[edge.child as usize].visit_count }
+	}
+
 	/// Visit count of the most-visited root edge.
 	pub(crate) fn max_root_visits(&self) -> u32 {
 		self.nodes[0]
@@ -200,6 +218,12 @@ impl Tree {
 			}
 		}
 		(q_min, q_max)
+	}
+}
+
+impl Default for Tree {
+	fn default() -> Self {
+		Self { nodes: Vec::new() }
 	}
 }
 
@@ -351,27 +375,6 @@ fn backpropagate(tree: &mut Tree, path: &[u32], leaf_value: f64) {
 }
 
 // --- SearchBot trait + VanillaBot ---
-
-/// Unified interface for search-wrapped bots (Vanilla MCTS, Gumbel).
-/// Implementors wrap an `Evaluator<N>` and expose construction from a sim count.
-pub trait SearchBot<E, const N: usize>: Bot<N>
-where
-	[(); N * N]:, {
-	fn with_sims(evaluator: E, sims: u32) -> Self;
-}
-
-/// Vanilla UCT-MCTS bot. Runs `sims` full simulations from the root, picks most-visited child.
-pub struct VanillaBot<E> {
-	evaluator: E,
-	sims: u32,
-	c_puct: f32,
-}
-
-impl<E> VanillaBot<E> {
-	pub fn new(evaluator: E, sims: u32) -> Self {
-		Self { evaluator, sims, c_puct: 1.41 }
-	}
-}
 
 impl<E, const N: usize> SearchBot<E, N> for VanillaBot<E>
 where
