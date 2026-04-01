@@ -190,16 +190,6 @@ where
 	/// Duplicate-edge fallback sims that already ran (via `simulate`) within current step.
 	done: bool,
 }
-
-pub struct PendingLeaf<const N: usize>
-where
-	[(); N * N]:, {
-	pub(crate) path: Vec<u32>,
-	pub(crate) parent: u32,
-	pub(crate) edge_idx: usize,
-	pub(crate) leaf_state: GameState<N>,
-}
-
 impl<const N: usize> GumbelSearch<N>
 where
 	[(); N * N]:,
@@ -360,6 +350,15 @@ where
 			policy_target,
 		}
 	}
+}
+
+pub struct PendingLeaf<const N: usize>
+where
+	[(); N * N]:, {
+	pub(crate) path: Vec<u32>,
+	pub(crate) parent: u32,
+	pub(crate) edge_idx: usize,
+	pub(crate) leaf_state: GameState<N>,
 }
 
 /// Sample Gumbel scores and normalize priors for a state — shared setup for both

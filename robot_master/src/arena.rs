@@ -135,7 +135,7 @@ where
 	[(); N * N]:, {
 	if let InnerKind::OnnxPlayer(p) = &kind.inner {
 		let path = models_dir.join(format!("{}.onnx", p.stem));
-		let evaluator = NnEval::new(path.to_str().expect("non-UTF8 model path"), N).unwrap_or_else(|e| {
+		let evaluator = NnEval::new(path.to_str().expect("non-UTF8 model path"), N, false).unwrap_or_else(|e| {
 			die(OnnxLoadFailed {
 				path: path.clone(),
 				board_size: N,

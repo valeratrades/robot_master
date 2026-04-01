@@ -6606,6 +6606,7 @@ version = "0.1.0"
 dependencies = [
  "board-game",
  "bytemuck",
+ "clap",
  "insta",
  "ort",
  "rand 0.10.0",

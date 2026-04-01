@@ -9,6 +9,7 @@ use std::{
 	time::Instant,
 };
 
+use clap::Parser;
 use rand::{SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
 use robot_master_arena::algos::rollout::Rollout;
@@ -20,10 +21,41 @@ use robot_master_train::{
 	selfplay::{play_game, play_games_batched},
 };
 
-fn main() {
-	let args = parse_args();
+#[derive(Parser)]
+#[command(about = "Self-play data generation for AlphaZero training")]
+struct Args {
+	/// Number of games to play.
+	#[arg(long, default_value_t = 500)]
+	games: u32,
+	/// Gumbel simulations per move.
+	#[arg(long, default_value_t = 50)]
+	sims: u32,
+	/// Output directory for .bin sample files.
+	#[arg(long, default_value_os_t = xdg_cache_dir("training_data"))]
+	output: PathBuf,
+	/// Board size (5, 7, 9, or 11).
+	#[arg(long, default_value_t = 5)]
+	size: u8,
+	/// Number of rayon threads (rollout path only; ignored with --model).
+	#[arg(long, default_value_t = rayon::current_num_threads() as u32)]
+	threads: u32,
+	/// Games in-flight for GPU batching (NN path only).
+	#[arg(long, default_value_t = 128)]
+	batch_size: u32,
+	/// Path to ONNX model. If omitted, uses CPU rollout (no NN).
+	#[arg(long)]
+	model: Option<String>,
+	/// Use CPU for NN inference instead of CUDA. Faster on small boards (5×5,
+	/// 7×7) where GPU kernel-launch overhead exceeds compute time. See
+	/// docs/perf.md for per-board-size benchmarks. Has no effect without
+	/// --model (rollout path is always CPU).
+	#[arg(long)]
+	force_cpu: bool,
+}
 
-	let start = Instant::now();
+fn main() {
+	let args = Args::parse();
+
 	let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 	let config = GumbelConfig {
 		n_simulations: args.sims,
@@ -31,25 +63,33 @@ fn main() {
 		..Default::default()
 	};
 
-	let total_samples = match &args.model {
-		Some(model_path) => run_nn(&args, &config, model_path, timestamp, start),
-		None => run_rollout(&args, &config, timestamp, start),
+	let (total_samples, elapsed, init_elapsed) = match &args.model {
+		Some(model_path) => run_nn(&args, &config, model_path, timestamp),
+		None => {
+			let start = Instant::now();
+			let samples = run_rollout(&args, &config, timestamp, &start);
+			(samples, start.elapsed().as_secs_f64(), 0.0f64)
+		}
 	};
 
 	eprintln!();
-	let elapsed = start.elapsed().as_secs_f64();
-	println!("Done: {total_samples} samples in {elapsed:.1}s  →  {}", args.output.display());
+	println!("Done: {total_samples} samples in {elapsed:.1}s  →  {}  (init {init_elapsed:.1}s)", args.output.display());
 }
 
 /// GPU-batched self-play using the NN evaluator. Single-threaded, batch_size
 /// games in-flight simultaneously so the GPU gets large batches.
-fn run_nn(args: &Args, config: &GumbelConfig, model_path: &str, timestamp: u64, start: Instant) -> u32 {
+///
+/// Returns `(total_samples, game_elapsed_secs, init_elapsed_secs)`.
+fn run_nn(args: &Args, config: &GumbelConfig, model_path: &str, timestamp: u64) -> (u32, f64, f64) {
 	let out_path = args.output.join(format!("selfplay_{timestamp}_00.bin"));
 	let mut file = fs::File::create(&out_path).expect("failed to create output file");
 
 	macro_rules! run_batched {
 		($N:literal) => {{
-			let evaluator = NnEval::new(model_path, $N).expect("failed to load ONNX model");
+			let init_start = Instant::now();
+			let evaluator = NnEval::new(model_path, $N, args.force_cpu).expect("failed to load ONNX model");
+			let init_elapsed = init_start.elapsed().as_secs_f64();
+			let game_start = Instant::now();
 			let mut rng = SmallRng::seed_from_u64(42);
 			let game_batches = play_games_batched::<$N, _, _>(args.games as usize, &evaluator, config, &mut rng, args.batch_size as usize);
 			let mut total = 0u32;
@@ -61,11 +101,11 @@ fn run_nn(args: &Args, config: &GumbelConfig, model_path: &str, timestamp: u64, 
 				total += samples.len() as u32;
 				games_done += 1;
 				if games_done % 10 == 0 || games_done == args.games {
-					let elapsed = start.elapsed().as_secs_f64();
+					let elapsed = game_start.elapsed().as_secs_f64();
 					eprint!("\r  {games_done}/{} games  {total} samples  {elapsed:.1}s", args.games);
 				}
 			}
-			total
+			(total, game_start.elapsed().as_secs_f64(), init_elapsed)
 		}};
 	}
 
@@ -80,7 +120,7 @@ fn run_nn(args: &Args, config: &GumbelConfig, model_path: &str, timestamp: u64, 
 
 /// CPU rollout self-play (no model). Keeps the rayon path since there's no GPU
 /// to batch for and parallelism is free here.
-fn run_rollout(args: &Args, config: &GumbelConfig, timestamp: u64, start: Instant) -> u32 {
+fn run_rollout(args: &Args, config: &GumbelConfig, timestamp: u64, start: &Instant) -> u32 {
 	let games_done = AtomicU32::new(0);
 	let samples_done = AtomicU32::new(0);
 
@@ -135,76 +175,6 @@ fn run_rollout(args: &Args, config: &GumbelConfig, timestamp: u64, start: Instan
 	});
 
 	samples_done.load(Ordering::Relaxed)
-}
-
-struct Args {
-	games: u32,
-	sims: u32,
-	output: PathBuf,
-	size: u8,
-	threads: u32,
-	batch_size: u32,
-	model: Option<String>,
-}
-
-fn parse_args() -> Args {
-	let mut games = 500u32;
-	let mut sims = 50u32;
-	let mut output = xdg_cache_dir("training_data");
-	let mut size = 5u8;
-	let mut threads = rayon::current_num_threads() as u32;
-	let mut batch_size = 128u32;
-	let mut model = None;
-
-	let raw: Vec<String> = std::env::args().skip(1).collect();
-	let mut i = 0;
-	while i < raw.len() {
-		match raw[i].as_str() {
-			"--games" => {
-				games = raw[i + 1].parse().expect("invalid --games");
-				i += 2;
-			}
-			"--sims" => {
-				sims = raw[i + 1].parse().expect("invalid --sims");
-				i += 2;
-			}
-			"--output" => {
-				output = PathBuf::from(&raw[i + 1]);
-				i += 2;
-			}
-			"--size" => {
-				size = raw[i + 1].parse().expect("invalid --size");
-				i += 2;
-			}
-			"--threads" => {
-				threads = raw[i + 1].parse().expect("invalid --threads");
-				i += 2;
-			}
-			"--batch-size" => {
-				batch_size = raw[i + 1].parse().expect("invalid --batch-size");
-				i += 2;
-			}
-			"--model" => {
-				model = Some(raw[i + 1].clone());
-				i += 2;
-			}
-			"--help" | "-h" => {
-				println!("Usage: selfplay [--games N] [--sims N] [--output DIR] [--size N] [--threads N] [--batch-size N] [--model PATH]");
-				std::process::exit(0);
-			}
-			other => panic!("unknown argument: {other}"),
-		}
-	}
-
-	Args {
-		games,
-		sims,
-		output,
-		size,
-		threads,
-		batch_size,
-		model,
-	}
 }
 
 fn xdg_cache_dir(subdir: &str) -> PathBuf {

@@ -72,17 +72,6 @@ where
 		.collect()
 }
 
-struct PendingSample {
-	state_planes: Vec<f32>,
-	/// Completed-Q improved policy over all 6*N² actions.
-	policy: Vec<f32>,
-	mover: Player,
-}
-
-// ---------------------------------------------------------------------------
-// Vectorized (GPU-batched) self-play
-// ---------------------------------------------------------------------------
-
 /// Play `total_games` games using a pool of `batch_size` concurrent in-flight
 /// games. All NN evaluations are collected across the pool and dispatched in a
 /// single `evaluate_batch` call per step, keeping GPU utilization high.
@@ -202,6 +191,16 @@ where
 
 	completed
 }
+struct PendingSample {
+	state_planes: Vec<f32>,
+	/// Completed-Q improved policy over all 6*N² actions.
+	policy: Vec<f32>,
+	mover: Player,
+}
+
+// ---------------------------------------------------------------------------
+// Vectorized (GPU-batched) self-play
+// ---------------------------------------------------------------------------
 
 /// State machine for one in-flight game within the vectorized pool.
 enum GamePhase<const N: usize>

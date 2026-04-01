@@ -3,7 +3,6 @@
 **/target/
 **/debug/
 **/bin/
-!**/src/bin/
 **/*.test
 **/*.out
 **/*.db

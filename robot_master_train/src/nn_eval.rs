@@ -21,12 +21,28 @@ pub struct NnEval {
 }
 
 impl NnEval {
-	pub fn new(model_path: &str, board_size: usize) -> ort::Result<Self> {
-		let session = Session::builder()?.with_execution_providers([ep::CUDA::default().build()])?.commit_from_file(model_path)?;
-		Ok(Self {
+	pub fn new(model_path: &str, board_size: usize, force_cpu: bool) -> ort::Result<Self> {
+		let mut builder = Session::builder()?;
+		if !force_cpu {
+			builder = builder.with_execution_providers([ep::CUDA::default().build()])?;
+		}
+		let session = builder.commit_from_file(model_path)?;
+		let this = Self {
 			session: Mutex::new(session),
 			board_size,
-		})
+		};
+		// Flush lazy CUDA/ORT initialization so it doesn't pollute the first game's timing.
+		this.warmup();
+		Ok(this)
+	}
+
+	fn warmup(&self) {
+		let n = self.board_size;
+		let dummy: Vec<f32> = vec![0.0; 33 * n * n];
+		let shape = [1usize, 33, n, n];
+		let input = TensorRef::from_array_view((shape, dummy.as_slice())).expect("warmup tensor");
+		let mut session = self.session.lock().expect("session mutex poisoned");
+		let _ = session.run(inputs!["state" => input]);
 	}
 }
 

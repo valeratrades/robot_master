@@ -16,3 +16,5 @@ NB: don't forget to mention:
 - include the current leaderboard in the submission (run `arena players list`)
 
 NB: when talking about fundamental design decisions and things that should go into docs/, - just put them in docs, then link. Despite what they say in the pdf file, we're writing more of a progress report, and actually important things should be persisted alongside the code itself not in some random compiled pdf.
+
+and also minimize restating things that are already inside README, - either embed either just link it
