@@ -7,7 +7,7 @@ use miette::Diagnostic;
 use regex::Regex;
 use robot_master_arena::{
 	BoardSize,
-	algos::{InnerKind, PlayerKind},
+	algos::{InnerKind, OnnxPlayer, PlayerKind},
 	db::RatingDb,
 	player::Bot,
 	rating::Rating,
@@ -27,7 +27,7 @@ use crate::config::{ArenaCommands, PlayersCommands, TourneyMode};
 pub fn run(players_filter: Vec<String>, models_dir: std::path::PathBuf, command: ArenaCommands, size: BoardSize, rating_db: Arc<dyn RatingDb>, auto_yes: bool) {
 	match command {
 		ArenaCommands::Tourney { mode } => run_tournament(players_filter, &models_dir, mode, size, rating_db),
-		ArenaCommands::Players { command } => run_players(players_filter, command, rating_db, auto_yes),
+		ArenaCommands::Players { command } => run_players(players_filter, command, &models_dir, rating_db, auto_yes),
 	}
 }
 #[derive(Debug, Diagnostic, Error)]
@@ -268,7 +268,7 @@ fn run_tournament_sized<const N: usize>(
 	}
 }
 
-fn run_players(players_filter: Vec<String>, command: PlayersCommands, rating_db: Arc<dyn RatingDb>, auto_yes: bool) {
+fn run_players(players_filter: Vec<String>, command: PlayersCommands, models_dir: &std::path::Path, rating_db: Arc<dyn RatingDb>, auto_yes: bool) {
 	let mut ratings = rating_db.load_ratings();
 
 	let matched: Vec<Ustr> = if players_filter.is_empty() {
@@ -301,6 +301,23 @@ fn run_players(players_filter: Vec<String>, command: PlayersCommands, rating_db:
 		for kind in PlayerKind::defaults() {
 			if !to_register.iter().any(|k| k.id() == kind.id()) {
 				to_register.push(kind);
+			}
+		}
+		// Auto-register all .onnx models present in models_dir
+		if let Ok(entries) = std::fs::read_dir(models_dir) {
+			for entry in entries.flatten() {
+				let path = entry.path();
+				if path.extension().and_then(|e| e.to_str()) == Some("onnx") {
+					if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+						let kind = PlayerKind {
+							inner: InnerKind::OnnxPlayer(OnnxPlayer { stem: stem.to_string() }),
+							sims: None,
+						};
+						if !to_register.iter().any(|k| k.id() == kind.id()) {
+							to_register.push(kind);
+						}
+					}
+				}
 			}
 		}
 
