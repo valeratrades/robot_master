@@ -33,8 +33,8 @@ fn main() {
 			let asset_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../robot_master_game/assets");
 			robot_master_game::create_app(asset_dir, size, p1, p2, sound).run();
 		}
-		Commands::Arena { select, command } => {
-			robot_master::arena::run(select, command, size, rating_db, auto_yes);
+		Commands::Arena { select, models_dir, command } => {
+			robot_master::arena::run(select, models_dir, command, size, rating_db, auto_yes);
 		}
 	}
 }
@@ -55,7 +55,10 @@ fn resolve_player(input: &str, auto_yes: bool) -> PlayerKind {
 	});
 
 	if auto_yes {
-		return PlayerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: input.to_string() });
+		return PlayerKind {
+			inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: input.to_string() }),
+			sims: None,
+		};
 	}
 
 	eprint!("Unknown player \"{input}\". Register as manual player? [y/N] ");
@@ -63,7 +66,10 @@ fn resolve_player(input: &str, auto_yes: bool) -> PlayerKind {
 	let mut answer = String::new();
 	std::io::stdin().read_line(&mut answer).unwrap();
 	if answer.trim().eq_ignore_ascii_case("y") {
-		return PlayerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: input.to_string() });
+		return PlayerKind {
+			inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: input.to_string() }),
+			sims: None,
+		};
 	}
 
 	// Fall back to fzf selection over algo names

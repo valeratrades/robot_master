@@ -7,7 +7,7 @@ use std::{
 use rand::rngs::SmallRng;
 use robot_master_arena::{
 	BoardSize,
-	algos::{PlayerKind, rollout::Rollout},
+	algos::{InnerKind, PlayerKind},
 	db::RatingDb,
 	match_::{Match, MatchResult},
 	player::Bot,
@@ -36,17 +36,19 @@ pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, 
 fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
 where
 	[(); N * N]:, {
-	match kind {
-		PlayerKind::Mcts(params) => {
-			let evaluator = RolloutEval::new(Rollout {});
-			let config = MctsConfig {
-				simulations: params.simulations,
-				c_puct: 1.41,
-			};
-			Box::new(MctsBot::new(evaluator, config))
-		}
-		other => other.into_bot(),
+	if let Some(sims) = kind.sims {
+		let config = MctsConfig { simulations: sims, c_puct: 1.41 };
+		return match kind.inner {
+			InnerKind::RandomPlayer(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
+			InnerKind::GreedyForNumber(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
+			InnerKind::GreedyForScocre(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
+			InnerKind::Sadist(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
+			InnerKind::Rollout(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
+			InnerKind::ManualPlayer(_) => panic!("cannot wrap ManualPlayer in MCTS"),
+			InnerKind::OnnxPlayer(_) => panic!("OnnxPlayer with MCTS not supported in TUI"),
+		};
 	}
+	kind.into_bot()
 }
 
 /// Returns the move and erases all its own output, so the caller can re-display the board uniformly.

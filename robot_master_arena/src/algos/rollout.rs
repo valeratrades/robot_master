@@ -26,7 +26,7 @@ where
 
 		match analysis.mode() {
 			Mode::GreedyMax => GreedyForNumber {}.choose_move(game),
-			Mode::TargetWeak => target_weak(game, &analysis),
+			Mode::TargetWeak => target_weak(game, &analysis), //Q: might be better to just delegate to `GreedyForScore` here, not sure why I don't
 			Mode::Averse => Averse::builder().fuel(500).build().choose(game),
 		}
 	}

@@ -299,7 +299,10 @@ fn spawn_player_dropdown(commands: &mut Commands, player_idx: usize, ratings: &H
 			Ok(kind) => kinds.push(kind),
 			Err(_) =>
 				if robot_master_arena::algos::validate_manual_name(s).is_ok() {
-					kinds.push(PlayerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: s.to_string() }));
+					kinds.push(PlayerKind {
+						inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: s.to_string() }),
+						sims: None,
+					});
 				},
 		}
 	}

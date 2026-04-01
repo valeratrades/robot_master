@@ -37,13 +37,22 @@ pub fn create_app(asset_dir: &str, size: BoardSize, p1: PlayerKind, p2: PlayerKi
 }
 #[cfg(target_arch = "wasm32")]
 pub fn create_app() -> App {
-	use robot_master_arena::{algos::RandomPlayer, player::ManualPlayer};
+	use robot_master_arena::{
+		algos::{InnerKind, RandomPlayer},
+		player::ManualPlayer,
+	};
 
 	let mut app = App::new();
 	//HACK: don't really like this
 	app.insert_resource(InitialPlayers {
-		p1: PlayerKind::ManualPlayer(ManualPlayer::default()),
-		p2: PlayerKind::RandomPlayer(RandomPlayer::default()),
+		p1: PlayerKind {
+			inner: InnerKind::ManualPlayer(ManualPlayer::default()),
+			sims: None,
+		},
+		p2: PlayerKind {
+			inner: InnerKind::RandomPlayer(RandomPlayer::default()),
+			sims: None,
+		},
 		size: BoardSize::DEFAULT,
 	});
 	app.insert_resource(SoundEnabled(true));

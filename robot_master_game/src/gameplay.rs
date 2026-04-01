@@ -3,7 +3,7 @@ use std::ops::ControlFlow;
 use bevy::{ecs::message::MessageReader, prelude::*};
 use robot_master_arena::{
 	BoardSize,
-	algos::{PlayerKind, rollout::Rollout},
+	algos::{InnerKind, PlayerKind},
 	match_::{DynMatch, Match},
 	player::Bot,
 };
@@ -96,17 +96,19 @@ struct Warning {
 fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
 where
 	[(); N * N]:, {
-	match kind {
-		PlayerKind::Mcts(params) => {
-			let evaluator = RolloutEval::new(Rollout {});
-			let config = MctsConfig {
-				simulations: params.simulations,
-				c_puct: 1.41,
-			};
-			Box::new(MctsBot::new(evaluator, config))
-		}
-		other => other.into_bot(),
+	if let Some(sims) = kind.sims {
+		let config = MctsConfig { simulations: sims, c_puct: 1.41 };
+		return match kind.inner {
+			InnerKind::RandomPlayer(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
+			InnerKind::GreedyForNumber(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
+			InnerKind::GreedyForScocre(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
+			InnerKind::Sadist(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
+			InnerKind::Rollout(p) => Box::new(MctsBot::new(RolloutEval::new(p), config)),
+			InnerKind::ManualPlayer(_) => panic!("cannot wrap ManualPlayer in MCTS"),
+			InnerKind::OnnxPlayer(_) => panic!("OnnxPlayer with MCTS not supported in game"),
+		};
 	}
+	kind.into_bot()
 }
 
 /// Helper: create a `Box<dyn DynMatch>` for the given board size.
@@ -332,7 +334,7 @@ fn ai_turn(mut game: ResMut<Game>, slots: Res<PlayerSlots>) {
 		return;
 	}
 	let turn = game.0.turn();
-	if matches!(&slots.0[turn.index() as usize], PlayerKind::ManualPlayer(_)) {
+	if slots.0[turn.index() as usize].is_manual() {
 		return;
 	}
 	match game.0.next(None) {
@@ -350,7 +352,7 @@ fn hand_click(
 	mut modal: ResMut<ModalState<GameAction>>,
 ) {
 	let turn = game.0.turn();
-	let is_manual = matches!(&slots.0[turn.index() as usize], PlayerKind::ManualPlayer(_));
+	let is_manual = slots.0[turn.index() as usize].is_manual();
 	if !is_manual {
 		return;
 	}
@@ -401,7 +403,7 @@ fn board_click(
 		return;
 	}
 	let turn = game.0.turn();
-	if !matches!(&slots.0[turn.index() as usize], PlayerKind::ManualPlayer(_)) {
+	if !&slots.0[turn.index() as usize].is_manual() {
 		return;
 	}
 	let Some(card) = selected.0 else { return };
@@ -452,7 +454,7 @@ fn rebuild_modal_tree(game: Res<Game>, selected: Res<SelectedCard>, slots: Res<P
 	// Position shortcuts when card is selected
 	if selected.0.is_some() && !game.0.is_done() {
 		let turn = game.0.turn();
-		if matches!(&slots.0[turn.index() as usize], PlayerKind::ManualPlayer(_)) {
+		if slots.0[turn.index() as usize].is_manual() {
 			let n = game.0.size();
 
 			// Group playable positions by column
@@ -671,7 +673,7 @@ fn sync_visuals(
 	for (cell, mut bg, children) in &mut board_cells {
 		let value = game.0.get(Pos { row: cell.row, col: cell.col });
 		let is_playable = game.0.is_playable(Pos { row: cell.row, col: cell.col });
-		let is_manual = matches!(&slots.0[turn.index() as usize], PlayerKind::ManualPlayer(_));
+		let is_manual = slots.0[turn.index() as usize].is_manual();
 		let highlighted = selected.0.is_some()
 			&& is_playable
 			&& is_manual
@@ -763,7 +765,7 @@ fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<Se
 		return;
 	}
 	let turn = game.0.turn();
-	if !matches!(&slots.0[turn.index() as usize], PlayerKind::ManualPlayer(_)) {
+	if !&slots.0[turn.index() as usize].is_manual() {
 		return;
 	}
 	let pressed = if keys.just_pressed(KeyCode::Digit0) || keys.just_pressed(KeyCode::Numpad0) {
