@@ -32,15 +32,6 @@ struct Args {
 	/// Training epochs per iteration
 	#[arg(long, default_value = "5")]
 	epochs: u32,
-	/// Games to run in evaluation (challenger vs champion). 0 = skip evaluation and always promote.
-	#[arg(long, default_value = "100")]
-	eval_games: u32,
-	/// Win rate threshold to promote challenger (ignored when --eval-games 0)
-	#[arg(long, default_value = "0.55")]
-	eval_threshold: f64,
-	/// MCTS simulations per move during evaluation (can be higher than self-play sims)
-	#[arg(long, default_value = "200")]
-	eval_sims: u32,
 }
 
 fn main() {
@@ -54,7 +45,6 @@ fn main() {
 	let repo_root = repo_root();
 
 	let selfplay_bin = repo_root.join("target/debug/selfplay");
-	let evaluate_bin = repo_root.join("target/debug/evaluate");
 	let train_py = repo_root.join("training/train.py");
 	let export_py = repo_root.join("training/export_onnx.py");
 
@@ -73,12 +63,10 @@ fn main() {
 	};
 	let mut current_model = current_model;
 
-	// Build both binaries upfront
-	eprintln!("Building selfplay + evaluate binaries...");
+	// Build selfplay binary upfront
+	eprintln!("Building selfplay binary...");
 	run_or_die(
-		Command::new("cargo")
-			.args(["b", "-p", "robot_master_train", "--bin", "selfplay", "--bin", "evaluate"])
-			.current_dir(&repo_root),
+		Command::new("cargo").args(["b", "-p", "robot_master_train", "--bin", "selfplay"]).current_dir(&repo_root),
 		"cargo build",
 	);
 
@@ -130,10 +118,9 @@ fn main() {
 		let last_epoch = stdout.lines().filter(|l| l.starts_with("Epoch")).last().unwrap_or("(no output)");
 		eprintln!("done ({:.1}s)  {last_epoch}", train_start.elapsed().as_secs_f64());
 
-		// 3. Export ONNX
+		// 3. Export ONNX — always promote, AlphaZero-style (no separate evaluation step)
 		version += 1;
 		let onnx_path = models_dir.join(format!("model_v{version}.onnx"));
-		// Find the latest checkpoint written by train.py
 		let checkpoint = latest_checkpoint(&models_dir).expect("no checkpoint found after training");
 		eprint!("  [3/3] Exporting {} → model_v{version}.onnx... ", checkpoint.file_name().unwrap().to_str().unwrap());
 		let export_start = Instant::now();
@@ -154,44 +141,7 @@ fn main() {
 		}
 		eprintln!("done ({:.1}s)", export_start.elapsed().as_secs_f64());
 
-		// 4. Evaluate: pit challenger vs current champion
-		let promoted = if args.eval_games == 0 {
-			eprintln!("  [4/4] Evaluation skipped (--eval-games 0) — promoting automatically.");
-			true
-		} else {
-			let eval_start = Instant::now();
-			eprint!("  [4/4] Evaluating model_v{version}.onnx vs champion ({} games, {} sims)... ", args.eval_games, args.eval_sims);
-			let mut eval_cmd = Command::new(&evaluate_bin);
-			eval_cmd
-				.args(["--challenger", onnx_path.to_str().unwrap()])
-				.args(["--games", &args.eval_games.to_string()])
-				.args(["--threshold", &args.eval_threshold.to_string()])
-				.args(["--sims", &args.eval_sims.to_string()])
-				.current_dir(&repo_root);
-			// If there's a current champion, pit against it. Otherwise challenger plays itself
-			// (first iteration: any model beats the implicit "no model" baseline — auto-promote).
-			if let Some(ref champion) = current_model {
-				eval_cmd.args(["--champion", champion.to_str().unwrap()]);
-			} else {
-				eval_cmd.args(["--champion", onnx_path.to_str().unwrap()]);
-			}
-			let status = eval_cmd.status().expect("failed to run evaluate");
-			let elapsed = eval_start.elapsed().as_secs_f64();
-			if status.success() {
-				eprintln!("PROMOTED ({:.1}s)", elapsed);
-				true
-			} else {
-				eprintln!("DISCARDED ({:.1}s)", elapsed);
-				// Clean up the rejected model to save disk space
-				let _ = fs::remove_file(&onnx_path);
-				version -= 1;
-				false
-			}
-		};
-
-		if promoted {
-			current_model = Some(onnx_path);
-		}
+		current_model = Some(onnx_path);
 
 		eprintln!(
 			"  iteration {i} complete in {:.1}s  (total elapsed: {:.0}s)",
@@ -202,10 +152,7 @@ fn main() {
 	}
 
 	bar.finish_and_clear();
-	match current_model {
-		Some(ref p) => eprintln!("\nDone. Final model: {}", p.display()),
-		None => eprintln!("\nDone. No model was promoted."),
-	}
+	eprintln!("\nDone. Final model: {}", current_model.unwrap().display());
 	eprintln!("To run in the arena:  robot_master arena --models-dir {} tourney rating 200", models_dir.display());
 }
 

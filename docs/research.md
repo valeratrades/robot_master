@@ -60,8 +60,8 @@ Reference: [Policy Improvement by Planning with Gumbel](https://openreview.net/f
 │              ITERATION CYCLE                 │
 │                                              │
 │  1. Self-Play Generation (Rust)              │
-│     ├─ Current best network plays itself     │
-│     ├─ Gumbel MCTS, 16-64 sims/move         │
+│     ├─ Latest network plays itself           │
+│     ├─ MCTS, 16-64 sims/move                │
 │     ├─ Temperature τ=1 early, τ→0 late       │
 │     └─ Write (state, π, z) to disk           │
 │         π = MCTS visit counts (policy target)│
@@ -75,14 +75,11 @@ Reference: [Policy Improvement by Planning with Gumbel](https://openreview.net/f
 │     ├─ SGD with momentum, ~1000 steps        │
 │     └─ Export model.onnx                     │
 │                                              │
-│  3. Evaluation (Rust)                        │
-│     ├─ New net vs current best: 400 games    │
-│     ├─ If win rate > 55%: promote            │
-│     └─ Else: discard, continue self-play     │
-│                                              │
-│  4. Repeat (~50-100 iterations)              │
+│  3. Repeat (~50-100 iterations)              │
 └─────────────────────────────────────────────┘
 ```
+
+Note: AlphaGo Zero had a separate evaluation step (new net vs current best, 400 games, promote only if win rate > 55%). AlphaZero dropped this entirely — the latest checkpoint is always used for the next self-play iteration. This was found to make no difference in practice and halves iteration overhead. We follow AlphaZero.
 
 Expected training: 4-12 hours on a single modern GPU (RTX 3080/4080) for 5x5.
 
@@ -215,10 +212,10 @@ Rust evaluate  ──reads───>  models/model_v{N}.onnx
 3. **`NnEval`** — implement `Evaluator<N>` backed by ONNX Runtime (`ort` crate).
    Until this exists, selfplay uses `RolloutEval` (random rollouts), which produces garbage policy targets.
 
-#### Phase 3c — Full training cycle
-4. **`bin/evaluate.rs`** — pit new checkpoint vs current best (N=400 games), promote if win rate > 55%.
+#### Phase 3c — Full training cycle ✅
+4. ~~**`bin/evaluate.rs`**~~ — dropped, following AlphaZero (see note above). `bin/evaluate.rs` kept as a diagnostic tool for arena comparisons but not part of the training loop.
 5. **Replay buffer management** — `train.py` currently reads all `.bin` files. Cap to last K iterations to prevent forgetting (K≈20 typically).
-6. **Iteration script** — shell/Python script that loops: selfplay → train → evaluate → promote.
+6. **Iteration script** — `scripts/train_cnn.rs`: loops selfplay → train → export, always promotes latest checkpoint.
 
 #### Long-term notes
 - Gumbel AlphaZero replaces standard MCTS for training — works with 8-16 sims instead of 400. Implement after baseline works.
