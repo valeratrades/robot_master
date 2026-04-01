@@ -152,7 +152,9 @@ if __name__ == "__main__":
     parser.add_argument("--board-size", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--lr", type=float, default=0.02)
+    # MiniZero (arxiv 2310.11305, table 2) uses lr=0.1 with SGD+momentum=0.9 for board games.
+    # Original AlphaZero (1712.01815) also starts at 0.1. Our previous 0.02 was 5x too low.
+    parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--resume", default=None, help="Resume from checkpoint")
     parser.add_argument("--max-iters", type=int, default=0, help="Cap replay buffer to this many most-recent iteration files (0 = no cap)")

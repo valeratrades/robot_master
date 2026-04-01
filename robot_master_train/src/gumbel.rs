@@ -230,7 +230,7 @@ where
 	}
 }
 
-/// Run one MCTS simulation forced through `action_idx` at the root.
+/// Run one simulation forced through `action_idx` at the root.
 fn simulate_from_action<const N: usize, E>(tree: &mut Tree, root_idx: u32, action_idx: usize, state: &GameState<N>, evaluator: &E, c_puct: f32)
 where
 	E: Evaluator<N>,

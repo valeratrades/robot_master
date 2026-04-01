@@ -70,7 +70,7 @@ fn outcome_value(outcome: Outcome, player: board_game::board::Player) -> f32 {
 	}
 }
 
-// --- MCTS Tree ---
+// --- Tree ---
 
 pub(crate) struct Edge {
 	pub(crate) mv: Move,
@@ -208,15 +208,15 @@ where
 			is_root = false;
 			match forced_root_action {
 				Some(idx) => idx,
-				None => select_edge(&tree.nodes, node, node.visit_count, c_puct),
+				None => select_edge(&tree.nodes, node, c_puct),
 			}
 		} else {
-			select_edge(&tree.nodes, node, node.visit_count, c_puct)
+			select_edge(&tree.nodes, node, c_puct)
 		};
 
 		path.push(current);
 		let mv = tree.nodes[current as usize].edges[best_edge_idx].mv;
-		sim_state.play(mv).expect("MCTS selected illegal move");
+		sim_state.play(mv).expect("search selected illegal move");
 
 		let child = tree.nodes[current as usize].edges[best_edge_idx].child;
 		if child == u32::MAX {
@@ -234,25 +234,30 @@ where
 	backpropagate(tree, &path, value as f64);
 }
 
-fn select_edge(nodes: &[Node], node: &Node, parent_visits: u32, c_puct: f32) -> usize {
+fn select_edge(nodes: &[Node], node: &Node, c_puct: f32) -> usize {
 	(0..node.edges.len())
 		.max_by(|&a, &b| {
-			let sa = edge_uct(nodes, &node.edges[a], parent_visits, c_puct);
-			let sb = edge_uct(nodes, &node.edges[b], parent_visits, c_puct);
+			let sa = edge_uct(nodes, &node.edges[a], node, c_puct);
+			let sb = edge_uct(nodes, &node.edges[b], node, c_puct);
 			sa.partial_cmp(&sb).expect("NaN in UCT")
 		})
 		.expect("edges is non-empty")
 }
 
-fn edge_uct(nodes: &[Node], edge: &Edge, parent_visits: u32, c_puct: f32) -> f64 {
+fn edge_uct(nodes: &[Node], edge: &Edge, parent: &Node, c_puct: f32) -> f64 {
+	// For unvisited children, use the parent's current mean Q as the value estimate rather
+	// than 0. MiniZero §III-B (arxiv 2310.11305): "Q̂(s) = Q_Σ(s) / (N_Σ(s) + 1)" —
+	// initialising to 0 systematically over-explores bad moves early and under-explores
+	// good ones; the parent mean is a neutral baseline that avoids this bias. The +1
+	// denominator (virtual visit) is absorbed into our visit_count=0 path below.
 	let (child_q, child_visits) = if edge.child == u32::MAX {
-		(0.0, 0)
+		(-parent.q(), 0) // negated: parent Q is from parent's mover perspective
 	} else {
 		let child = &nodes[edge.child as usize];
 		(-child.q(), child.visit_count)
 	};
 	// Q + c * P * sqrt(N_parent) / (1 + N_child)
-	child_q + c_puct as f64 * edge.prior as f64 * (parent_visits as f64).sqrt() / (1.0 + child_visits as f64)
+	child_q + c_puct as f64 * edge.prior as f64 * (parent.visit_count as f64).sqrt() / (1.0 + child_visits as f64)
 }
 
 fn expand_state<const N: usize>(tree: &mut Tree, state: &GameState<N>, evaluator: &impl Evaluator<N>) -> u32

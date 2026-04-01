@@ -37,7 +37,7 @@ impl std::str::FromStr for OnnxPlayer {
 	}
 }
 
-/// The underlying player algorithm, without MCTS wrapping.
+/// The underlying player algorithm, without Gumbel wrapping.
 #[derive(Clone, Debug, derive_more::Display, strum::EnumIter, Eq, PartialEq, v_utils::macros::TryParseVariants)]
 pub enum InnerKind {
 	ManualPlayer(ManualPlayer),
@@ -59,7 +59,7 @@ impl InnerKind {
 		matches!(self, InnerKind::OnnxPlayer(_))
 	}
 
-	/// Construct a direct (non-MCTS) `Bot<N>`.
+	/// Construct a direct (non-Gumbel) `Bot<N>`.
 	///
 	/// # Panics
 	/// Panics for `OnnxPlayer` — the binary crate must construct `GumbelBot<NnEval>`.
@@ -102,7 +102,7 @@ impl PlayerKind {
 		ustr(&self.to_string())
 	}
 
-	/// All non-Manual inner variants with no MCTS wrapping, plus common MCTS-wrapped rollout sims.
+	/// All non-Manual inner variants with no Gumbel wrapping, plus common Gumbel-wrapped rollout sims.
 	pub fn defaults() -> Vec<PlayerKind> {
 		let mut out: Vec<PlayerKind> = InnerKind::iter()
 			.filter(|k| !k.is_manual() && !k.is_onnx())

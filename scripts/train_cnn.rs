@@ -26,7 +26,7 @@ struct Args {
 	/// Self-play games per iteration
 	#[arg(long, default_value = "200")]
 	games: u32,
-	/// MCTS simulations per move during self-play
+	/// Gumbel simulations per move during self-play
 	#[arg(long, default_value = "25")]
 	sims: u32,
 	/// Training epochs per iteration
@@ -97,17 +97,24 @@ fn main() {
 		// 2. Train
 		eprint!("  [2/3] Training ({} epochs)... ", args.epochs);
 		let train_start = Instant::now();
+		// Resume from the previous iteration's checkpoint to preserve SGD momentum across
+		// iterations. AlphaZero and MiniZero train continuously — cold-restarting the optimizer
+		// every iteration discards accumulated momentum (m=0.9), effectively halving the
+		// usable LR and slowing convergence. See docs/references/MiniZero/final.tex §IV-A.
+		let resume_checkpoint = latest_checkpoint(&models_dir);
 		let output = retry_on_clock_error(|| {
-			Command::new("python")
-				.args([train_py.to_str().unwrap()])
+			let mut cmd = Command::new("python");
+			cmd.args([train_py.to_str().unwrap()])
 				.args(["--data-dir", data_dir.to_str().unwrap()])
 				.args(["--output-dir", models_dir.to_str().unwrap()])
 				.args(["--epochs", &args.epochs.to_string()])
 				.args(["--max-iters", &replay_buffer_iters(args.iterations).to_string()])
 				.env("LD_LIBRARY_PATH", &zlib_path)
-				.current_dir(&repo_root)
-				.output()
-				.expect("failed to run train.py")
+				.current_dir(&repo_root);
+			if let Some(ref ckpt) = resume_checkpoint {
+				cmd.args(["--resume", ckpt.to_str().unwrap()]);
+			}
+			cmd.output().expect("failed to run train.py")
 		});
 		if !output.status.success() {
 			eprintln!("FAILED");

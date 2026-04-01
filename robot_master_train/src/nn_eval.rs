@@ -9,7 +9,7 @@ use crate::{
 	mcts::{Evaluation, Evaluator},
 };
 
-/// ONNX-backed evaluator. Loads a model once; evaluate() is called per MCTS leaf.
+/// ONNX-backed evaluator. Loads a model once; evaluate() is called per search leaf.
 ///
 /// The ONNX model interface (see training/export_onnx.py):
 ///   input  "state":  f32[batch, 33, N, N]

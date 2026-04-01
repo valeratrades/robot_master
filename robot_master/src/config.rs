@@ -97,7 +97,7 @@ pub enum TourneyMode {
 pub enum PlayersCommands {
 	/// Register player algorithms (e.g. `rollout|800`, `random`, `onnx:model_v5|200`). Also auto-registers any missing default variants.
 	New {
-		/// Player specs: algo names with optional params (e.g. `mcts:s500`, `greedy`)
+		/// Player specs: algo names with optional sim counts (e.g. `rollout|800`, `greedy`)
 		players: Vec<String>,
 	},
 	/// List all players and their ratings
