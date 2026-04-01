@@ -15,8 +15,9 @@ use rand_distr::{Distribution as _, Gumbel};
 use robot_master_arena::player::Bot;
 use robot_master_core::game::{GameState, Move};
 
-use crate::mcts::{Evaluator, SelectResult, Tree, expand_and_backprop, select, simulate};
+use crate::mcts::{Evaluation, Evaluator, SelectResult, Tree, backpropagate_pub, expand_and_backprop, select, simulate};
 
+#[derive(Clone)]
 pub struct GumbelConfig {
 	/// Total simulation budget per move.
 	pub n_simulations: u32,
@@ -149,6 +150,245 @@ where
 	GumbelResult { mv: moves[best_idx], policy_target }
 }
 
+// ---------------------------------------------------------------------------
+// Resumable Gumbel search — for vectorized (GPU-batched) self-play
+// ---------------------------------------------------------------------------
+
+/// A Gumbel search that can be paused at each NN evaluation point and resumed
+/// after receiving a batch of evaluations from outside.
+///
+/// Lifecycle:
+///   1. `GumbelSearch::new(state, root_eval, config, gumbel_scores, moves, priors)`
+///   2. Loop: `collect_pending_selections()` → caller batches evals → `apply_evals(evals)`
+///   3. Until `is_done()`, then call `finish()` to get `GumbelResult`.
+///
+/// Invariant: between `collect_pending_selections` and `apply_evals` the tree
+/// must not be mutated. After `apply_evals` returns, the state machine has
+/// advanced (phase updated, survivors trimmed if needed) and is ready for the
+/// next `collect_pending_selections` call.
+pub struct GumbelSearch<const N: usize>
+where
+	[(); N * N]:, {
+	tree: Tree,
+	root_state: GameState<N>,
+	moves: Vec<Move>,
+	priors: Vec<f32>,
+	logits: Vec<f32>,
+	gumbel_scores: Vec<f32>,
+	root_value: f32,
+	config: GumbelConfig,
+	/// Total sim budget.
+	n: usize,
+	/// Phases of Sequential Halving.
+	phases: usize,
+	/// Current phase index (phases..=phases means "drain remaining budget" tail).
+	phase: usize,
+	survivors: Vec<usize>,
+	sims_used: usize,
+	/// Selections from the last `collect_pending_selections` call, waiting for evals.
+	pending: Vec<PendingLeaf<N>>,
+	/// Duplicate-edge fallback sims that already ran (via `simulate`) within current step.
+	done: bool,
+}
+
+pub struct PendingLeaf<const N: usize>
+where
+	[(); N * N]:, {
+	pub(crate) path: Vec<u32>,
+	pub(crate) parent: u32,
+	pub(crate) edge_idx: usize,
+	pub(crate) leaf_state: GameState<N>,
+}
+
+impl<const N: usize> GumbelSearch<N>
+where
+	[(); N * N]:,
+{
+	/// Start a new search. `root_eval` is the NN evaluation of `state` — the
+	/// caller is responsible for batching root evaluations across games.
+	pub fn new(state: &GameState<N>, root_eval: Evaluation, config: GumbelConfig, gumbel_scores: Vec<f32>, moves: Vec<Move>, priors: Vec<f32>) -> Self {
+		let root_value = root_eval.value;
+		let logits: Vec<f32> = priors.iter().map(|&p| p.max(1e-8).ln()).collect();
+		let n = config.n_simulations as usize;
+		let m = (config.m_actions as usize).min(moves.len()).min(n).max(1);
+		let phases = (m as f32).log2().ceil() as usize;
+		let phases = phases.max(1);
+
+		let top_m = argtop_m(&gumbel_scores, m);
+		let tree = Tree::new_with_root(root_value, &moves, &priors);
+
+		Self {
+			tree,
+			root_state: state.clone(),
+			moves,
+			priors,
+			logits,
+			gumbel_scores,
+			root_value,
+			config,
+			n,
+			phases,
+			phase: 0,
+			survivors: top_m,
+			sims_used: 0,
+			pending: Vec::new(),
+			done: false,
+		}
+	}
+
+	pub fn is_done(&self) -> bool {
+		self.done
+	}
+
+	/// Run selection for the current batch step. Returns the states that need
+	/// NN evaluation. The caller must call `apply_evals` with exactly this many
+	/// evaluations before calling `collect_pending_selections` again.
+	///
+	/// If all remaining sims hit terminals or already-expanded nodes (no NN
+	/// needed), this advances the state machine internally and may set `done`.
+	pub fn collect_pending_selections(&mut self) -> &[PendingLeaf<N>] {
+		assert!(self.pending.is_empty(), "apply_evals must be called before collect_pending_selections");
+
+		let mut pending_edges: std::collections::HashSet<(u32, usize)> = std::collections::HashSet::new();
+
+		let (action_indices, sims_per_action) = if self.phase < self.phases {
+			let remaining_phases = self.phases - self.phase;
+			let spa = (self.n.saturating_sub(self.sims_used)) / (remaining_phases * self.survivors.len()).max(1);
+			let spa = spa.max(1);
+			(self.survivors.clone(), spa)
+		} else {
+			// Drain: remaining budget goes to survivors[0]
+			(vec![self.survivors[0]], self.n.saturating_sub(self.sims_used))
+		};
+
+		for &action_idx in &action_indices {
+			for _ in 0..sims_per_action {
+				if self.sims_used >= self.n {
+					break;
+				}
+				self.sims_used += 1;
+
+				match select(&self.tree, 0, Some(action_idx), &self.root_state, self.config.c_puct) {
+					SelectResult::Terminal { path, value } => {
+						backpropagate_pub(&mut self.tree, &path, value);
+					}
+					SelectResult::NeedsEval { path, parent, edge_idx, leaf_state } => {
+						if pending_edges.insert((parent, edge_idx)) {
+							self.pending.push(PendingLeaf { path, parent, edge_idx, leaf_state });
+						}
+						// Duplicate edge in same batch: sim budget consumed but no tree update.
+						// Rare at typical sim counts; preferable to a single-sample GPU call.
+					}
+				}
+			}
+		}
+
+		// Advance phase after collecting this batch's selections
+		if self.phase < self.phases {
+			self.phase += 1;
+
+			if self.survivors.len() > 1 {
+				let max_visits = self.tree.max_root_visits();
+				self.survivors.sort_unstable_by(|&a, &b| {
+					let sa = self.gumbel_scores[a] + sigma(self.tree.root_q(a), max_visits, &self.config);
+					let sb = self.gumbel_scores[b] + sigma(self.tree.root_q(b), max_visits, &self.config);
+					sb.partial_cmp(&sa).expect("NaN in Gumbel score")
+				});
+				self.survivors.truncate((self.survivors.len() + 1) / 2);
+			}
+		}
+
+		if self.pending.is_empty() {
+			// All sims resolved without NN — check if fully done
+			if self.sims_used >= self.n {
+				self.done = true;
+			}
+		}
+
+		&self.pending
+	}
+
+	/// Expand and backpropagate results from the last `collect_pending_selections`.
+	/// `evals` must have the same length as the slice returned by the last call.
+	pub fn apply_evals(&mut self, evals: Vec<Evaluation>) {
+		assert_eq!(evals.len(), self.pending.len(), "eval count must match pending leaf count");
+
+		// Drain pending so we can consume both vecs together
+		let pending = std::mem::take(&mut self.pending);
+		for (p, eval) in pending.into_iter().zip(evals) {
+			expand_and_backprop(&mut self.tree, p.path, p.parent, p.edge_idx, &p.leaf_state, eval);
+		}
+
+		if self.sims_used >= self.n {
+			self.done = true;
+		}
+	}
+
+	/// Consume the search and produce the final result. Must only be called when `is_done()`.
+	pub fn finish(self) -> GumbelResult {
+		assert!(self.done, "finish called before search is done");
+		let k = self.moves.len();
+		let max_visits = self.tree.max_root_visits();
+
+		let best_idx = *self
+			.survivors
+			.iter()
+			.max_by(|&&a, &&b| {
+				let sa = self.gumbel_scores[a] + sigma(self.tree.root_q(a), max_visits, &self.config);
+				let sb = self.gumbel_scores[b] + sigma(self.tree.root_q(b), max_visits, &self.config);
+				sa.partial_cmp(&sb).expect("NaN in Gumbel score")
+			})
+			.expect("survivors non-empty");
+
+		let v_mix = compute_v_mix(self.root_value, &self.priors, &self.tree, k);
+		let q_norm_range = self.tree.q_range(self.root_value);
+		let completed_q: Vec<f32> = (0..k)
+			.map(|i| {
+				let raw_q = if self.tree.root_visited(i) { self.tree.root_q_raw(i) } else { v_mix };
+				normalize_q(raw_q, q_norm_range)
+			})
+			.collect();
+
+		let max_visits_f = max_visits as f32;
+		let improved_logits: Vec<f32> = (0..k)
+			.map(|i| self.logits[i] + (self.config.c_visit + max_visits_f) * self.config.c_scale * completed_q[i])
+			.collect();
+		let policy_target = softmax_to_moves(&self.moves, &improved_logits);
+
+		GumbelResult {
+			mv: self.moves[best_idx],
+			policy_target,
+		}
+	}
+}
+
+/// Sample Gumbel scores and normalize priors for a state — shared setup for both
+/// blocking `gumbel_search` and the resumable `GumbelSearch`.
+pub fn gumbel_setup<const N: usize, R: Rng>(root_eval: &Evaluation, rng: &mut R) -> (Vec<f32>, Vec<Move>, Vec<f32>)
+where
+	[(); N * N]:, {
+	let prior_sum: f32 = root_eval.policy.iter().map(|(_, p)| p).sum();
+	let priors: Vec<f32> = root_eval.policy.iter().map(|(_, p)| p / prior_sum).collect();
+	let moves: Vec<Move> = root_eval.policy.iter().map(|(mv, _)| *mv).collect();
+	let k = moves.len();
+	let logits: Vec<f32> = priors.iter().map(|&p| p.max(1e-8).ln()).collect();
+	let gumbel_dist = Gumbel::new(0.0f32, 1.0).expect("valid Gumbel params");
+	let g: Vec<f32> = (0..k).map(|_| gumbel_dist.sample(rng)).collect();
+	let gumbel_scores: Vec<f32> = (0..k).map(|i| g[i] + logits[i]).collect();
+	(gumbel_scores, moves, priors)
+}
+
+/// Gumbel-based bot: wraps `gumbel_search` and implements `Bot<N>`.
+pub struct GumbelBot<E> {
+	evaluator: E,
+	config: GumbelConfig,
+}
+impl<E> GumbelBot<E> {
+	pub fn new(evaluator: E, config: GumbelConfig) -> Self {
+		Self { evaluator, config }
+	}
+}
+
 /// Run one phase of Sequential Halving using batched leaf evaluation.
 ///
 /// Within a phase, all simulations that need NN evaluation are batched together.
@@ -239,17 +479,6 @@ fn run_phase_batched<const N: usize, E>(
 }
 
 // --- helpers ---
-
-/// Gumbel-based bot: wraps `gumbel_search` and implements `Bot<N>`.
-pub struct GumbelBot<E> {
-	evaluator: E,
-	config: GumbelConfig,
-}
-impl<E> GumbelBot<E> {
-	pub fn new(evaluator: E, config: GumbelConfig) -> Self {
-		Self { evaluator, config }
-	}
-}
 
 /// Return indices of the top-m elements of scores (descending), without replacement.
 fn argtop_m(scores: &[f32], m: usize) -> Vec<usize> {

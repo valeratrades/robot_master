@@ -19,6 +19,7 @@ where
 	}
 }
 /// Evaluation result for a leaf node: policy prior over moves and a value estimate.
+#[derive(Clone)]
 pub struct Evaluation {
 	/// (move, prior probability) pairs. Must cover all legal moves. Need not be normalized.
 	pub policy: Vec<(Move, f32)>,
