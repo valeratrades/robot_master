@@ -1521,6 +1521,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_simple_text_input"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5570b27ef1466896d2bccadae38ce10d8d82d2de440bd15b0c69a4ffdb8f6e73"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
 name = "bevy_sprite"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3488,6 +3497,15 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "fuzzy-matcher"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54614a3312934d066701a80f20f15fa3b56d67ac7722b39eea5b4c9dd1d66c94"
+dependencies = [
+ "thread_local",
 ]
 
 [[package]]
@@ -6571,6 +6589,8 @@ name = "robot_master_game"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_simple_text_input",
+ "fuzzy-matcher",
  "rand 0.10.0",
  "robot_master_arena",
  "robot_master_core",
