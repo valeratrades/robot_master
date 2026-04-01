@@ -67,8 +67,7 @@ impl MatchResult {
 	}
 
 	/// Immediately compute and persist the Glicko-2 update, returning it.
-	/// Consumes `self` without triggering the Drop-based save a second time.
-	/// Use this when you need the `RatingUpdate` value synchronously.
+	/// Same rating update and save as happens on Drop, but you get the value back
 	pub fn commit(mut self) -> RatingUpdate {
 		let db = self.rating_db.take().expect("MatchResult::commit called without a rating_db set");
 		self.update_rating(db.as_ref());
@@ -79,12 +78,13 @@ impl MatchResult {
 
 	/// Consume `self` without saving ratings. Use inside tournament where ratings are
 	/// managed explicitly in-memory and saved once at the end.
+	// here to explicitly document this as a valid pattern
 	pub fn forget(self) {
 		std::mem::forget(self);
 	}
 
 	/// Perform Glicko-2 rating update against the given db, populating `self.rating_update`.
-	pub(crate) fn update_rating(&mut self, rating_db: &dyn RatingDb) {
+	fn update_rating(&mut self, rating_db: &dyn RatingDb) {
 		let mut ratings = rating_db.load_ratings();
 
 		let outcome = match self.p1_score.cmp(&self.p2_score) {
