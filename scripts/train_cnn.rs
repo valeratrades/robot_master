@@ -29,16 +29,19 @@ struct Args {
 	/// Gumbel simulations per move during self-play
 	#[arg(long, default_value = "25")]
 	sims: u32,
-	/// Training epochs per iteration
+	/// Board size (must match the selfplay binary and model architecture)
 	#[arg(long, default_value = "5")]
-	epochs: u32,
+	size: u32,
 }
 
 fn main() {
 	let args = Args::parse();
 
-	let data_dir = xdg_cache_dir(&format!("{}/training_data", args.generation));
-	let models_dir = xdg_cache_dir(&format!("{}/models", args.generation));
+	// MiniZero: steps proportional to games collected, ratio 1:10 (final.tex line 299).
+	let train_steps = (args.games / 10).max(1);
+	let run_id = format!("{}:g{}:s{}/{}x{}", args.generation, args.games, args.sims, args.size, args.size);
+	let data_dir = xdg_cache_dir(&format!("{run_id}/training_data"));
+	let models_dir = xdg_cache_dir(&format!("{run_id}/models"));
 
 	// Detect the zlib path once (needed for Python/numpy on NixOS)
 	let zlib_path = zlib_ld_path();
@@ -85,6 +88,7 @@ fn main() {
 		selfplay_cmd
 			.args(["--games", &args.games.to_string()])
 			.args(["--sims", &args.sims.to_string()])
+			.args(["--size", &args.size.to_string()])
 			.args(["--output", data_dir.to_str().unwrap()])
 			.current_dir(&repo_root);
 		if let Some(ref model) = current_model {
@@ -95,7 +99,7 @@ fn main() {
 		eprintln!("done ({:.1}s)", sp_start.elapsed().as_secs_f64());
 
 		// 2. Train
-		eprint!("  [2/3] Training ({} epochs)... ", args.epochs);
+		eprint!("  [2/3] Training ({} steps)... ", train_steps);
 		let train_start = Instant::now();
 		// Resume from the previous iteration's checkpoint to preserve SGD momentum across
 		// iterations. AlphaZero and MiniZero train continuously — cold-restarting the optimizer
@@ -107,7 +111,8 @@ fn main() {
 			cmd.args([train_py.to_str().unwrap()])
 				.args(["--data-dir", data_dir.to_str().unwrap()])
 				.args(["--output-dir", models_dir.to_str().unwrap()])
-				.args(["--epochs", &args.epochs.to_string()])
+				.args(["--board-size", &args.size.to_string()])
+				.args(["--steps", &train_steps.to_string()])
 				.args(["--max-iters", &replay_buffer_iters(args.iterations).to_string()])
 				.env("LD_LIBRARY_PATH", &zlib_path)
 				.current_dir(&repo_root);
@@ -123,7 +128,7 @@ fn main() {
 		}
 		// Extract last loss line from stdout
 		let stdout = String::from_utf8_lossy(&output.stdout);
-		let last_epoch = stdout.lines().filter(|l| l.starts_with("Epoch")).last().unwrap_or("(no output)");
+		let last_epoch = stdout.lines().filter(|l| l.starts_with("Steps")).last().unwrap_or("(no output)");
 		eprintln!("done ({:.1}s)  {last_epoch}", train_start.elapsed().as_secs_f64());
 
 		// 3. Export ONNX — always promote, AlphaZero-style (no separate evaluation step)
@@ -137,6 +142,7 @@ fn main() {
 				.args([export_py.to_str().unwrap()])
 				.args(["--checkpoint", checkpoint.to_str().unwrap()])
 				.args(["--output", onnx_path.to_str().unwrap()])
+				.args(["--board-size", &args.size.to_string()])
 				.env("LD_LIBRARY_PATH", &zlib_path)
 				.current_dir(&repo_root)
 				.output()
@@ -238,7 +244,7 @@ fn latest_checkpoint(models_dir: &Path) -> Option<PathBuf> {
 	fs::read_dir(models_dir)
 		.ok()?
 		.flatten()
-		.filter(|e| e.file_name().to_str().map(|s| s.starts_with("checkpoint_") && s.ends_with(".pt")).unwrap_or(false))
+		.filter(|e| e.file_name().to_str().map(|s| s.ends_with(".pt")).unwrap_or(false))
 		.max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())
 		.map(|e| e.path())
 }

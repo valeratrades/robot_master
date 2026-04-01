@@ -99,47 +99,52 @@ def train(args: argparse.Namespace) -> None:
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=2, pin_memory=True)
 
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs * len(loader))
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.steps)
 
     writer = SummaryWriter(log_dir=str(Path(args.output_dir) / "tb"))
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    global_step = 0
-    for epoch in range(args.epochs):
-        model.train()
-        epoch_loss = 0.0
-        for states, policy_targets, value_targets in loader:
-            states = states.to(device)
-            policy_targets = policy_targets.to(device)
-            value_targets = value_targets.to(device)
+    # MiniZero: fixed gradient steps per iteration, proportional to games collected
+    # (final.tex line 299: 200 steps per 2000 games). Cycle through the loader repeatedly.
+    loader_iter = iter(loader)
+    total_loss = 0.0
+    for step in range(args.steps):
+        try:
+            states, policy_targets, value_targets = next(loader_iter)
+        except StopIteration:
+            loader_iter = iter(loader)
+            states, policy_targets, value_targets = next(loader_iter)
 
-            policy_logits, value_pred = model(states)
-            loss, v_loss, p_loss = alpha_zero_loss(policy_logits, value_pred, policy_targets, value_targets)
+        states = states.to(device)
+        policy_targets = policy_targets.to(device)
+        value_targets = value_targets.to(device)
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
+        policy_logits, value_pred = model(states)
+        loss, v_loss, p_loss = alpha_zero_loss(policy_logits, value_pred, policy_targets, value_targets)
 
-            epoch_loss += loss.item()
-            global_step += 1
-            if global_step % 100 == 0:
-                writer.add_scalar("loss/total", loss.item(), global_step)
-                writer.add_scalar("loss/value", v_loss.item(), global_step)
-                writer.add_scalar("loss/policy", p_loss.item(), global_step)
-                writer.add_scalar("lr", scheduler.get_last_lr()[0], global_step)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
 
-        avg = epoch_loss / max(len(loader), 1)
-        print(f"Epoch {epoch + 1}/{args.epochs}  loss={avg:.4f}")
+        total_loss += loss.item()
+        if (step + 1) % 100 == 0:
+            writer.add_scalar("loss/total", loss.item(), step)
+            writer.add_scalar("loss/value", v_loss.item(), step)
+            writer.add_scalar("loss/policy", p_loss.item(), step)
+            writer.add_scalar("lr", scheduler.get_last_lr()[0], step)
 
-        checkpoint = {
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "epoch": epoch + 1,
-            "model_kwargs": {"board_size": args.board_size},
-        }
-        torch.save(checkpoint, output_dir / f"checkpoint_{epoch + 1:04d}.pt")
+    avg = total_loss / max(args.steps, 1)
+    print(f"Steps {args.steps}  loss={avg:.4f}")
+
+    checkpoint = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "steps": args.steps,
+        "model_kwargs": {"board_size": args.board_size},
+    }
+    torch.save(checkpoint, output_dir / "checkpoint.pt")
 
     writer.close()
     print(f"Training complete. Checkpoints in {output_dir}")
@@ -151,7 +156,9 @@ if __name__ == "__main__":
     parser.add_argument("--output-dir", default="models", help="Where to save checkpoints")
     parser.add_argument("--board-size", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--epochs", type=int, default=10)
+    # MiniZero: steps proportional to games collected, ratio 1:10 (final.tex line 299).
+    # Computed by train_cnn.rs as games // 10; passed explicitly — no default here.
+    parser.add_argument("--steps", type=int, required=True)
     # MiniZero (arxiv 2310.11305, table 2) uses lr=0.1 with SGD+momentum=0.9 for board games.
     # Original AlphaZero (1712.01815) also starts at 0.1. Our previous 0.02 was 5x too low.
     parser.add_argument("--lr", type=float, default=0.1)
