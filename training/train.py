@@ -85,9 +85,6 @@ def train(args: argparse.Namespace) -> None:
     print(f"Device: {device}")
 
     model = RobotMasterResNet(board_size=args.board_size)
-    if args.resume:
-        ckpt = torch.load(args.resume, map_location="cpu", weights_only=True)
-        model.load_state_dict(ckpt["model"])
     model.to(device)
 
     dataset = SelfPlayDataset(args.data_dir, board_size=args.board_size, max_iters=args.max_iters)
@@ -99,7 +96,18 @@ def train(args: argparse.Namespace) -> None:
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=2, pin_memory=True)
 
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.steps)
+    # Cosine schedule spans the full training run (steps_per_iter * total_iters), not just
+    # one iteration. MiniZero trains with a single continuous schedule over 60k total steps.
+    # We restore last_epoch so the scheduler resumes at the right position after each call.
+    global_step_offset = 0
+    if args.resume:
+        ckpt = torch.load(args.resume, map_location="cpu", weights_only=True)
+        model.load_state_dict(ckpt["model"])
+        optimizer.load_state_dict(ckpt["optimizer"])
+        global_step_offset = ckpt.get("global_step", 0)
+    # Cosine schedule spans the full training run, not just one iteration call.
+    # last_epoch restores the scheduler's position so LR continues from where it left off.
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.total_steps, last_epoch=global_step_offset if global_step_offset > 0 else -1)
 
     writer = SummaryWriter(log_dir=str(Path(args.output_dir) / "tb"))
     output_dir = Path(args.output_dir)
@@ -129,11 +137,12 @@ def train(args: argparse.Namespace) -> None:
         scheduler.step()
 
         total_loss += loss.item()
-        if (step + 1) % 100 == 0:
-            writer.add_scalar("loss/total", loss.item(), step)
-            writer.add_scalar("loss/value", v_loss.item(), step)
-            writer.add_scalar("loss/policy", p_loss.item(), step)
-            writer.add_scalar("lr", scheduler.get_last_lr()[0], step)
+        global_step = global_step_offset + step + 1
+        if global_step % 100 == 0:
+            writer.add_scalar("loss/total", loss.item(), global_step)
+            writer.add_scalar("loss/value", v_loss.item(), global_step)
+            writer.add_scalar("loss/policy", p_loss.item(), global_step)
+            writer.add_scalar("lr", scheduler.get_last_lr()[0], global_step)
 
     avg = total_loss / max(args.steps, 1)
     print(f"Steps {args.steps}  loss={avg:.4f}")
@@ -141,7 +150,7 @@ def train(args: argparse.Namespace) -> None:
     checkpoint = {
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
-        "steps": args.steps,
+        "global_step": global_step_offset + args.steps,
         "model_kwargs": {"board_size": args.board_size},
     }
     torch.save(checkpoint, output_dir / "checkpoint.pt")
@@ -159,6 +168,7 @@ if __name__ == "__main__":
     # MiniZero: steps proportional to games collected, ratio 1:10 (final.tex line 299).
     # Computed by train_cnn.rs as games // 10; passed explicitly — no default here.
     parser.add_argument("--steps", type=int, required=True)
+    parser.add_argument("--total-steps", type=int, required=True, help="Total steps across all iterations, for cosine schedule T_max")
     # MiniZero (arxiv 2310.11305, table 2) uses lr=0.1 with SGD+momentum=0.9 for board games.
     # Original AlphaZero (1712.01815) also starts at 0.1. Our previous 0.02 was 5x too low.
     parser.add_argument("--lr", type=float, default=0.1)

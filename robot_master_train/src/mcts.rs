@@ -235,29 +235,39 @@ where
 }
 
 fn select_edge(nodes: &[Node], node: &Node, c_puct: f32) -> usize {
+	// Precompute Q̂(s) = Q_Σ(s) / (N_Σ(s) + 1) once for the whole node.
+	// MiniZero §III-B (arxiv 2310.11305, line 207): non-visited actions receive the mean
+	// of observed sibling Q-values with one virtual losing visit (+1 denominator) to bias
+	// toward caution. Q values are stored from the child's perspective so we negate.
+	// N_Σ = number of visited children; Q_Σ = sum of their Q values (from parent's POV).
+	let mut n_sigma = 0u32;
+	let mut q_sigma = 0.0f64;
+	for edge in &node.edges {
+		if edge.child != u32::MAX {
+			n_sigma += 1;
+			q_sigma += -nodes[edge.child as usize].q(); // negate: child Q → parent POV
+		}
+	}
+	let q_hat = q_sigma / (n_sigma + 1) as f64;
+
 	(0..node.edges.len())
 		.max_by(|&a, &b| {
-			let sa = edge_uct(nodes, &node.edges[a], node, c_puct);
-			let sb = edge_uct(nodes, &node.edges[b], node, c_puct);
+			let sa = edge_uct(nodes, &node.edges[a], node.visit_count, q_hat, c_puct);
+			let sb = edge_uct(nodes, &node.edges[b], node.visit_count, q_hat, c_puct);
 			sa.partial_cmp(&sb).expect("NaN in UCT")
 		})
 		.expect("edges is non-empty")
 }
 
-fn edge_uct(nodes: &[Node], edge: &Edge, parent: &Node, c_puct: f32) -> f64 {
-	// For unvisited children, use the parent's current mean Q as the value estimate rather
-	// than 0. MiniZero §III-B (arxiv 2310.11305): "Q̂(s) = Q_Σ(s) / (N_Σ(s) + 1)" —
-	// initialising to 0 systematically over-explores bad moves early and under-explores
-	// good ones; the parent mean is a neutral baseline that avoids this bias. The +1
-	// denominator (virtual visit) is absorbed into our visit_count=0 path below.
+fn edge_uct(nodes: &[Node], edge: &Edge, parent_visits: u32, q_hat: f64, c_puct: f32) -> f64 {
 	let (child_q, child_visits) = if edge.child == u32::MAX {
-		(-parent.q(), 0) // negated: parent Q is from parent's mover perspective
+		(q_hat, 0)
 	} else {
 		let child = &nodes[edge.child as usize];
 		(-child.q(), child.visit_count)
 	};
 	// Q + c * P * sqrt(N_parent) / (1 + N_child)
-	child_q + c_puct as f64 * edge.prior as f64 * (parent.visit_count as f64).sqrt() / (1.0 + child_visits as f64)
+	child_q + c_puct as f64 * edge.prior as f64 * (parent_visits as f64).sqrt() / (1.0 + child_visits as f64)
 }
 
 fn expand_state<const N: usize>(tree: &mut Tree, state: &GameState<N>, evaluator: &impl Evaluator<N>) -> u32

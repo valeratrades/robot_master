@@ -39,6 +39,7 @@ fn main() {
 
 	// MiniZero: steps proportional to games collected, ratio 1:10 (final.tex line 299).
 	let train_steps = (args.games / 10).max(1);
+	let total_steps = train_steps * args.iterations;
 	let run_id = format!("{}:g{}:s{}/{}x{}", args.generation, args.games, args.sims, args.size, args.size);
 	let data_dir = xdg_cache_dir(&format!("{run_id}/training_data"));
 	let models_dir = xdg_cache_dir(&format!("{run_id}/models"));
@@ -113,6 +114,7 @@ fn main() {
 				.args(["--output-dir", models_dir.to_str().unwrap()])
 				.args(["--board-size", &args.size.to_string()])
 				.args(["--steps", &train_steps.to_string()])
+				.args(["--total-steps", &total_steps.to_string()])
 				.args(["--max-iters", &replay_buffer_iters(args.iterations).to_string()])
 				.env("LD_LIBRARY_PATH", &zlib_path)
 				.current_dir(&repo_root);
@@ -128,8 +130,8 @@ fn main() {
 		}
 		// Extract last loss line from stdout
 		let stdout = String::from_utf8_lossy(&output.stdout);
-		let last_epoch = stdout.lines().filter(|l| l.starts_with("Steps")).last().unwrap_or("(no output)");
-		eprintln!("done ({:.1}s)  {last_epoch}", train_start.elapsed().as_secs_f64());
+		let train_summary = stdout.lines().filter(|l| l.starts_with("Steps")).last().unwrap_or("(no output)");
+		eprintln!("done ({:.1}s)  {train_summary}", train_start.elapsed().as_secs_f64());
 
 		// 3. Export ONNX — always promote, AlphaZero-style (no separate evaluation step)
 		version += 1;
