@@ -32,6 +32,9 @@ struct Args {
 	/// Board size (must match the selfplay binary and model architecture)
 	#[arg(long, default_value = "5")]
 	size: u32,
+	/// Pass --force-cpu to selfplay (sequential rayon, faster at 5×5/7×7).
+	#[arg(long)]
+	force_cpu: bool,
 }
 
 fn main() {
@@ -86,7 +89,6 @@ fn main() {
 		eprintln!("\n━━━ Iteration {i}/{} ━━━", args.iterations);
 
 		// 1. Self-play
-		eprint!("  [1/3] Self-play ({} games, {} sims)... ", args.games, args.sims);
 		let mut selfplay_cmd = Command::new(&selfplay_bin);
 		selfplay_cmd
 			.args(["--games", &args.games.to_string()])
@@ -97,9 +99,12 @@ fn main() {
 		if let Some(ref model) = current_model {
 			selfplay_cmd.args(["--model".as_ref(), model.to_str().unwrap()]);
 		}
+		if args.force_cpu {
+			selfplay_cmd.arg("--force-cpu");
+		}
 		let sp_start = Instant::now();
 		run_or_die(&mut selfplay_cmd, "selfplay");
-		eprintln!("done ({:.1}s)", sp_start.elapsed().as_secs_f64());
+		eprintln!("  [1/3] Self-play ({} games, {} sims): done ({:.1}s)", args.games, args.sims, sp_start.elapsed().as_secs_f64());
 
 		// 2. Train
 		eprint!("  [2/3] Training ({} steps)... ", train_steps);
