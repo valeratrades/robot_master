@@ -9,6 +9,7 @@ robot_master_core = { path = "../robot_master_core" }
 
 board-game = "0.8"
 bytemuck = "1"
+ort = "=2.0.0-rc.12"
 rayon = "1"
 
 rand.workspace = true

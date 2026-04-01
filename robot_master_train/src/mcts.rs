@@ -52,6 +52,15 @@ where
 	}
 }
 
+impl<const N: usize> Evaluator<N> for Box<dyn Evaluator<N>>
+where
+	[(); N * N]:,
+{
+	fn evaluate(&self, state: &GameState<N>) -> Evaluation {
+		(**self).evaluate(state)
+	}
+}
+
 pub struct MctsConfig {
 	pub simulations: u32,
 	pub c_puct: f32,
@@ -70,6 +79,17 @@ where
 	[(); N * N]:, {
 	let (counts, _) = run_tree(state, evaluator, config);
 	counts
+}
+
+/// MCTS-based bot: wraps `search` and implements `Bot<N>`.
+pub struct MctsBot<E> {
+	evaluator: E,
+	config: MctsConfig,
+}
+impl<E> MctsBot<E> {
+	pub fn new(evaluator: E, config: MctsConfig) -> Self {
+		Self { evaluator, config }
+	}
 }
 
 fn run_tree<const N: usize>(state: &GameState<N>, evaluator: &impl Evaluator<N>, config: &MctsConfig) -> (Vec<(Move, u32)>, Tree)
@@ -92,16 +112,6 @@ where
 		})
 		.collect();
 	(counts, tree)
-}
-/// MCTS-based bot: wraps `search` and implements `Bot<N>`.
-pub struct MctsBot<E> {
-	evaluator: E,
-	config: MctsConfig,
-}
-impl<E> MctsBot<E> {
-	pub fn new(evaluator: E, config: MctsConfig) -> Self {
-		Self { evaluator, config }
-	}
 }
 
 /// +1 if player won, -1 if lost, 0 if draw.

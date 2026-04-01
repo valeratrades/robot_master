@@ -6,15 +6,6 @@ use crate::{
 	mcts::{Evaluator, MctsConfig, search_visit_counts},
 };
 
-/// One training sample. `value` is filled in retroactively after the game ends.
-struct PendingSample {
-	state_planes: Vec<f32>,
-	/// Visit count distribution over all 6*N^2 actions, normalized.
-	policy: Vec<f32>,
-	/// Which player was to move when this sample was recorded.
-	mover: Player,
-}
-
 /// A completed training sample ready for serialization.
 pub struct Sample {
 	pub state_planes: Vec<f32>,
@@ -22,7 +13,6 @@ pub struct Sample {
 	/// +1.0 if the player who was to move at this step won, -1.0 if they lost.
 	pub value: f32,
 }
-
 impl Sample {
 	pub fn to_bytes(&self) -> Vec<u8> {
 		encode_sample(&self.state_planes, &self.policy, self.value)
@@ -95,6 +85,14 @@ where
 			}
 		})
 		.collect()
+}
+/// One training sample. `value` is filled in retroactively after the game ends.
+struct PendingSample {
+	state_planes: Vec<f32>,
+	/// Visit count distribution over all 6*N^2 actions, normalized.
+	policy: Vec<f32>,
+	/// Which player was to move when this sample was recorded.
+	mover: Player,
 }
 
 /// Run MCTS from `state` and return a full visit-count vector over the action space.

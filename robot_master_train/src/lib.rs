@@ -3,4 +3,5 @@
 
 pub mod encoding;
 pub mod mcts;
+pub mod nn_eval;
 pub mod selfplay;
