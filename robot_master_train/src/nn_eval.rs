@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use ort::{inputs, session::Session, value::TensorRef};
+use ort::{ep, inputs, session::Session, value::TensorRef};
 use robot_master_arena::player::Bot;
 use robot_master_core::game::{GameState, Move};
 
@@ -22,7 +22,7 @@ pub struct NnEval {
 
 impl NnEval {
 	pub fn new(model_path: &str, board_size: usize) -> ort::Result<Self> {
-		let session = Session::builder()?.commit_from_file(model_path)?;
+		let session = Session::builder()?.with_execution_providers([ep::CUDA::default().build()])?.commit_from_file(model_path)?;
 		Ok(Self {
 			session: Mutex::new(session),
 			board_size,
