@@ -39,6 +39,9 @@ pub enum Commands {
 		/// Filter players by grepping these patterns against known IDs. If empty, all players.
 		#[arg(short, long, value_delimiter = ',')]
 		select: Vec<String>,
+		/// Directory containing .onnx model files
+		#[arg(long, default_value = "./models")]
+		models_dir: std::path::PathBuf,
 		#[command(subcommand)]
 		command: ArenaCommands,
 	},
@@ -92,7 +95,7 @@ pub enum TourneyMode {
 
 #[derive(Subcommand)]
 pub enum PlayersCommands {
-	/// Register player algorithms (e.g. `mcts:s500`, `random`, `rollout`). Also auto-registers any missing default variants.
+	/// Register player algorithms (e.g. `rollout_800`, `random`, `onnx:model_v5_200`). Also auto-registers any missing default variants.
 	New {
 		/// Player specs: algo names with optional params (e.g. `mcts:s500`, `greedy`)
 		players: Vec<String>,

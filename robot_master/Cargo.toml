@@ -23,10 +23,12 @@ robot_master_train = { path = "../robot_master_train" }
 derive-new = "0.7.0"
 pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
 
+miette.workspace = true
 rand.workspace = true
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 ustr.workspace = true
 v_utils.workspace = true
 

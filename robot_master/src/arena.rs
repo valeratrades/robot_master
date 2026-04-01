@@ -3,10 +3,11 @@ use std::{
 	sync::Arc,
 };
 
+use miette::Diagnostic;
 use regex::Regex;
 use robot_master_arena::{
 	BoardSize,
-	algos::{PlayerKind, rollout::Rollout},
+	algos::{InnerKind, PlayerKind},
 	db::RatingDb,
 	player::Bot,
 	rating::Rating,
@@ -17,19 +18,60 @@ use robot_master_train::{
 	mcts::{MctsBot, MctsConfig, RolloutEval},
 	nn_eval::NnEval,
 };
+use thiserror::Error;
 use ustr::{Ustr, ustr};
 use v_utils::io::ProgressBar;
 
 use crate::config::{ArenaCommands, PlayersCommands, TourneyMode};
 
-pub fn run(players_filter: Vec<String>, command: ArenaCommands, size: BoardSize, rating_db: Arc<dyn RatingDb>, auto_yes: bool) {
+pub fn run(players_filter: Vec<String>, models_dir: std::path::PathBuf, command: ArenaCommands, size: BoardSize, rating_db: Arc<dyn RatingDb>, auto_yes: bool) {
 	match command {
-		ArenaCommands::Tourney { mode } => run_tournament(players_filter, mode, size, rating_db),
+		ArenaCommands::Tourney { mode } => run_tournament(players_filter, &models_dir, mode, size, rating_db),
 		ArenaCommands::Players { command } => run_players(players_filter, command, rating_db, auto_yes),
 	}
 }
+#[derive(Debug, Diagnostic, Error)]
+#[error("failed to load ONNX model {path:?}: {message}")]
+#[diagnostic(help("check that the file is a valid ONNX model for board size N={board_size}"))]
+struct OnnxLoadFailed {
+	path: std::path::PathBuf,
+	board_size: usize,
+	message: String,
+}
 
-fn resolve_players(filter: &[String], rating_db: &dyn RatingDb) -> Vec<PlayerKind> {
+#[derive(Debug, Diagnostic, Error)]
+#[error("invalid regex pattern {pattern:?}")]
+struct InvalidRegex {
+	pattern: String,
+	#[source]
+	source: regex::Error,
+}
+
+#[derive(Debug, Diagnostic, Error)]
+#[error("unknown player spec: {spec}")]
+#[diagnostic(help("valid specs: random, greedy, sadist, rollout, rollout_50, rollout_200, rollout_800, onnx:<stem>"))]
+struct UnknownPlayerSpec {
+	spec: String,
+}
+
+#[derive(Debug, Diagnostic, Error)]
+#[error("not enough players for a tournament: need at least 2, found {found}")]
+#[diagnostic(help("add players with `arena players new`, or broaden your --select filter"))]
+struct NotEnoughPlayers {
+	found: usize,
+}
+
+#[derive(Debug, Diagnostic, Error)]
+#[error("--select cannot be used with `players new`")]
+#[diagnostic(help("omit --select to register players unconditionally"))]
+struct SelectWithNew;
+
+fn die(report: impl Into<miette::Report>) -> ! {
+	eprintln!("{:?}", report.into());
+	std::process::exit(1);
+}
+
+fn resolve_players(filter: &[String], models_dir: &std::path::Path, rating_db: &dyn RatingDb) -> Vec<PlayerKind> {
 	let all_ids: Vec<Ustr> = {
 		let ratings = rating_db.load_ratings();
 		let mut ids: Vec<Ustr> = ratings.keys().copied().collect();
@@ -40,10 +82,8 @@ fn resolve_players(filter: &[String], rating_db: &dyn RatingDb) -> Vec<PlayerKin
 				ids.push(id);
 			}
 		}
-		// Auto-discover .onnx models from XDG cache
-		let base = std::env::var("XDG_CACHE_HOME").unwrap_or_else(|_| format!("{}/.cache", std::env::var("HOME").expect("HOME not set")));
-		let models_dir = std::path::PathBuf::from(base).join("robot_master_train").join("models");
-		if let Ok(entries) = std::fs::read_dir(&models_dir) {
+		// Auto-discover .onnx models from models_dir
+		if let Ok(entries) = std::fs::read_dir(models_dir) {
 			for entry in entries.flatten() {
 				let path = entry.path();
 				if path.extension().and_then(|e| e.to_str()) == Some("onnx") {
@@ -64,7 +104,7 @@ fn resolve_players(filter: &[String], rating_db: &dyn RatingDb) -> Vec<PlayerKin
 	} else {
 		let patterns: Vec<Regex> = filter
 			.iter()
-			.map(|pat| Regex::new(pat).unwrap_or_else(|e| panic!("Invalid regex pattern {pat:?}: {e}")))
+			.map(|pat| Regex::new(pat).unwrap_or_else(|e| die(InvalidRegex { pattern: pat.clone(), source: e })))
 			.collect();
 		all_ids.iter().filter(|id| patterns.iter().any(|re| re.is_match(id.as_str()))).collect()
 	};
@@ -75,6 +115,13 @@ fn resolve_players(filter: &[String], rating_db: &dyn RatingDb) -> Vec<PlayerKin
 			let s = id.as_str();
 			match s.parse::<PlayerKind>() {
 				Ok(kind) if kind.is_manual() => None, // skip manual players for arena
+				Ok(kind) if kind.is_onnx() =>
+					if let InnerKind::OnnxPlayer(ref p) = kind.inner {
+						let path = models_dir.join(format!("{}.onnx", p.stem));
+						if path.exists() { Some(kind) } else { None }
+					} else {
+						panic!("is_onnx() true but inner is not OnnxPlayer")
+					},
 				Ok(kind) => Some(kind),
 				Err(_) => None,
 			}
@@ -82,32 +129,42 @@ fn resolve_players(filter: &[String], rating_db: &dyn RatingDb) -> Vec<PlayerKin
 		.collect()
 }
 
-fn kind_into_bot<const N: usize>(kind: &PlayerKind) -> Box<dyn Bot<N>>
+fn kind_into_bot<const N: usize>(kind: &PlayerKind, models_dir: &std::path::Path) -> Box<dyn Bot<N>>
 where
 	[(); N * N]:, {
-	match kind {
-		PlayerKind::Mcts(params) => {
-			let evaluator = RolloutEval::new(Rollout {});
-			let config = MctsConfig {
-				simulations: params.simulations,
-				c_puct: 1.41,
-			};
-			Box::new(MctsBot::new(evaluator, config))
-		}
-		PlayerKind::OnnxPlayer(p) => {
-			let evaluator = NnEval::new(p.path.to_str().expect("non-UTF8 model path"), N).expect("failed to load ONNX model");
-			let config = MctsConfig { simulations: 200, c_puct: 1.41 };
-			Box::new(MctsBot::new(evaluator, config))
-		}
-		other => other.clone().into_bot(),
+	if let InnerKind::OnnxPlayer(p) = &kind.inner {
+		let path = models_dir.join(format!("{}.onnx", p.stem));
+		let evaluator = NnEval::new(path.to_str().expect("non-UTF8 model path"), N).unwrap_or_else(|e| {
+			die(OnnxLoadFailed {
+				path: path.clone(),
+				board_size: N,
+				message: e.to_string(),
+			})
+		});
+		return match kind.sims {
+			None => Box::new(evaluator),
+			Some(sims) => Box::new(MctsBot::new(evaluator, MctsConfig { simulations: sims, c_puct: 1.41 })),
+		};
 	}
+	if let Some(sims) = kind.sims {
+		let config = MctsConfig { simulations: sims, c_puct: 1.41 };
+		return match &kind.inner {
+			InnerKind::RandomPlayer(p) => Box::new(MctsBot::new(RolloutEval::new(p.clone()), config)),
+			InnerKind::GreedyForNumber(p) => Box::new(MctsBot::new(RolloutEval::new(p.clone()), config)),
+			InnerKind::GreedyForScocre(p) => Box::new(MctsBot::new(RolloutEval::new(p.clone()), config)),
+			InnerKind::Sadist(p) => Box::new(MctsBot::new(RolloutEval::new(p.clone()), config)),
+			InnerKind::Rollout(p) => Box::new(MctsBot::new(RolloutEval::new(p.clone()), config)),
+			InnerKind::ManualPlayer(_) => panic!("cannot wrap ManualPlayer in MCTS"),
+			InnerKind::OnnxPlayer(_) => unreachable!(),
+		};
+	}
+	kind.clone().into_bot()
 }
 
-fn run_tournament(players_filter: Vec<String>, mode: TourneyMode, size: BoardSize, rating_db: Arc<dyn RatingDb>) {
-	let kinds = resolve_players(&players_filter, rating_db.as_ref());
+fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, rating_db: Arc<dyn RatingDb>) {
+	let kinds = resolve_players(&players_filter, models_dir, rating_db.as_ref());
 	if kinds.len() < 2 {
-		eprintln!("Need at least 2 players for a tournament, found {}", kinds.len());
-		std::process::exit(1);
+		die(NotEnoughPlayers { found: kinds.len() });
 	}
 
 	let (mode_label, raw_threads) = match &mode {
@@ -135,10 +192,10 @@ fn run_tournament(players_filter: Vec<String>, mode: TourneyMode, size: BoardSiz
 	let ratings_f64: std::collections::HashMap<Ustr, f64> = ratings_map.iter().map(|(k, v)| (*k, v.rating)).collect();
 
 	match size {
-		BoardSize::Five => run_tournament_sized::<5>(kinds, &ratings_f64, config, mode, threads, rating_db),
-		BoardSize::Seven => run_tournament_sized::<7>(kinds, &ratings_f64, config, mode, threads, rating_db),
-		BoardSize::Nine => run_tournament_sized::<9>(kinds, &ratings_f64, config, mode, threads, rating_db),
-		BoardSize::Eleven => run_tournament_sized::<11>(kinds, &ratings_f64, config, mode, threads, rating_db),
+		BoardSize::Five => run_tournament_sized::<5>(kinds, &ratings_f64, config, mode, threads, models_dir, rating_db),
+		BoardSize::Seven => run_tournament_sized::<7>(kinds, &ratings_f64, config, mode, threads, models_dir, rating_db),
+		BoardSize::Nine => run_tournament_sized::<9>(kinds, &ratings_f64, config, mode, threads, models_dir, rating_db),
+		BoardSize::Eleven => run_tournament_sized::<11>(kinds, &ratings_f64, config, mode, threads, models_dir, rating_db),
 	}
 }
 
@@ -148,15 +205,17 @@ fn run_tournament_sized<const N: usize>(
 	config: GameConfig,
 	mode: TourneyMode,
 	threads: usize,
+	models_dir: &std::path::Path,
 	rating_db: Arc<dyn RatingDb>,
 ) where
 	[(); N * N]:, {
 	let kind_map: std::collections::HashMap<Ustr, PlayerKind> = kinds.iter().map(|k| (k.id(), k.clone())).collect();
 	let player_ids: Vec<Ustr> = kinds.iter().map(|k| k.id()).collect();
+	let models_dir = models_dir.to_path_buf();
 
 	let factory = move |id: Ustr| -> Box<dyn Bot<N>> {
 		let kind = &kind_map[&id];
-		kind_into_bot::<N>(kind)
+		kind_into_bot::<N>(kind, &models_dir)
 	};
 
 	let mut rng = rand::make_rng::<rand::rngs::SmallRng>();
@@ -217,27 +276,22 @@ fn run_players(players_filter: Vec<String>, command: PlayersCommands, rating_db:
 	} else {
 		let patterns: Vec<Regex> = players_filter
 			.iter()
-			.map(|pat| Regex::new(pat).unwrap_or_else(|e| panic!("Invalid regex pattern {pat:?}: {e}")))
+			.map(|pat| Regex::new(pat).unwrap_or_else(|e| die(InvalidRegex { pattern: pat.clone(), source: e })))
 			.collect();
 		ratings.keys().filter(|id| patterns.iter().any(|re| re.is_match(id.as_str()))).copied().collect()
 	};
 
 	if let PlayersCommands::New { .. } = command {
 		if !players_filter.is_empty() {
-			eprintln!("--select cannot be used with `players new`");
-			std::process::exit(1);
+			die(SelectWithNew);
 		}
 	}
 	if let PlayersCommands::New { players } = command {
 		let mut explicit: Vec<PlayerKind> = Vec::new();
 		for spec in &players {
-			let kind: PlayerKind = spec.parse().unwrap_or_else(|e| {
-				eprintln!("Unknown player spec: {e}");
-				std::process::exit(1);
-			});
+			let kind: PlayerKind = spec.parse().unwrap_or_else(|_| die(UnknownPlayerSpec { spec: spec.clone() }));
 			if kind.is_manual() {
-				eprintln!("Cannot register manual players in arena");
-				std::process::exit(1);
+				die(miette::miette!("cannot register manual players in arena — manual players participate via the TUI/GUI only"));
 			}
 			explicit.push(kind);
 		}

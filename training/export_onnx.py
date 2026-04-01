@@ -33,6 +33,7 @@ def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
         output_names=["policy", "value"],
         dynamic_axes={"state": {0: "batch"}, "policy": {0: "batch"}, "value": {0: "batch"}},
         opset_version=17,
+        external_data=False,
     )
     print(f"Exported to {output_path}")
 

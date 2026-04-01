@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
 use ort::{inputs, session::Session, value::TensorRef};
+use robot_master_arena::player::Bot;
 use robot_master_core::game::{GameState, Move};
 
 use crate::{
@@ -49,6 +50,16 @@ where
 		let value = value_raw[0];
 		let policy = extract_legal_policy(policy_logits, state);
 		Evaluation { policy, value }
+	}
+}
+
+impl<const N: usize> Bot<N> for NnEval
+where
+	[(); N * N]:,
+{
+	fn choose_move(&mut self, state: &GameState<N>) -> Move {
+		let eval = self.evaluate(state);
+		eval.policy.into_iter().max_by(|a, b| a.1.partial_cmp(&b.1).expect("NaN in policy")).expect("no legal moves").0
 	}
 }
 

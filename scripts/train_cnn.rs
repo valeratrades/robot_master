@@ -18,6 +18,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 #[derive(Debug, Parser)]
 #[command(about = "AlphaZero CNN training loop: selfplay → train → export → repeat")]
 struct Args {
+	/// Generation name — all data/checkpoints/models are scoped under this label (e.g. "v1", "cnn_big")
+	generation: String,
 	/// Number of selfplay → train → export iterations
 	#[arg(long, default_value = "20")]
 	iterations: u32,
@@ -30,19 +32,13 @@ struct Args {
 	/// Training epochs per iteration
 	#[arg(long, default_value = "5")]
 	epochs: u32,
-	/// Directory for .bin self-play data files (default: $XDG_CACHE_HOME/robot_master_train/training_data)
-	#[arg(long)]
-	data_dir: Option<PathBuf>,
-	/// Directory for checkpoints and .onnx models (default: $XDG_CACHE_HOME/robot_master_train/models)
-	#[arg(long)]
-	models_dir: Option<PathBuf>,
 }
 
 fn main() {
 	let args = Args::parse();
 
-	let data_dir = args.data_dir.unwrap_or_else(|| xdg_cache_dir("training_data"));
-	let models_dir = args.models_dir.unwrap_or_else(|| xdg_cache_dir("models"));
+	let data_dir = xdg_cache_dir(&format!("{}/training_data", args.generation));
+	let models_dir = xdg_cache_dir(&format!("{}/models", args.generation));
 
 	// Detect the zlib path once (needed for Python/numpy on NixOS)
 	let zlib_path = zlib_ld_path();
@@ -158,7 +154,7 @@ fn main() {
 
 	bar.finish_and_clear();
 	eprintln!("\nDone. Final model: {}", current_model.unwrap().display());
-	eprintln!("To run in the arena:  robot_master arena tourney rating 200");
+	eprintln!("To run in the arena:  robot_master arena --models-dir {} tourney rating 200", models_dir.display());
 }
 
 /// PyTorch can fail at CUDA init with a non-monotonic clock assertion — a transient OS timing
