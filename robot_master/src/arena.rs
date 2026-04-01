@@ -13,8 +13,11 @@ use robot_master_arena::{
 	tournament,
 };
 use robot_master_core::game::GameConfig;
-use robot_master_train::mcts::{MctsBot, MctsConfig, RolloutEval};
-use ustr::Ustr;
+use robot_master_train::{
+	mcts::{MctsBot, MctsConfig, RolloutEval},
+	nn_eval::NnEval,
+};
+use ustr::{Ustr, ustr};
 use v_utils::io::ProgressBar;
 
 use crate::config::{ArenaCommands, PlayersCommands, TourneyMode};
@@ -35,6 +38,22 @@ fn resolve_players(filter: &[String], rating_db: &dyn RatingDb) -> Vec<PlayerKin
 			let id = kind.id();
 			if !ids.contains(&id) {
 				ids.push(id);
+			}
+		}
+		// Auto-discover .onnx models from XDG cache
+		let base = std::env::var("XDG_CACHE_HOME").unwrap_or_else(|_| format!("{}/.cache", std::env::var("HOME").expect("HOME not set")));
+		let models_dir = std::path::PathBuf::from(base).join("robot_master_train").join("models");
+		if let Ok(entries) = std::fs::read_dir(&models_dir) {
+			for entry in entries.flatten() {
+				let path = entry.path();
+				if path.extension().and_then(|e| e.to_str()) == Some("onnx") {
+					if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+						let id = ustr(&format!("onnx:{stem}"));
+						if !ids.contains(&id) {
+							ids.push(id);
+						}
+					}
+				}
 			}
 		}
 		ids
@@ -73,6 +92,11 @@ where
 				simulations: params.simulations,
 				c_puct: 1.41,
 			};
+			Box::new(MctsBot::new(evaluator, config))
+		}
+		PlayerKind::OnnxPlayer(p) => {
+			let evaluator = NnEval::new(p.path.to_str().expect("non-UTF8 model path"), N).expect("failed to load ONNX model");
+			let config = MctsConfig { simulations: 200, c_puct: 1.41 };
 			Box::new(MctsBot::new(evaluator, config))
 		}
 		other => other.clone().into_bot(),

@@ -101,15 +101,17 @@ fn main() {
 		// 2. Train
 		eprint!("  [2/3] Training ({} epochs)... ", args.epochs);
 		let train_start = Instant::now();
-		let output = Command::new("python")
-			.args([train_py.to_str().unwrap()])
-			.args(["--data-dir", data_dir.to_str().unwrap()])
-			.args(["--output-dir", models_dir.to_str().unwrap()])
-			.args(["--epochs", &args.epochs.to_string()])
-			.env("LD_LIBRARY_PATH", &zlib_path)
-			.current_dir(&repo_root)
-			.output()
-			.expect("failed to run train.py");
+		let output = retry_on_clock_error(|| {
+			Command::new("python")
+				.args([train_py.to_str().unwrap()])
+				.args(["--data-dir", data_dir.to_str().unwrap()])
+				.args(["--output-dir", models_dir.to_str().unwrap()])
+				.args(["--epochs", &args.epochs.to_string()])
+				.env("LD_LIBRARY_PATH", &zlib_path)
+				.current_dir(&repo_root)
+				.output()
+				.expect("failed to run train.py")
+		});
 		if !output.status.success() {
 			eprintln!("FAILED");
 			eprintln!("{}", String::from_utf8_lossy(&output.stderr));
@@ -127,14 +129,16 @@ fn main() {
 		let checkpoint = latest_checkpoint(&models_dir).expect("no checkpoint found after training");
 		eprint!("  [3/3] Exporting {} → model_v{version}.onnx... ", checkpoint.file_name().unwrap().to_str().unwrap());
 		let export_start = Instant::now();
-		let export_out = Command::new("python")
-			.args([export_py.to_str().unwrap()])
-			.args(["--checkpoint", checkpoint.to_str().unwrap()])
-			.args(["--output", onnx_path.to_str().unwrap()])
-			.env("LD_LIBRARY_PATH", &zlib_path)
-			.current_dir(&repo_root)
-			.output()
-			.expect("failed to run export_onnx.py");
+		let export_out = retry_on_clock_error(|| {
+			Command::new("python")
+				.args([export_py.to_str().unwrap()])
+				.args(["--checkpoint", checkpoint.to_str().unwrap()])
+				.args(["--output", onnx_path.to_str().unwrap()])
+				.env("LD_LIBRARY_PATH", &zlib_path)
+				.current_dir(&repo_root)
+				.output()
+				.expect("failed to run export_onnx.py")
+		});
 		if !export_out.status.success() {
 			eprintln!("FAILED");
 			eprintln!("{}", String::from_utf8_lossy(&export_out.stderr));
@@ -155,6 +159,20 @@ fn main() {
 	bar.finish_and_clear();
 	eprintln!("\nDone. Final model: {}", current_model.unwrap().display());
 	eprintln!("To run in the arena:  robot_master arena tourney rating 200");
+}
+
+/// PyTorch can fail at CUDA init with a non-monotonic clock assertion — a transient OS timing
+/// glitch. Retry up to 3 times since a fresh process usually succeeds.
+fn retry_on_clock_error(mut f: impl FnMut() -> std::process::Output) -> std::process::Output {
+	const CLOCK_ERR: &str = "getCount is non-monotonic";
+	for attempt in 1..=3 {
+		let out = f();
+		if out.status.success() || !String::from_utf8_lossy(&out.stderr).contains(CLOCK_ERR) {
+			return out;
+		}
+		eprintln!("\n  [retry {attempt}/3] PyTorch clock assertion — retrying...");
+	}
+	f()
 }
 
 fn run_or_die(cmd: &mut Command, label: &str) {
