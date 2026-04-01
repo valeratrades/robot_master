@@ -15,7 +15,7 @@ use rand_distr::{Distribution as _, Gumbel};
 use robot_master_arena::player::Bot;
 use robot_master_core::game::{GameState, Move};
 
-use crate::mcts::{Evaluator, Tree, simulate};
+use crate::mcts::{Evaluator, SelectResult, Tree, expand_and_backprop, select, simulate};
 
 pub struct GumbelConfig {
 	/// Total simulation budget per move.
@@ -99,16 +99,7 @@ where
 		let sims_per_action = (n.saturating_sub(sims_used)) / (remaining_phases * survivors.len()).max(1);
 		let sims_per_action = sims_per_action.max(1);
 
-		for &action_idx in &survivors {
-			for _ in 0..sims_per_action {
-				if sims_used >= n {
-					break;
-				}
-				// Force the simulation down this action at the root
-				simulate_from_action(&mut tree, root_idx, action_idx, state, evaluator, config.c_puct);
-				sims_used += 1;
-			}
-		}
+		run_phase_batched(&mut tree, root_idx, state, evaluator, config.c_puct, &survivors, sims_per_action, n, &mut sims_used);
 
 		if survivors.len() <= 1 {
 			break;
@@ -126,8 +117,7 @@ where
 
 	// Spend any remaining budget on the last survivor(s)
 	while sims_used < n {
-		let action_idx = survivors[0]; // only 1 or best remaining
-		simulate_from_action(&mut tree, root_idx, action_idx, state, evaluator, config.c_puct);
+		simulate(&mut tree, root_idx, Some(survivors[0]), state, evaluator, config.c_puct);
 		sims_used += 1;
 	}
 
@@ -157,6 +147,95 @@ where
 	let policy_target = softmax_to_moves(&moves, &improved_logits);
 
 	GumbelResult { mv: moves[best_idx], policy_target }
+}
+
+/// Run one phase of Sequential Halving using batched leaf evaluation.
+///
+/// Within a phase, all simulations that need NN evaluation are batched together.
+/// The trick: each forced root action leads to a distinct child of the root that is
+/// unexpanded at first visit. Once expanded, deeper sims may hit already-expanded
+/// nodes and fall through to terminal/re-visit — those are handled individually.
+///
+/// Because each `action_idx` in `survivors` is a distinct root edge, multiple sims
+/// for the same action within a phase can share the same evaluation result for the
+/// first expansion (the direct child). Subsequent sims on an already-expanded action
+/// descend deeper into its subtree — those may or may not hit new leaves.
+///
+/// Strategy: collect all `(action_idx, sim)` selections that return NeedsEval into a
+/// batch, evaluate once, then expand+backprop. Sims that hit terminals are handled
+/// inline without NN calls.
+fn run_phase_batched<const N: usize, E>(
+	tree: &mut Tree,
+	root_idx: u32,
+	state: &GameState<N>,
+	evaluator: &E,
+	c_puct: f32,
+	survivors: &[usize],
+	sims_per_action: usize,
+	budget: usize,
+	sims_used: &mut usize,
+) where
+	E: Evaluator<N>,
+	[(); N * N]:, {
+	struct Pending<const M: usize>
+	where
+		[(); M * M]:, {
+		path: Vec<u32>,
+		parent: u32,
+		edge_idx: usize,
+		leaf_state: GameState<M>,
+	}
+
+	// Collect all sims that need NN evaluation. Sims that hit already-expanded or
+	// terminal nodes are handled eagerly via `simulate` (no NN needed).
+	//
+	// We run selection against the *current* tree state, which means each sim sees
+	// the expansions from previous iterations/phases — this is correct. Within a
+	// single phase batch, we collect leaves without yet expanding them, so subsequent
+	// selections in the same batch may select the same unexpanded edge. We deduplicate
+	// by (parent, edge_idx): if an edge is already in the pending list we fall back to
+	// simulate() for that sim (it will re-select from the same node using PUCT).
+	let mut pending: Vec<Pending<N>> = Vec::new();
+	let mut pending_edges: std::collections::HashSet<(u32, usize)> = std::collections::HashSet::new();
+
+	for &action_idx in survivors {
+		for _ in 0..sims_per_action {
+			if *sims_used >= budget {
+				break;
+			}
+			*sims_used += 1;
+
+			match select(tree, root_idx, Some(action_idx), state, c_puct) {
+				SelectResult::Terminal { path, value } => {
+					crate::mcts::backpropagate_pub(tree, &path, value);
+				}
+				SelectResult::NeedsEval { path, parent, edge_idx, leaf_state } => {
+					if pending_edges.insert((parent, edge_idx)) {
+						pending.push(Pending { path, parent, edge_idx, leaf_state });
+					} else {
+						// Another sim in this batch already claimed this leaf; fall back to
+						// simulate() which will navigate past the (still-unexpanded) edge
+						// via PUCT to find a different leaf or terminal.
+						*sims_used -= 1; // undo: simulate counts its own sim
+						simulate(tree, root_idx, Some(action_idx), state, evaluator, c_puct);
+						*sims_used += 1;
+					}
+				}
+			}
+		}
+	}
+
+	if pending.is_empty() {
+		return;
+	}
+
+	// Single batched NN call for all pending leaves
+	let leaf_states: Vec<GameState<N>> = pending.iter().map(|p| p.leaf_state.clone()).collect();
+	let evals = evaluator.evaluate_batch(&leaf_states);
+
+	for (p, eval) in pending.into_iter().zip(evals) {
+		expand_and_backprop(tree, p.path, p.parent, p.edge_idx, &p.leaf_state, eval);
+	}
 }
 
 // --- helpers ---
@@ -228,16 +307,6 @@ where
 		let mut rng = rand::make_rng::<rand::rngs::SmallRng>();
 		gumbel_search(game, &self.evaluator, &self.config, &mut rng).mv
 	}
-}
-
-/// Run one simulation forced through `action_idx` at the root.
-fn simulate_from_action<const N: usize, E>(tree: &mut Tree, root_idx: u32, action_idx: usize, state: &GameState<N>, evaluator: &E, c_puct: f32)
-where
-	E: Evaluator<N>,
-	[(); N * N]:, {
-	// Expand the child for this action if not yet visited, then run a full simulation from there.
-	// We use the existing `simulate` infrastructure by routing it through our chosen edge.
-	simulate(tree, root_idx, Some(action_idx), state, evaluator, c_puct);
 }
 
 #[cfg(test)]

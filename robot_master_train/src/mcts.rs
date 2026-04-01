@@ -11,6 +11,12 @@ pub trait Evaluator<const N: usize>
 where
 	[(); N * N]:, {
 	fn evaluate(&self, state: &GameState<N>) -> Evaluation;
+
+	/// Evaluate a batch of states. Default impl calls `evaluate` in a loop;
+	/// `NnEval` overrides with a single batched ONNX call.
+	fn evaluate_batch(&self, states: &[GameState<N>]) -> Vec<Evaluation> {
+		states.iter().map(|s| self.evaluate(s)).collect()
+	}
 }
 /// Evaluation result for a leaf node: policy prior over moves and a value estimate.
 pub struct Evaluation {
@@ -190,14 +196,27 @@ impl Tree {
 	}
 }
 
-/// One simulation: select -> expand -> backpropagate.
-///
-/// `forced_root_action`: if `Some(i)`, always take root edge `i` on the first step (Gumbel).
-/// If `None`, use PUCT at the root as normal.
-pub(crate) fn simulate<const N: usize>(tree: &mut Tree, node_idx: u32, forced_root_action: Option<usize>, state: &GameState<N>, evaluator: &impl Evaluator<N>, c_puct: f32)
+/// Result of walking the tree to a leaf during selection.
+pub(crate) enum SelectResult<const N: usize>
 where
 	[(); N * N]:, {
-	let mut path: Vec<u32> = Vec::new(); // node indices along the path
+	/// Reached an unexpanded node: the parent edge index and leaf state need NN evaluation.
+	NeedsEval {
+		path: Vec<u32>,
+		parent: u32,
+		edge_idx: usize,
+		leaf_state: GameState<N>,
+	},
+	/// Reached a terminal or already-expanded node: value known, ready to backprop.
+	Terminal { path: Vec<u32>, value: f64 },
+}
+
+/// Selection phase only — walks the tree from `node_idx` following PUCT/forced action.
+/// Returns either a leaf needing NN evaluation, or a terminal with its value.
+pub(crate) fn select<const N: usize>(tree: &Tree, node_idx: u32, forced_root_action: Option<usize>, state: &GameState<N>, c_puct: f32) -> SelectResult<N>
+where
+	[(); N * N]:, {
+	let mut path: Vec<u32> = Vec::new();
 	let mut current = node_idx;
 	let mut sim_state = state.clone();
 	let mut is_root = true;
@@ -214,24 +233,63 @@ where
 			select_edge(&tree.nodes, node, c_puct)
 		};
 
+		let child = tree.nodes[current as usize].edges[best_edge_idx].child;
+		if child == u32::MAX {
+			let mv = tree.nodes[current as usize].edges[best_edge_idx].mv;
+			sim_state.play(mv).expect("search selected illegal move");
+			return SelectResult::NeedsEval {
+				path,
+				parent: current,
+				edge_idx: best_edge_idx,
+				leaf_state: sim_state,
+			};
+		}
+
 		path.push(current);
 		let mv = tree.nodes[current as usize].edges[best_edge_idx].mv;
 		sim_state.play(mv).expect("search selected illegal move");
-
-		let child = tree.nodes[current as usize].edges[best_edge_idx].child;
-		if child == u32::MAX {
-			let child_idx = expand_state(tree, &sim_state, evaluator);
-			tree.nodes[current as usize].edges[best_edge_idx].child = child_idx;
-			backpropagate(tree, &path, tree.nodes[child_idx as usize].total_value);
-			return;
-		}
-
 		current = child;
 	}
 
-	// Re-visited a terminal node.
+	// Terminal node (no edges) or re-visited terminal
 	let value = sim_state.outcome().map(|o| outcome_value(o, sim_state.turn)).unwrap_or(0.0);
-	backpropagate(tree, &path, value as f64);
+	SelectResult::Terminal { path, value: value as f64 }
+}
+
+/// Expansion + backprop for one pending leaf after batch evaluation.
+pub(crate) fn expand_and_backprop<const N: usize>(tree: &mut Tree, path: Vec<u32>, parent: u32, edge_idx: usize, leaf_state: &GameState<N>, eval: Evaluation)
+where
+	[(); N * N]:, {
+	let child_idx = if let Some(outcome) = leaf_state.outcome() {
+		tree.expand_terminal(outcome_value(outcome, leaf_state.turn))
+	} else {
+		tree.expand(eval)
+	};
+	tree.nodes[parent as usize].edges[edge_idx].child = child_idx;
+	backpropagate(tree, &path, tree.nodes[child_idx as usize].total_value);
+}
+
+/// One simulation: select -> expand -> backpropagate.
+///
+/// `forced_root_action`: if `Some(i)`, always take root edge `i` on the first step (Gumbel).
+/// If `None`, use PUCT at the root as normal.
+pub(crate) fn simulate<const N: usize>(tree: &mut Tree, node_idx: u32, forced_root_action: Option<usize>, state: &GameState<N>, evaluator: &impl Evaluator<N>, c_puct: f32)
+where
+	[(); N * N]:, {
+	match select(tree, node_idx, forced_root_action, state, c_puct) {
+		SelectResult::NeedsEval {
+			path,
+			parent,
+			edge_idx,
+			ref leaf_state,
+		} => {
+			let eval = evaluator.evaluate(leaf_state);
+			expand_and_backprop(tree, path, parent, edge_idx, leaf_state, eval);
+		}
+		SelectResult::Terminal { path, value } => {
+			backpropagate(tree, &path, value);
+		}
+	}
 }
 
 fn select_edge(nodes: &[Node], node: &Node, c_puct: f32) -> usize {
@@ -270,16 +328,11 @@ fn edge_uct(nodes: &[Node], edge: &Edge, parent_visits: u32, q_hat: f64, c_puct:
 	child_q + c_puct as f64 * edge.prior as f64 * (parent_visits as f64).sqrt() / (1.0 + child_visits as f64)
 }
 
-fn expand_state<const N: usize>(tree: &mut Tree, state: &GameState<N>, evaluator: &impl Evaluator<N>) -> u32
-where
-	[(); N * N]:, {
-	if let Some(outcome) = state.outcome() {
-		return tree.expand_terminal(outcome_value(outcome, state.turn));
-	}
-	tree.expand(evaluator.evaluate(state))
+/// Walk back up the path, negating at each level (zero-sum).
+pub(crate) fn backpropagate_pub(tree: &mut Tree, path: &[u32], leaf_value: f64) {
+	backpropagate(tree, path, leaf_value);
 }
 
-/// Walk back up the path, negating at each level (zero-sum).
 fn backpropagate(tree: &mut Tree, path: &[u32], leaf_value: f64) {
 	let mut value = leaf_value;
 	for &n_idx in path.iter().rev() {

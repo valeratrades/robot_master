@@ -5,7 +5,7 @@ use robot_master_arena::player::Bot;
 use robot_master_core::game::{GameState, Move};
 
 use crate::{
-	encoding::{action_index, encode_planes},
+	encoding::{IN_CHANNELS, action_index, encode_planes},
 	mcts::{Evaluation, Evaluator},
 };
 
@@ -35,11 +35,22 @@ where
 	[(); N * N]:,
 {
 	fn evaluate(&self, state: &GameState<N>) -> Evaluation {
-		assert_eq!(N, self.board_size, "NnEval board_size mismatch: model={}, state={N}", self.board_size);
+		self.evaluate_batch(std::slice::from_ref(state)).into_iter().next().expect("batch of 1 must return 1 result")
+	}
 
-		let planes = encode_planes(state);
-		let shape = [1usize, 33, N, N];
-		let input = TensorRef::from_array_view((shape, planes.as_slice())).expect("tensor construction");
+	fn evaluate_batch(&self, states: &[GameState<N>]) -> Vec<Evaluation> {
+		assert_eq!(N, self.board_size, "NnEval board_size mismatch: model={}, state={N}", self.board_size);
+		let batch = states.len();
+
+		// Encode all states into one contiguous [batch, 33, N, N] f32 buffer
+		let planes_per_state = IN_CHANNELS * N * N;
+		let mut input_buf = Vec::with_capacity(batch * planes_per_state);
+		for state in states {
+			input_buf.extend_from_slice(&encode_planes(state));
+		}
+
+		let shape = [batch, IN_CHANNELS, N, N];
+		let input = TensorRef::from_array_view((shape, input_buf.as_slice())).expect("tensor construction");
 
 		let mut session = self.session.lock().expect("session mutex poisoned");
 		let outputs = session.run(inputs!["state" => input]).expect("ort inference");
@@ -47,9 +58,17 @@ where
 		let (_, policy_logits) = outputs["policy"].try_extract_tensor::<f32>().expect("policy extraction");
 		let (_, value_raw) = outputs["value"].try_extract_tensor::<f32>().expect("value extraction");
 
-		let value = value_raw[0];
-		let policy = extract_legal_policy(policy_logits, state);
-		Evaluation { policy, value }
+		let policy_stride = policy_logits.len() / batch;
+		states
+			.iter()
+			.enumerate()
+			.map(|(i, state)| {
+				let logits = &policy_logits[i * policy_stride..(i + 1) * policy_stride];
+				let value = value_raw[i];
+				let policy = extract_legal_policy(logits, state);
+				Evaluation { policy, value }
+			})
+			.collect()
 	}
 }
 
