@@ -13,6 +13,7 @@ ort = "=2.0.0-rc.12"
 rayon = "1"
 
 rand.workspace = true
+rand_distr.workspace = true
 ustr.workspace = true
 
 [dev-dependencies]

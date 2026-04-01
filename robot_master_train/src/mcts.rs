@@ -69,15 +69,19 @@ pub struct MctsConfig {
 pub fn search<const N: usize>(state: &GameState<N>, evaluator: &impl Evaluator<N>, config: &MctsConfig) -> Move
 where
 	[(); N * N]:, {
-	let (counts, _) = run_tree(state, evaluator, config);
+	let root_eval = evaluator.evaluate(state);
+	let (counts, _) = run_tree(state, evaluator, config, root_eval);
 	counts.into_iter().max_by_key(|(_, v)| *v).expect("root has no edges").0
 }
 
 /// Run MCTS from `state`, return visit counts for every edge off the root.
-pub fn search_visit_counts<const N: usize>(state: &GameState<N>, evaluator: &impl Evaluator<N>, config: &MctsConfig) -> Vec<(Move, u32)>
+///
+/// `root_eval` is used to initialize the root node. Pass `evaluator.evaluate(state)` directly,
+/// or a noise-perturbed version for self-play exploration.
+pub fn search_visit_counts<const N: usize>(state: &GameState<N>, evaluator: &impl Evaluator<N>, config: &MctsConfig, root_eval: Evaluation) -> Vec<(Move, u32)>
 where
 	[(); N * N]:, {
-	let (counts, _) = run_tree(state, evaluator, config);
+	let (counts, _) = run_tree(state, evaluator, config, root_eval);
 	counts
 }
 
@@ -92,11 +96,11 @@ impl<E> MctsBot<E> {
 	}
 }
 
-fn run_tree<const N: usize>(state: &GameState<N>, evaluator: &impl Evaluator<N>, config: &MctsConfig) -> (Vec<(Move, u32)>, Tree)
+fn run_tree<const N: usize>(state: &GameState<N>, evaluator: &impl Evaluator<N>, config: &MctsConfig, root_eval: Evaluation) -> (Vec<(Move, u32)>, Tree)
 where
 	[(); N * N]:, {
 	let mut tree = Tree::new();
-	let root = tree.expand(evaluator.evaluate(state));
+	let root = tree.expand(root_eval);
 
 	for _ in 0..config.simulations {
 		simulate(&mut tree, root, state, evaluator, config.c_puct);
