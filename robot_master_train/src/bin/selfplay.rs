@@ -45,8 +45,9 @@ struct Args {
 	/// Path to ONNX model. If omitted, uses CPU rollout (no NN).
 	#[arg(long)]
 	model: Option<String>,
-	/// Use CPU for NN inference instead of CUDA. Faster on small boards (5×5,
-	/// 7×7) where GPU kernel-launch overhead exceeds compute time. See
+	/// Use CPU for NN inference instead of CUDA. Uses sequential rayon
+	/// parallelism (one evaluate call per leaf, all threads independent) which
+	/// is faster than GPU batching at small board sizes (5×5, 7×7). See
 	/// docs/perf.md for per-board-size benchmarks. Has no effect without
 	/// --model (rollout path is always CPU).
 	#[arg(long)]
@@ -64,6 +65,7 @@ fn main() {
 	};
 
 	let (total_samples, elapsed, init_elapsed) = match &args.model {
+		Some(model_path) if args.force_cpu => run_nn_sequential(&args, &config, model_path, timestamp),
 		Some(model_path) => run_nn(&args, &config, model_path, timestamp),
 		None => {
 			let start = Instant::now();
@@ -114,6 +116,62 @@ fn run_nn(args: &Args, config: &GumbelConfig, model_path: &str, timestamp: u64) 
 		7 => run_batched!(7),
 		9 => run_batched!(9),
 		11 => run_batched!(11),
+		_ => panic!("unsupported board size: {}", args.size),
+	}
+}
+
+/// Sequential (non-batched) NN self-play via rayon threads. One `evaluate`
+/// call per MCTS leaf per game — the pre-batching baseline. Benchmarking only.
+fn run_nn_sequential(args: &Args, config: &GumbelConfig, model_path: &str, timestamp: u64) -> (u32, f64, f64) {
+	let init_start = Instant::now();
+
+	macro_rules! run_seq {
+		($N:literal) => {{
+			let init_elapsed = init_start.elapsed().as_secs_f64();
+			let games_done = AtomicU32::new(0);
+			let samples_done = AtomicU32::new(0);
+			let game_start = Instant::now();
+
+			let threads = args.threads.min(args.games);
+			(0..threads).into_par_iter().for_each(|thread_id| {
+				let evaluator = NnEval::new(model_path, $N, args.force_cpu).expect("failed to load ONNX model");
+				let games_per_thread = (args.games + threads - 1) / threads;
+				let out_path = args.output.join(format!("selfplay_{timestamp}_{thread_id:02}.bin"));
+				let mut file = fs::File::create(&out_path).expect("failed to create output file");
+				let mut rng = SmallRng::seed_from_u64(42 + thread_id as u64);
+				let mut thread_samples = 0u32;
+
+				for _ in 0..games_per_thread {
+					let s = GameState::<$N>::new(
+						GameConfig { size: $N, ..GameConfig::default() },
+						&mut rng,
+					);
+					let samples = play_game(&s, &evaluator, config, &mut rng);
+					for sample in &samples {
+						file.write_all(&sample.to_bytes()).expect("write failed");
+					}
+					thread_samples += samples.len() as u32;
+
+					let done = games_done.fetch_add(1, Ordering::Relaxed) + 1;
+					if done % 10 == 0 || done == args.games {
+						let elapsed = game_start.elapsed().as_secs_f64();
+						let total_samples = samples_done.load(Ordering::Relaxed) + thread_samples;
+						eprint!("\r  {done}/{} games  {total_samples} samples  {elapsed:.1}s", args.games);
+					}
+				}
+
+				samples_done.fetch_add(thread_samples, Ordering::Relaxed);
+			});
+
+			(samples_done.load(Ordering::Relaxed), game_start.elapsed().as_secs_f64(), init_elapsed)
+		}};
+	}
+
+	match args.size {
+		5 => run_seq!(5),
+		7 => run_seq!(7),
+		9 => run_seq!(9),
+		11 => run_seq!(11),
 		_ => panic!("unsupported board size: {}", args.size),
 	}
 }

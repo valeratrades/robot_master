@@ -10,18 +10,16 @@ Config: `--sims 16 --batch-size 128`
 
 ---
 
-## 5×5 board — 1000 games, sims=16, batch=128
+## 5×5 board — 1000 games, sims=16
 
 Measured over 5 runs each (model_v59, release build):
 
-| Mode | Total time (range) | ms / game (range) |
-|---|---|---|
-| GPU (default) | 27–32 s | 27–32 ms |
-| CPU (`--force-cpu`) | 27–29 s | 27–29 ms |
+| Mode | ms / game |
+|---|---|
+| CPU (`--force-cpu`, sequential rayon) | **10–11 ms** |
+| GPU (default, batched) | 27–32 ms |
 
-At 5×5, GPU and CPU are **essentially equal** — ranges fully overlap. The model is tiny (~600k params, input 33×5×5) and ORT's CPU backend saturates available cores with batch=128 just as fast as CUDA. Use `--force-cpu` here if you want to avoid GPU contention with a concurrent training job.
-
-*Pre-batching baseline (old arch, sequential batch=1 per game):* ~14.6s for 200 games (~73 ms/game) → **~2.5× slower** than the current batched path.
+`--force-cpu` uses sequential rayon (one `evaluate` call per MCTS leaf, all threads independent) and is **~2.5–3× faster** than the GPU batched path at 5×5. Batching serialises what rayon does in parallel — pure coordination overhead with no GPU benefit when the model is this small.
 
 ---
 
@@ -29,16 +27,16 @@ At 5×5, GPU and CPU are **essentially equal** — ranges fully overlap. The mod
 
 > Benchmarks pending — no trained models available yet for 7×7, 9×9, 11×11.
 > Expected: GPU advantage grows with board size as model compute per sample scales as O(N²) while kernel-launch overhead stays constant.
-> Rule of thumb: switch to GPU default at 9×9 and above.
+> Rule of thumb: GPU default likely wins at 9×9 and above.
 
 ---
 
 ## --force-cpu guidance
 
-`--force-cpu` skips registering CUDA as the ORT execution provider. It does **not** avoid loading the CUDA provider libraries (those are compiled in and loaded at startup). The flag is useful when:
+`--force-cpu` skips CUDA and runs sequential rayon self-play (one NN call per leaf per thread). It is useful when:
 
+- Board size is 5×5 or 7×7 (sequential rayon beats GPU batching here)
 - A concurrent training job is using the GPU and you want to leave it free
-- You are on a machine without a CUDA-capable GPU (ORT would fall back to CPU anyway, but this makes it explicit)
-- Board size is 5×5 or 7×7 and you prefer deterministic CPU scheduling
+- You are on a machine without a CUDA-capable GPU
 
-At 9×9 and above, GPU is expected to be strictly faster. See above table (pending) for measured numbers.
+At 9×9 and above, GPU batching is expected to be strictly faster. See above table (pending) for measured numbers.
