@@ -103,7 +103,7 @@ where
 	let root = tree.expand(root_eval);
 
 	for _ in 0..config.simulations {
-		simulate(&mut tree, root, state, evaluator, config.c_puct);
+		simulate(&mut tree, root, None, state, evaluator, config.c_puct);
 	}
 
 	let root_node = &tree.nodes[root as usize];
@@ -129,33 +129,46 @@ fn outcome_value(outcome: Outcome, player: board_game::board::Player) -> f32 {
 
 // --- MCTS Tree ---
 
-struct Edge {
-	mv: Move,
-	prior: f32,
+pub(crate) struct Edge {
+	pub(crate) mv: Move,
+	pub(crate) prior: f32,
 	/// Index into `Tree::nodes`, or `u32::MAX` if unexpanded.
-	child: u32,
+	pub(crate) child: u32,
 }
 
-struct Node {
+pub(crate) struct Node {
 	/// Total value accumulated through this node (from the perspective of the player who moved *to* this node).
-	total_value: f64,
-	visit_count: u32,
-	edges: Vec<Edge>,
+	pub(crate) total_value: f64,
+	pub(crate) visit_count: u32,
+	pub(crate) edges: Vec<Edge>,
 }
 
 impl Node {
-	fn q(&self) -> f64 {
+	pub(crate) fn q(&self) -> f64 {
 		if self.visit_count == 0 { 0.0 } else { self.total_value / self.visit_count as f64 }
 	}
 }
 
-struct Tree {
-	nodes: Vec<Node>,
+pub(crate) struct Tree {
+	pub(crate) nodes: Vec<Node>,
 }
 
 impl Tree {
 	fn new() -> Self {
 		Self { nodes: Vec::new() }
+	}
+
+	/// Create a tree with a root node already expanded from the given moves and priors.
+	/// Used by Gumbel search to set up the root without going through `Evaluation`.
+	pub(crate) fn new_with_root(root_value: f32, moves: &[Move], priors: &[f32]) -> Self {
+		let edges: Vec<Edge> = moves.iter().zip(priors).map(|(&mv, &prior)| Edge { mv, prior, child: u32::MAX }).collect();
+		Self {
+			nodes: vec![Node {
+				total_value: root_value as f64,
+				visit_count: 1,
+				edges,
+			}],
+		}
 	}
 
 	fn expand(&mut self, eval: Evaluation) -> u32 {
@@ -187,6 +200,55 @@ impl Tree {
 		});
 		idx
 	}
+
+	/// Raw Q-value of root edge `action_idx` (negated child Q, from root's perspective).
+	pub(crate) fn root_q_raw(&self, action_idx: usize) -> f32 {
+		let edge = &self.nodes[0].edges[action_idx];
+		if edge.child == u32::MAX {
+			return 0.0;
+		}
+		-self.nodes[edge.child as usize].q() as f32
+	}
+
+	/// Normalized Q in [0,1] using tree min/max range.
+	pub(crate) fn root_q(&self, action_idx: usize) -> f32 {
+		let (q_min, q_max) = self.q_range(self.nodes[0].total_value as f32);
+		let raw = self.root_q_raw(action_idx);
+		if (q_max - q_min).abs() < 1e-8 {
+			0.5
+		} else {
+			((raw - q_min) / (q_max - q_min)).clamp(0.0, 1.0)
+		}
+	}
+
+	/// Whether root edge `action_idx` has been visited at all.
+	pub(crate) fn root_visited(&self, action_idx: usize) -> bool {
+		self.nodes[0].edges[action_idx].child != u32::MAX
+	}
+
+	/// Visit count of the most-visited root edge.
+	pub(crate) fn max_root_visits(&self) -> u32 {
+		self.nodes[0]
+			.edges
+			.iter()
+			.map(|e| if e.child == u32::MAX { 0 } else { self.nodes[e.child as usize].visit_count })
+			.max()
+			.unwrap_or(0)
+	}
+
+	/// (min, max) Q range seen in the tree, anchored by v̂_π.
+	pub(crate) fn q_range(&self, v_pi: f32) -> (f32, f32) {
+		let mut q_min = v_pi;
+		let mut q_max = v_pi;
+		for (i, _) in self.nodes[0].edges.iter().enumerate() {
+			if self.root_visited(i) {
+				let raw = self.root_q_raw(i);
+				q_min = q_min.min(raw);
+				q_max = q_max.max(raw);
+			}
+		}
+		(q_min, q_max)
+	}
 }
 
 impl Default for MctsConfig {
@@ -196,17 +258,28 @@ impl Default for MctsConfig {
 }
 
 /// One simulation: select -> expand -> backpropagate.
-fn simulate<const N: usize>(tree: &mut Tree, node_idx: u32, state: &GameState<N>, evaluator: &impl Evaluator<N>, c_puct: f32)
+///
+/// `forced_root_action`: if `Some(i)`, always take root edge `i` on the first step (Gumbel).
+/// If `None`, use PUCT at the root as normal.
+pub(crate) fn simulate<const N: usize>(tree: &mut Tree, node_idx: u32, forced_root_action: Option<usize>, state: &GameState<N>, evaluator: &impl Evaluator<N>, c_puct: f32)
 where
 	[(); N * N]:, {
 	let mut path: Vec<u32> = Vec::new(); // node indices along the path
 	let mut current = node_idx;
 	let mut sim_state = state.clone();
+	let mut is_root = true;
 
 	//LOOP: embed termination condition
 	while let Some(node) = tree.nodes.get(current as usize).filter(|n| !n.edges.is_empty()) {
-		let parent_visits = node.visit_count;
-		let best_edge_idx = select_edge(&tree.nodes, node, parent_visits, c_puct);
+		let best_edge_idx = if is_root {
+			is_root = false;
+			match forced_root_action {
+				Some(idx) => idx,
+				None => select_edge(&tree.nodes, node, node.visit_count, c_puct),
+			}
+		} else {
+			select_edge(&tree.nodes, node, node.visit_count, c_puct)
+		};
 
 		path.push(current);
 		let mv = tree.nodes[current as usize].edges[best_edge_idx].mv;
