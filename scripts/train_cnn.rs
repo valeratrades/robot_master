@@ -48,7 +48,7 @@ fn main() {
 	let zlib_path = zlib_ld_path();
 	let repo_root = repo_root();
 
-	let selfplay_bin = repo_root.join("target/debug/selfplay");
+	let selfplay_bin = repo_root.join("target/release/selfplay");
 	let train_py = repo_root.join("training/train.py");
 	let export_py = repo_root.join("training/export_onnx.py");
 
@@ -70,7 +70,9 @@ fn main() {
 	// Build selfplay binary upfront
 	eprintln!("Building selfplay binary...");
 	run_or_die(
-		Command::new("cargo").args(["b", "-p", "robot_master_train", "--bin", "selfplay"]).current_dir(&repo_root),
+		Command::new("cargo")
+			.args(["b", "--release", "-p", "robot_master_train", "--bin", "selfplay"])
+			.current_dir(&repo_root),
 		"cargo build",
 	);
 
