@@ -161,6 +161,17 @@ where
 
 // --- helpers ---
 
+/// Gumbel-based bot: wraps `gumbel_search` and implements `Bot<N>`.
+pub struct GumbelBot<E> {
+	evaluator: E,
+	config: GumbelConfig,
+}
+impl<E> GumbelBot<E> {
+	pub fn new(evaluator: E, config: GumbelConfig) -> Self {
+		Self { evaluator, config }
+	}
+}
+
 /// Return indices of the top-m elements of scores (descending), without replacement.
 fn argtop_m(scores: &[f32], m: usize) -> Vec<usize> {
 	let mut indexed: Vec<(usize, f32)> = scores.iter().copied().enumerate().collect();
@@ -206,18 +217,6 @@ fn softmax_to_moves(moves: &[Move], logits: &[f32]) -> Vec<(Move, f32)> {
 	let exps: Vec<f32> = logits.iter().map(|&l| (l - max).exp()).collect();
 	let sum: f32 = exps.iter().sum();
 	moves.iter().copied().zip(exps.iter().map(|&e| e / sum)).collect()
-}
-
-/// Gumbel-based bot: wraps `gumbel_search` and implements `Bot<N>`.
-pub struct GumbelBot<E> {
-	evaluator: E,
-	config: GumbelConfig,
-}
-
-impl<E> GumbelBot<E> {
-	pub fn new(evaluator: E, config: GumbelConfig) -> Self {
-		Self { evaluator, config }
-	}
 }
 
 impl<E, const N: usize> Bot<N> for GumbelBot<E>

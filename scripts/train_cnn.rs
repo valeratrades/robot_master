@@ -32,10 +32,6 @@ struct Args {
 	/// Training epochs per iteration
 	#[arg(long, default_value = "5")]
 	epochs: u32,
-	/// Replay buffer cap: only use the most recent N games for training (0 = no cap).
-	/// AlphaGo Zero uses last 500k games (~20 iterations). Scale with your iteration count.
-	#[arg(long, default_value = "0")]
-	max_games: u32,
 }
 
 fn main() {
@@ -107,7 +103,7 @@ fn main() {
 				.args(["--data-dir", data_dir.to_str().unwrap()])
 				.args(["--output-dir", models_dir.to_str().unwrap()])
 				.args(["--epochs", &args.epochs.to_string()])
-				.args(["--max-games", &args.max_games.to_string()])
+				.args(["--max-iters", &replay_buffer_iters(args.iterations).to_string()])
 				.env("LD_LIBRARY_PATH", &zlib_path)
 				.current_dir(&repo_root)
 				.output()
@@ -159,6 +155,15 @@ fn main() {
 	bar.finish_and_clear();
 	eprintln!("\nDone. Final model: {}", current_model.unwrap().display());
 	eprintln!("To run in the arena:  robot_master arena --models-dir {} tourney rating 200", models_dir.display());
+}
+
+/// How many of the most-recent iteration files to feed into training (replay buffer window).
+///
+/// Formula: 3 * ceil(ln(total_iterations))
+/// Yields ~9 for 20 iters, ~12 for 50, ~15 for 100, ~18 for 300, ~33 for 25k.
+/// Q: empirically unverified at this scale — AGZ/MiniZero both converge on a flat ~20x-games ratio; this log formula grows slower, biasing toward recency. See docs/references/replay_buffer_sizing.md.
+fn replay_buffer_iters(total_iterations: u32) -> u32 {
+	(3.0 * (total_iterations as f64).ln().ceil()) as u32
 }
 
 /// PyTorch can fail at CUDA init with a non-monotonic clock assertion — a transient OS timing
