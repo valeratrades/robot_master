@@ -40,8 +40,8 @@ fn main() {
 			let asset_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../robot_master_game/assets");
 			robot_master_game::create_app(asset_dir, size, hide, p1, p2, sound, models_dir).run();
 		}
-		Commands::Arena { select, command } => {
-			robot_master::arena::run(select, models_dir, command, size, hide, rating_db, auto_yes);
+		Commands::Arena { select, no_priors, command } => {
+			robot_master::arena::run(select, no_priors, models_dir, command, size, hide, rating_db, auto_yes);
 		}
 	}
 }

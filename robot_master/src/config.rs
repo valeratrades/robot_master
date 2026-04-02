@@ -45,6 +45,11 @@ pub enum Commands {
 		/// Filter players by grepping these patterns against known IDs. If empty, all players.
 		#[arg(short, long, value_delimiter = ',')]
 		select: Vec<String>,
+		/// Run an ephemeral tournament with these player specs (e.g. `rollout|v50 rollout|g200`).
+		/// Bypasses the ratings database entirely — no prior ratings loaded, nothing saved.
+		/// Mutually exclusive with --select.
+		#[arg(long, value_delimiter = ',')]
+		no_priors: Vec<String>,
 		#[command(subcommand)]
 		command: ArenaCommands,
 	},

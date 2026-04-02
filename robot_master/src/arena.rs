@@ -8,7 +8,7 @@ use regex::Regex;
 use robot_master_arena::{
 	BoardSize,
 	algos::{InnerKind, OnnxPlayer, PlayerKind},
-	db::RatingDb,
+	db::{NoopRatingDb, RatingDb},
 	player::Bot,
 	rating::Rating,
 	tournament,
@@ -21,10 +21,32 @@ use v_utils::io::ProgressBar;
 
 use crate::config::{ArenaCommands, PlayersCommands, TourneyMode};
 
-pub fn run(players_filter: Vec<String>, models_dir: std::path::PathBuf, command: ArenaCommands, size: BoardSize, hide: bool, rating_db: Arc<dyn RatingDb>, auto_yes: bool) {
+pub fn run(
+	players_filter: Vec<String>,
+	no_priors: Vec<String>,
+	models_dir: std::path::PathBuf,
+	command: ArenaCommands,
+	size: BoardSize,
+	hide: bool,
+	rating_db: Arc<dyn RatingDb>,
+	auto_yes: bool,
+) {
+	if !no_priors.is_empty() && !players_filter.is_empty() {
+		die(miette::miette!("--no-priors and --select are mutually exclusive"));
+	}
 	match command {
-		ArenaCommands::Tourney { mode } => run_tournament(players_filter, &models_dir, mode, size, hide, rating_db),
-		ArenaCommands::Players { command } => run_players(players_filter, command, &models_dir, rating_db, auto_yes),
+		ArenaCommands::Tourney { mode } =>
+			if no_priors.is_empty() {
+				run_tournament(players_filter, &models_dir, mode, size, hide, rating_db)
+			} else {
+				run_tournament_no_priors(no_priors, &models_dir, mode, size, hide)
+			},
+		ArenaCommands::Players { command } => {
+			if !no_priors.is_empty() {
+				die(miette::miette!("--no-priors cannot be used with `players` subcommand"));
+			}
+			run_players(players_filter, command, &models_dir, rating_db, auto_yes)
+		}
 	}
 }
 #[derive(Debug, Diagnostic, Error)]
@@ -122,6 +144,49 @@ where
 	[(); N * N]:,
 	[(); N + 1]:, {
 	kind_into_bot(kind, models_dir).unwrap_or_else(|e| die(miette::miette!("{e}")))
+}
+
+fn run_tournament_no_priors(specs: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, hide: bool) {
+	let config = GameConfig { size: size.into(), hide };
+	let kinds: Vec<PlayerKind> = specs
+		.iter()
+		.map(|s| s.parse::<PlayerKind>().unwrap_or_else(|_| die(UnknownPlayerSpec { spec: s.clone() })))
+		.filter(|k| {
+			if k.supports(&config) {
+				true
+			} else {
+				eprintln!("Skipping {k}: not compatible with current config ({}×{}, hide={hide})", config.size, config.size);
+				false
+			}
+		})
+		.collect();
+	if kinds.len() < 2 {
+		die(NotEnoughPlayers { found: kinds.len() });
+	}
+
+	let (mode_label, raw_threads) = match &mode {
+		TourneyMode::Swiss { cycles, threads } => (format!("Swiss ({cycles} cycles)"), *threads),
+		TourneyMode::Rating { target_rounds, threads } => (format!("Rating ({target_rounds} rounds)"), *threads),
+		TourneyMode::Elimination { cycles, threads } => (format!("Elimination ({cycles} cycles)"), *threads),
+	};
+	let threads = if raw_threads == 0 {
+		std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
+	} else {
+		raw_threads
+	};
+
+	eprintln!("{mode_label} tournament (no priors): {} players, {threads} threads", kinds.len());
+	for kind in &kinds {
+		eprintln!("  {kind}");
+	}
+
+	let rating_db: Arc<dyn RatingDb> = Arc::new(NoopRatingDb);
+	match size {
+		BoardSize::Five => run_tournament_sized::<5>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db),
+		BoardSize::Seven => run_tournament_sized::<7>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db),
+		BoardSize::Nine => run_tournament_sized::<9>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db),
+		BoardSize::Eleven => run_tournament_sized::<11>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db),
+	}
 }
 
 fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, hide: bool, rating_db: Arc<dyn RatingDb>) {

@@ -42,6 +42,17 @@ struct CorruptRatingsDb {
 	backtrace: std::backtrace::Backtrace,
 }
 
+/// No-op database: all players start at default rating, nothing is ever saved.
+/// Used by `arena tourney --no-priors` for ephemeral matchups.
+pub struct NoopRatingDb;
+impl RatingDb for NoopRatingDb {
+	fn load_ratings(&self) -> HashMap<Ustr, Rating> {
+		HashMap::new()
+	}
+
+	fn save_ratings(&self, _ratings: &HashMap<Ustr, Rating>) {}
+}
+
 impl<T: RatingDb + ?Sized> RatingDb for &T {
 	fn load_ratings(&self) -> HashMap<Ustr, Rating> {
 		(**self).load_ratings()
