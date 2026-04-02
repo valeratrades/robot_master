@@ -38,6 +38,10 @@ struct Args {
 	/// Hide opponent's hand (information-hidden mode). Determines `_hide` vs `_show` in run path.
 	#[arg(long)]
 	hide: bool,
+	/// Player spec used as eval baseline every 10 versions (e.g. `rollout|v50`).
+	/// If omitted, no eval matches are run.
+	#[arg(long)]
+	supervise: Option<String>,
 }
 
 fn main() {
@@ -57,6 +61,7 @@ fn main() {
 	let repo_root = repo_root();
 
 	let selfplay_bin = repo_root.join("target/release/selfplay");
+	let robot_master_bin = repo_root.join("target/release/robot_master");
 	let train_py = repo_root.join("training/train.py");
 	let export_py = repo_root.join("training/export_onnx.py");
 
@@ -81,8 +86,15 @@ fn main() {
 		Command::new("cargo")
 			.args(["b", "--release", "-p", "robot_master_train", "--bin", "selfplay"])
 			.current_dir(&repo_root),
-		"cargo build",
+		"cargo build selfplay",
 	);
+	if args.supervise.is_some() {
+		eprintln!("Building robot_master binary (needed for --supervise eval)...");
+		run_or_die(
+			Command::new("cargo").args(["b", "--release", "-p", "robot_master"]).current_dir(&repo_root),
+			"cargo build robot_master",
+		);
+	}
 
 	let total_start = Instant::now();
 
@@ -174,6 +186,42 @@ fn main() {
 
 		current_model = Some(onnx_path);
 
+		// Eval every 10 versions against the supervised baseline
+		if version % 10 == 0 {
+			if let Some(ref spec) = args.supervise {
+				let hide_flag = if args.hide { "v" } else { "s" };
+				let model_id = format!("onnx:model_v{}|g{}|s{}|h{}", version, args.sims, args.size, hide_flag);
+				let no_priors_spec = format!("{},{}", spec, model_id);
+
+				eprint!("  [eval] model_v{version} vs {spec} (32 games)... ");
+				let eval_start = Instant::now();
+				let output = Command::new(&robot_master_bin)
+					.args(["--models-dir", models_out.to_str().unwrap()])
+					.args(["arena", "--no-priors", &no_priors_spec])
+					.args(["tourney", "--json", "swiss", "32"])
+					.current_dir(&repo_root)
+					.output()
+					.expect("failed to run arena eval");
+
+				if output.status.success() {
+					let json = String::from_utf8_lossy(&output.stdout);
+					if let Some((wins, total)) = parse_eval_json(&json, &model_id) {
+						let pct = wins as f64 / total as f64 * 100.0;
+						eprintln!(
+							"done ({:.1}s)  {wins}/{total} ({pct:.0}%){}",
+							eval_start.elapsed().as_secs_f64(),
+							if pct > 68.0 { " ✓ above threshold" } else { "" }
+						);
+					} else {
+						eprintln!("done ({:.1}s)  (could not parse result)", eval_start.elapsed().as_secs_f64());
+					}
+				} else {
+					eprintln!("FAILED");
+					eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+				}
+			}
+		}
+
 		eprintln!(
 			"  iteration {i} complete in {:.1}s  (total elapsed: {:.0}s)",
 			iter_start.elapsed().as_secs_f64(),
@@ -262,4 +310,24 @@ fn latest_checkpoint(models_out: &Path) -> Option<PathBuf> {
 		.filter(|e| e.file_name().to_str().map(|s| s.ends_with(".pt")).unwrap_or(false))
 		.max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())
 		.map(|e| e.path())
+}
+
+/// Parse the JSON array from `arena tourney --json` and extract wins/games for `id`.
+/// JSON format: `[{"id":"rollout","wins":10,"games":32},{"id":"onnx:...","wins":22,"games":32}]`
+fn parse_eval_json(json: &str, id: &str) -> Option<(u32, u32)> {
+	let needle = format!(r#""id":"{}""#, id);
+	// Find the object containing our id — search from the right to handle any prefix matches
+	let id_pos = json.rfind(&needle)?;
+	// Walk back to find the opening `{` of this object
+	let obj_start = json[..id_pos].rfind('{').unwrap_or(id_pos);
+	let chunk = &json[obj_start..];
+	let wins = extract_u32(chunk, "wins")?;
+	let games = extract_u32(chunk, "games")?;
+	Some((wins, games))
+}
+
+fn extract_u32(s: &str, key: &str) -> Option<u32> {
+	let needle = format!(r#""{key}":"#);
+	let pos = s.find(&needle)? + needle.len();
+	s[pos..].split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
 }

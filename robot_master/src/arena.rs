@@ -35,11 +35,11 @@ pub fn run(
 		die(miette::miette!("--no-priors and --select are mutually exclusive"));
 	}
 	match command {
-		ArenaCommands::Tourney { mode } =>
+		ArenaCommands::Tourney { mode, json } =>
 			if no_priors.is_empty() {
-				run_tournament(players_filter, &models_dir, mode, size, hide, rating_db)
+				run_tournament(players_filter, &models_dir, mode, size, hide, rating_db, json)
 			} else {
-				run_tournament_no_priors(no_priors, &models_dir, mode, size, hide)
+				run_tournament_no_priors(no_priors, &models_dir, mode, size, hide, json)
 			},
 		ArenaCommands::Players { command } => {
 			if !no_priors.is_empty() {
@@ -146,7 +146,7 @@ where
 	kind_into_bot(kind, models_dir).unwrap_or_else(|e| die(miette::miette!("{e}")))
 }
 
-fn run_tournament_no_priors(specs: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, hide: bool) {
+fn run_tournament_no_priors(specs: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, hide: bool, json: bool) {
 	let config = GameConfig { size: size.into(), hide };
 	let kinds: Vec<PlayerKind> = specs
 		.iter()
@@ -183,14 +183,14 @@ fn run_tournament_no_priors(specs: Vec<String>, models_dir: &std::path::Path, mo
 
 	let rating_db: Arc<dyn RatingDb> = Arc::new(NoopRatingDb::default());
 	match size {
-		BoardSize::Five => run_tournament_sized::<5>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db),
-		BoardSize::Seven => run_tournament_sized::<7>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db),
-		BoardSize::Nine => run_tournament_sized::<9>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db),
-		BoardSize::Eleven => run_tournament_sized::<11>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db),
+		BoardSize::Five => run_tournament_sized::<5>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db, json),
+		BoardSize::Seven => run_tournament_sized::<7>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db, json),
+		BoardSize::Nine => run_tournament_sized::<9>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db, json),
+		BoardSize::Eleven => run_tournament_sized::<11>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db, json),
 	}
 }
 
-fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, hide: bool, rating_db: Arc<dyn RatingDb>) {
+fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, hide: bool, rating_db: Arc<dyn RatingDb>, json: bool) {
 	let config = GameConfig { size: size.into(), hide };
 	let mut kinds = resolve_players(&players_filter, models_dir, rating_db.as_ref());
 	kinds.retain(|k| {
@@ -226,10 +226,10 @@ fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mod
 	let ratings_f64: std::collections::HashMap<Ustr, f64> = ratings_map.iter().map(|(k, v)| (*k, v.rating)).collect();
 
 	match size {
-		BoardSize::Five => run_tournament_sized::<5>(kinds, &ratings_f64, config, mode, threads, models_dir, rating_db),
-		BoardSize::Seven => run_tournament_sized::<7>(kinds, &ratings_f64, config, mode, threads, models_dir, rating_db),
-		BoardSize::Nine => run_tournament_sized::<9>(kinds, &ratings_f64, config, mode, threads, models_dir, rating_db),
-		BoardSize::Eleven => run_tournament_sized::<11>(kinds, &ratings_f64, config, mode, threads, models_dir, rating_db),
+		BoardSize::Five => run_tournament_sized::<5>(kinds, &ratings_f64, config, mode, threads, models_dir, rating_db, json),
+		BoardSize::Seven => run_tournament_sized::<7>(kinds, &ratings_f64, config, mode, threads, models_dir, rating_db, json),
+		BoardSize::Nine => run_tournament_sized::<9>(kinds, &ratings_f64, config, mode, threads, models_dir, rating_db, json),
+		BoardSize::Eleven => run_tournament_sized::<11>(kinds, &ratings_f64, config, mode, threads, models_dir, rating_db, json),
 	}
 }
 
@@ -241,6 +241,7 @@ fn run_tournament_sized<const N: usize>(
 	threads: usize,
 	models_dir: &std::path::Path,
 	rating_db: Arc<dyn RatingDb>,
+	json: bool,
 ) where
 	[(); N * N]:,
 	[(); N + 1]:, {
@@ -315,13 +316,25 @@ fn run_tournament_sized<const N: usize>(
 		})
 		.collect();
 
-	let col0 = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
-	let col1 = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);
-	let col2 = rows.iter().map(|r| r.2.len()).max().unwrap_or(0);
+	if json {
+		let entries: Vec<String> = standings
+			.iter()
+			.map(|(id, _)| {
+				let w = wins.get(*id).copied().unwrap_or(0);
+				let g = games.get(*id).copied().unwrap_or(0);
+				format!(r#"{{"id":"{id}","wins":{w},"games":{g}}}"#)
+			})
+			.collect();
+		println!("[{}]", entries.join(","));
+	} else {
+		let col0 = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
+		let col1 = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);
+		let col2 = rows.iter().map(|r| r.2.len()).max().unwrap_or(0);
 
-	eprintln!("\n--- Results ({} games) ---", results.len());
-	for (wins_col, name, rating_col, delta_col) in &rows {
-		eprintln!("  {wins_col:<col0$}  {name:<col1$}  {rating_col:>col2$}  ({delta_col})");
+		eprintln!("\n--- Results ({} games) ---", results.len());
+		for (wins_col, name, rating_col, delta_col) in &rows {
+			eprintln!("  {wins_col:<col0$}  {name:<col1$}  {rating_col:>col2$}  ({delta_col})");
+		}
 	}
 }
 

@@ -62,6 +62,9 @@ pub enum ArenaCommands {
 	Tourney {
 		#[command(subcommand)]
 		mode: TourneyMode,
+		/// Output results as JSON to stdout (progress and status remain on stderr).
+		#[arg(long)]
+		json: bool,
 	},
 	/// Player data management
 	Players {

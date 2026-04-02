@@ -677,14 +677,6 @@ where
 	fn end_cycle(&mut self, _cycle: usize, _player_ids: &[Ustr], _live_ratings: &DashMap<Ustr, Rating>) {}
 }
 
-// ---------------------------------------------------------------------------
-// Public API (unchanged signatures)
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// FIDE pairing helper (Swiss rounds 2+)
-// ---------------------------------------------------------------------------
-
 /// Group by cumulative score (desc), within each group sort by rating (desc) and pair top-half vs
 /// bottom-half. Odd groups float the last player into the next lower score group.
 ///
@@ -731,10 +723,6 @@ fn fide_pair_by_score(player_ids: &[Ustr], scores: &HashMap<Ustr, u32>, live_rat
 	debug_assert!(unpaired.is_empty() || n % 2 == 1, "unpaired players remain with even n");
 	pairs
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 fn play_game<const N: usize>(p1_id: Ustr, p2_id: Ustr, seed: u64, config: GameConfig, factory: &dyn BotFactory<N>) -> MatchResult
 where
