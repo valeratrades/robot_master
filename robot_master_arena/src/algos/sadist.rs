@@ -1,7 +1,7 @@
 use board_game::board::Board as _;
 use robot_master_core::{
 	board::{EMPTY, Pos},
-	cards::MAX_CARD_VALUE,
+	cards::MAX_SUPPORTED_CARD_VALUE,
 	game::{GameState, Move, Player},
 	scoring::{LineCounts, line_counts, score_line},
 };
@@ -51,7 +51,7 @@ where
 		let empty_slots = N - counts.iter().map(|&c| c as usize).sum::<usize>();
 
 		let mut scores = Vec::new();
-		complete_and_score(&mut counts.clone(), &mut remaining.clone(), &mut scores, empty_slots, 0, game.config.max_card as usize);
+		complete_and_score(&mut counts.clone(), &mut remaining.clone(), &mut scores, empty_slots, 0, game.config.max_card() as usize);
 
 		if let Some(&max) = scores.iter().max() {
 			best = best.max(max);
@@ -97,7 +97,7 @@ fn complete_and_score(counts: &mut LineCounts, remaining: &mut LineCounts, score
 fn remaining_cards<const N: usize>(game: &GameState<N>) -> LineCounts
 where
 	[(); N * N]:, {
-	let mut played = [0u8; MAX_CARD_VALUE + 1];
+	let mut played = [0u8; MAX_SUPPORTED_CARD_VALUE + 1];
 	for row in 0..N {
 		for col in 0..N {
 			let cell = game.board.get(Pos { row: row as u8, col: col as u8 });
@@ -106,9 +106,9 @@ where
 			}
 		}
 	}
-	let mut remaining = [0u8; MAX_CARD_VALUE + 1];
-	for v in 0..=game.config.max_card as usize {
-		remaining[v] = game.config.nb_c - played[v];
+	let mut remaining = [0u8; MAX_SUPPORTED_CARD_VALUE + 1];
+	for v in 0..=game.config.max_card() as usize {
+		remaining[v] = game.config.nb_c() - played[v];
 	}
 	remaining
 }
@@ -122,8 +122,8 @@ mod tests {
 
 	#[test]
 	fn tous_les_scores_possibles_no_duplicates() {
-		let mut counts = [0u8; MAX_CARD_VALUE + 1];
-		let mut remaining = [0u8; MAX_CARD_VALUE + 1];
+		let mut counts = [0u8; MAX_SUPPORTED_CARD_VALUE + 1];
+		let mut remaining = [0u8; MAX_SUPPORTED_CARD_VALUE + 1];
 		remaining[1] = 2;
 		remaining[2] = 2;
 		let mut scores = Vec::new();
@@ -135,10 +135,10 @@ mod tests {
 
 	#[test]
 	fn tous_les_scores_possibles_already_complete() {
-		let mut counts = [0u8; MAX_CARD_VALUE + 1];
+		let mut counts = [0u8; MAX_SUPPORTED_CARD_VALUE + 1];
 		counts[1] = 2;
 		counts[2] = 3;
-		let mut remaining = [0u8; MAX_CARD_VALUE + 1];
+		let mut remaining = [0u8; MAX_SUPPORTED_CARD_VALUE + 1];
 		remaining[0] = 1;
 		remaining[1] = 1;
 		remaining[2] = 1;

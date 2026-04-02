@@ -16,23 +16,23 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
 
-from model_resnet import IN_CHANNELS, NUM_CARD_VALUES, RobotMasterResNet
+from model_resnet import RobotMasterResNet, action_size, in_channels
 
 
 class SelfPlayDataset(Dataset):
     """Loads (state, policy_target, value_target) samples from binary files.
 
     File format per sample (written by Rust selfplay binary):
-        state:  33 * N * N float32 values (row-major)
-        policy: 6 * N * N float32 values (visit count distribution, already normalized)
+        state:  in_channels(N) * N * N float32 values (row-major)
+        policy: (N+1) * N * N float32 values (visit count distribution, already normalized)
         value:  1 float32 (+1 or -1, game outcome from perspective of player to move)
     """
 
     def __init__(self, data_dir: str, board_size: int = 5, max_iters: int = 0):
         self.board_size = board_size
         n2 = board_size * board_size
-        self.state_size = IN_CHANNELS * n2
-        self.policy_size = NUM_CARD_VALUES * n2
+        self.state_size = in_channels(board_size) * n2
+        self.policy_size = action_size(board_size)
         self.sample_floats = self.state_size + self.policy_size + 1
         self.sample_bytes = self.sample_floats * 4
 
@@ -61,7 +61,7 @@ class SelfPlayDataset(Dataset):
         floats = struct.unpack_from(f"<{self.sample_floats}f", self.data, offset)
 
         n = self.board_size
-        state = np.array(floats[: self.state_size], dtype=np.float32).reshape(IN_CHANNELS, n, n)
+        state = np.array(floats[: self.state_size], dtype=np.float32).reshape(in_channels(n), n, n)
         policy = np.array(floats[self.state_size : self.state_size + self.policy_size], dtype=np.float32)
         value = np.float32(floats[-1])
 

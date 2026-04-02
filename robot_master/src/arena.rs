@@ -145,10 +145,7 @@ fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mod
 		eprintln!("  {kind}");
 	}
 
-	let config = GameConfig {
-		size: size.into(),
-		..GameConfig::default()
-	};
+	let config = GameConfig { size: size.into() };
 
 	let ratings_map = rating_db.load_ratings();
 	let ratings_f64: std::collections::HashMap<Ustr, f64> = ratings_map.iter().map(|(k, v)| (*k, v.rating)).collect();

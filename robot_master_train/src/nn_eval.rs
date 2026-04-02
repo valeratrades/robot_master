@@ -5,7 +5,7 @@ use robot_master_arena::player::Bot;
 use robot_master_core::game::{GameState, Move};
 
 use crate::{
-	encoding::{IN_CHANNELS, action_index, encode_planes},
+	encoding::{action_index, encode_planes, in_channels},
 	mcts::{Evaluation, Evaluator},
 };
 
@@ -38,8 +38,8 @@ impl NnEval {
 
 	fn warmup(&self) {
 		let n = self.board_size;
-		let dummy: Vec<f32> = vec![0.0; 33 * n * n];
-		let shape = [1usize, 33, n, n];
+		let dummy: Vec<f32> = vec![0.0; in_channels(n) * n * n];
+		let shape = [1usize, in_channels(n), n, n];
 		let input = TensorRef::from_array_view((shape, dummy.as_slice())).expect("warmup tensor");
 		let mut session = self.session.lock().expect("session mutex poisoned");
 		let _ = session.run(inputs!["state" => input]);
@@ -58,14 +58,14 @@ where
 		assert_eq!(N, self.board_size, "NnEval board_size mismatch: model={}, state={N}", self.board_size);
 		let batch = states.len();
 
-		// Encode all states into one contiguous [batch, 33, N, N] f32 buffer
-		let planes_per_state = IN_CHANNELS * N * N;
+		// Encode all states into one contiguous [batch, in_channels(N), N, N] f32 buffer
+		let planes_per_state = in_channels(N) * N * N;
 		let mut input_buf = Vec::with_capacity(batch * planes_per_state);
 		for state in states {
 			input_buf.extend_from_slice(&encode_planes(state));
 		}
 
-		let shape = [batch, IN_CHANNELS, N, N];
+		let shape = [batch, in_channels(N), N, N];
 		let input = TensorRef::from_array_view((shape, input_buf.as_slice())).expect("tensor construction");
 
 		let mut session = self.session.lock().expect("session mutex poisoned");

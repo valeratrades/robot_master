@@ -48,10 +48,7 @@ macro_rules! algo_move_dispatch {
 		let n = $plateau.len();
 		let turn = if $joueuse_active % 2 == 0 { Player::A } else { Player::B };
 		let hand = Hand::from(&$dico_main);
-		let config = GameConfig {
-			size: n as u8,
-			..GameConfig::default()
-		};
+		let config = GameConfig { size: n as u8 };
 
 		macro_rules! go {
 			($N: literal) => {{

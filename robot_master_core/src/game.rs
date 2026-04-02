@@ -38,11 +38,19 @@ impl fmt::Debug for PlayerDisplay {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct GameConfig {
 	pub size: u8 = 5,
-	pub max_card: u8 = 5,
-	pub nb_c: u8 = 6,
 }
 
 impl GameConfig {
+	/// Highest card value in play: `size`.
+	pub fn max_card(self) -> u8 {
+		self.size
+	}
+
+	/// Copies of each card value in the deck: `size + 1`.
+	pub fn nb_c(self) -> u8 {
+		self.size + 1
+	}
+
 	/// Number of cards each player receives: `(size² - 1) / 2`.
 	pub fn cards_per_player(self) -> u8 {
 		let n = self.size as u16;
@@ -72,7 +80,7 @@ where
 	[(); N * N]:,
 {
 	pub fn new(config: GameConfig, rng: &mut impl Rng) -> Self {
-		let mut deck = new_deck(config.max_card, config.nb_c, rng);
+		let mut deck = new_deck(config.size as usize, rng);
 		let mut board = Board::default();
 
 		// Place center card (first off the deck, like Python's distribution_cartes).
@@ -209,7 +217,7 @@ where
 		F: FnMut(Self::Item) -> std::ops::ControlFlow<T>, {
 		for row in 0..N as u8 {
 			for col in 0..N as u8 {
-				for card in 0..=5u8 {
+				for card in 0..=N as u8 {
 					f(Move {
 						pos: Pos { row, col },
 						card: CardValue(card),

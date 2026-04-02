@@ -16,6 +16,7 @@ fn main() {
 			sims: None,
 		},
 		true,
+		std::path::PathBuf::new(),
 	)
 	.run();
 }

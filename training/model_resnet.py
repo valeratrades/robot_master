@@ -1,18 +1,18 @@
 """Track A: Small SE-ResNet for AlphaZero.
 
-Architecture (default, 5x5 board):
-  Input:  33 x N x N
-  Body:   Conv(33->64, 3x3) -> BN -> ReLU -> 5x SE-ResBlock(64)
-  Policy: Conv(64->2, 1x1) -> BN -> ReLU -> FC(2*N*N, 6*N*N) -> logits
+Architecture (N×N board):
+  Input:  in_channels(N) x N x N   where in_channels(N) = 5*N + 8
+  Body:   Conv(in_channels->64, 3x3) -> BN -> ReLU -> 5x SE-ResBlock(64)
+  Policy: Conv(64->2, 1x1) -> BN -> ReLU -> FC(2*N*N, (N+1)*N*N) -> logits
   Value:  Conv(64->1, 1x1) -> BN -> ReLU -> FC(N*N, 64) -> ReLU -> FC(64, 1) -> tanh
 
-Input planes (33 total):
-  [0:6]   Card value presence (binary plane per value 0-5)
-  [6]     Empty cells
-  [7]     Playable cells (adjacent to occupied & empty)
-  [8:20]  Current player's hand (2 planes per value: >=1, >=2)
-  [20:32] Opponent's hand (same)
-  [32]    Current player indicator (1.0 = Player A)
+Input planes (5*N+8 total, e.g. 33 for N=5):
+  [0:N+1]      Card value presence (binary plane per value 0..N)
+  [N+1]        Empty cells
+  [N+2]        Playable cells (adjacent to occupied & empty)
+  [N+3:3N+5]   Current player's hand (2 planes per value: >=1, >=2)
+  [3N+5:5N+7]  Opponent's hand (same)
+  [5N+7]       Current player indicator (1.0 = Player A)
 """
 
 import numpy as np
@@ -20,33 +20,51 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-NUM_CARD_VALUES = 6  # 0..5
-IN_CHANNELS = 33
+
+def in_channels(n: int) -> int:
+    """Number of input planes for an N×N board."""
+    return 5 * n + 8
+
+
+def num_card_values(n: int) -> int:
+    """Number of distinct card values for an N×N board: 0..N inclusive."""
+    return n + 1
+
+
+def action_size(n: int) -> int:
+    """Number of policy outputs: (N+1) card values × N² positions."""
+    return (n + 1) * n * n
 
 
 def encode_state(board: list[list[int | None]], hand_current: dict[int, int], hand_opponent: dict[int, int], current_player: int, board_size: int = 5) -> np.ndarray:
-    """Encode a game state as a (33, N, N) float32 tensor.
+    """Encode a game state as a (in_channels(N), N, N) float32 tensor.
 
     Args:
-        board: NxN grid, None for empty cells, int 0-5 for card values.
+        board: NxN grid, None for empty cells, int 0..N for card values.
         hand_current: {card_value: count} for the player to move.
         hand_opponent: {card_value: count} for the other player.
         current_player: 0 for Player A, 1 for Player B.
         board_size: N.
 
     Returns:
-        np.ndarray of shape (33, N, N).
+        np.ndarray of shape (in_channels(N), N, N).
     """
     n = board_size
-    planes = np.zeros((IN_CHANNELS, n, n), dtype=np.float32)
+    ch_empty = n + 1
+    ch_playable = n + 2
+    ch_hand_cur = n + 3
+    ch_hand_opp = 3 * n + 5
+    ch_turn = 5 * n + 7
+
+    planes = np.zeros((in_channels(n), n, n), dtype=np.float32)
 
     for r in range(n):
         for c in range(n):
             cell = board[r][c]
             if cell is None:
-                planes[6, r, c] = 1.0  # empty plane
+                planes[ch_empty, r, c] = 1.0
             else:
-                planes[cell, r, c] = 1.0  # card value plane
+                planes[cell, r, c] = 1.0
 
     # playable: empty + has occupied neighbour
     for r in range(n):
@@ -56,25 +74,25 @@ def encode_state(board: list[list[int | None]], hand_current: dict[int, int], ha
             for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 nr, nc = r + dr, c + dc
                 if 0 <= nr < n and 0 <= nc < n and board[nr][nc] is not None:
-                    planes[7, r, c] = 1.0
+                    planes[ch_playable, r, c] = 1.0
                     break
 
     # hand planes: 2 per card value (>=1, >=2), broadcast across spatial dims
-    for v in range(NUM_CARD_VALUES):
+    for v in range(num_card_values(n)):
         cnt_cur = hand_current.get(v, 0)
         cnt_opp = hand_opponent.get(v, 0)
         if cnt_cur >= 1:
-            planes[8 + v * 2, :, :] = 1.0
+            planes[ch_hand_cur + v * 2, :, :] = 1.0
         if cnt_cur >= 2:
-            planes[8 + v * 2 + 1, :, :] = 1.0
+            planes[ch_hand_cur + v * 2 + 1, :, :] = 1.0
         if cnt_opp >= 1:
-            planes[20 + v * 2, :, :] = 1.0
+            planes[ch_hand_opp + v * 2, :, :] = 1.0
         if cnt_opp >= 2:
-            planes[20 + v * 2 + 1, :, :] = 1.0
+            planes[ch_hand_opp + v * 2 + 1, :, :] = 1.0
 
     # current player indicator
     if current_player == 0:
-        planes[32, :, :] = 1.0
+        planes[ch_turn, :, :] = 1.0
 
     return planes
 
@@ -122,19 +140,18 @@ class ResBlock(nn.Module):
 class RobotMasterResNet(nn.Module):
     """AlphaZero-style dual-headed SE-ResNet for Robot Master.
 
-    Policy output: 6 * N^2 logits (card_value * N*N + row * N + col).
+    Policy output: (N+1) * N^2 logits (card_value * N*N + row * N + col).
     Value output: scalar in [-1, 1].
     """
 
-    def __init__(self, board_size: int = 5, in_channels: int = IN_CHANNELS, num_blocks: int = 5, num_filters: int = 64):
+    def __init__(self, board_size: int = 5, num_blocks: int = 5, num_filters: int = 64):
         super().__init__()
         self.board_size = board_size
         self.num_filters = num_filters
         n2 = board_size * board_size
-        action_size = NUM_CARD_VALUES * n2
 
         # input projection
-        self.conv_in = nn.Conv2d(in_channels, num_filters, 3, padding=1, bias=False)
+        self.conv_in = nn.Conv2d(in_channels(board_size), num_filters, 3, padding=1, bias=False)
         self.bn_in = nn.BatchNorm2d(num_filters)
 
         # residual tower
@@ -144,7 +161,7 @@ class RobotMasterResNet(nn.Module):
         # policy head
         self.policy_conv = nn.Conv2d(num_filters, 2, 1, bias=False)
         self.policy_bn = nn.BatchNorm2d(2)
-        self.policy_fc = nn.Linear(2 * n2, action_size)
+        self.policy_fc = nn.Linear(2 * n2, action_size(board_size))
 
         # value head
         self.value_conv = nn.Conv2d(num_filters, 1, 1, bias=False)
@@ -178,15 +195,15 @@ if __name__ == "__main__":
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {total_params:,}")
 
-    batch = torch.randn(4, IN_CHANNELS, board_size, board_size)
+    batch = torch.randn(4, in_channels(board_size), board_size, board_size)
     model.eval()
     with torch.no_grad():
         policy, value = model(batch)
 
-    assert policy.shape == (4, NUM_CARD_VALUES * board_size ** 2), f"policy shape: {policy.shape}"
+    assert policy.shape == (4, action_size(board_size)), f"policy shape: {policy.shape}"
     assert value.shape == (4,), f"value shape: {value.shape}"
     assert (value.abs() <= 1.0).all(), "value out of [-1, 1]"
-    print(f"Policy shape: {policy.shape}  (expected (4, {NUM_CARD_VALUES * board_size**2}))")
+    print(f"Policy shape: {policy.shape}  (expected (4, {action_size(board_size)}))")
     print(f"Value shape:  {value.shape}  (expected (4,))")
     print(f"Value range:  [{value.min():.4f}, {value.max():.4f}]")
 
@@ -196,12 +213,13 @@ if __name__ == "__main__":
     hand_cur = {0: 2, 1: 2, 2: 2, 3: 1, 4: 2, 5: 3}
     hand_opp = {0: 1, 1: 3, 2: 2, 3: 2, 4: 2, 5: 2}
     planes = encode_state(board, hand_cur, hand_opp, current_player=0, board_size=board_size)
-    assert planes.shape == (IN_CHANNELS, board_size, board_size), f"encode shape: {planes.shape}"
+    n = board_size
+    assert planes.shape == (in_channels(n), n, n), f"encode shape: {planes.shape}"
     assert planes[3, 2, 2] == 1.0, "card value 3 at center"
-    assert planes[6, 0, 0] == 1.0, "empty at (0,0)"
-    assert planes[6, 2, 2] == 0.0, "not empty at center"
-    assert planes[7, 2, 1] == 1.0, "playable adjacent to center"
-    assert planes[7, 0, 0] == 0.0, "not playable at corner"
-    assert planes[32, 0, 0] == 1.0, "player A indicator"
+    assert planes[n + 1, 0, 0] == 1.0, "empty at (0,0)"
+    assert planes[n + 1, 2, 2] == 0.0, "not empty at center"
+    assert planes[n + 2, 2, 1] == 1.0, "playable adjacent to center"
+    assert planes[n + 2, 0, 0] == 0.0, "not playable at corner"
+    assert planes[5 * n + 7, 0, 0] == 1.0, "player A indicator"
     print("encode_state: OK")
     print("All checks passed.")

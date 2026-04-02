@@ -12,7 +12,7 @@ import numpy as np
 import torch
 import onnxruntime as ort
 
-from model_resnet import IN_CHANNELS, RobotMasterResNet
+from model_resnet import RobotMasterResNet, in_channels
 
 
 def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
@@ -23,7 +23,7 @@ def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
     model.load_state_dict(checkpoint["model"])
     model.eval()
 
-    dummy = torch.randn(1, IN_CHANNELS, model.board_size, model.board_size)
+    dummy = torch.randn(1, in_channels(model.board_size), model.board_size, model.board_size)
 
     torch.onnx.export(
         model,

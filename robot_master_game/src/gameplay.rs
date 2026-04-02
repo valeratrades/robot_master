@@ -95,10 +95,7 @@ struct Warning {
 /// Helper: create a `Box<dyn DynMatch>` for the given board size.
 fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind, models_dir: &std::path::Path) -> Box<dyn DynMatch + Send + Sync> {
 	let mut rng: rand::rngs::SmallRng = rand::make_rng();
-	let config = GameConfig {
-		size: size.into(),
-		..GameConfig::default()
-	};
+	let config = GameConfig { size: size.into() };
 	let p1_id = p1.id();
 	let p2_id = p2.id();
 

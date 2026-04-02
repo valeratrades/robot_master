@@ -233,13 +233,7 @@ where
 	[(); N * N]:,
 {
 	fn new(rng: &mut impl Rng) -> Self {
-		let game = GameState::<N>::new(
-			GameConfig {
-				size: N as u8,
-				..GameConfig::default()
-			},
-			rng,
-		);
+		let game = GameState::<N>::new(GameConfig { size: N as u8 }, rng);
 		let state = game.clone();
 		Self {
 			phase: GamePhase::NeedsRootEval { state },
@@ -345,7 +339,7 @@ mod tests {
 
 	use super::*;
 	use crate::{
-		encoding::{IN_CHANNELS, action_size},
+		encoding::{action_size, in_channels},
 		gumbel::GumbelConfig,
 		mcts::RolloutEval,
 	};
@@ -377,7 +371,7 @@ mod tests {
 
 		let samples = play_game(&state, &evaluator, &config(4), &mut rng);
 		for s in &samples {
-			assert_eq!(s.state_planes.len(), IN_CHANNELS * 25);
+			assert_eq!(s.state_planes.len(), in_channels(5) * 25);
 			assert_eq!(s.policy.len(), action_size(5));
 			assert!(s.value == 1.0 || s.value == -1.0 || s.value == 0.0);
 			let policy_sum: f32 = s.policy.iter().sum();

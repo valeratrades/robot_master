@@ -5,7 +5,7 @@ use rand::{rngs::SmallRng, seq::IteratorRandom};
 
 use crate::{
 	board::{Board, Pos},
-	cards::{CardValue, Hand, MAX_CARD_VALUE},
+	cards::{CardValue, Hand, MAX_SUPPORTED_CARD_VALUE},
 	game::{GameConfig, Move},
 };
 
@@ -17,7 +17,7 @@ impl From<&HashMap<u8, u8>> for Hand {
 	fn from(m: &HashMap<u8, u8>) -> Self {
 		let mut hand = Hand::default();
 		for (&v, &c) in m {
-			if v as usize <= MAX_CARD_VALUE {
+			if v as usize <= MAX_SUPPORTED_CARD_VALUE {
 				for _ in 0..c {
 					hand.put(CardValue(v));
 				}
@@ -119,15 +119,15 @@ pub fn place_carte(mut plateau: Vec<Vec<Option<u8>>>, pos_l: i64, pos_c: i64, ca
 	}
 	plateau
 }
-/// Create a shuffled deck: values 0..=maxC, nbC copies each.
+/// Create a shuffled deck for an N×N board: values 0..=(N-1), N copies each.
+/// `taille` (board side length, default 5) determines the deck.
 #[pyfunction]
 #[pyo3(signature = (dico_options = None))]
 pub fn new_pile_cartes(dico_options: Option<HashMap<String, i64>>) -> Vec<u8> {
 	let opts = dico_options.unwrap_or_default();
-	let max_c = opts.get("maxC").copied().unwrap_or(5) as u8;
-	let nb_c = opts.get("nbC").copied().unwrap_or(6) as u8;
+	let n = opts.get("taille").copied().unwrap_or(5) as usize;
 	let mut rng: SmallRng = rand::make_rng();
-	crate::cards::new_deck(max_c, nb_c, &mut rng).into_iter().map(|c| c.0).collect()
+	crate::cards::new_deck(n, &mut rng).into_iter().map(|c| c.0).collect()
 }
 /// Distribute cards: returns [center_card, hand1_list, hand2_list, ...].
 #[pyfunction]
@@ -268,8 +268,6 @@ pub fn random_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: HashMap<u8, u8>,
 pub fn config_from_options(opts: &HashMap<String, i64>) -> GameConfig {
 	GameConfig {
 		size: opts.get("taille").copied().unwrap_or(5) as u8,
-		max_card: opts.get("maxC").copied().unwrap_or(5) as u8,
-		nb_c: opts.get("nbC").copied().unwrap_or(6) as u8,
 	}
 }
 

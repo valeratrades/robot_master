@@ -22,10 +22,7 @@ fn main() {
 		Commands::Tui => {
 			let p1 = resolve_player(&cli.players.player1, auto_yes);
 			let p2 = resolve_player(&cli.players.player2, auto_yes);
-			let game_config = GameConfig {
-				size: size.into(),
-				..GameConfig::default()
-			};
+			let game_config = GameConfig { size: size.into() };
 			robot_master::tui::run(game_config, size, p1, p2, rating_db, models_dir);
 		}
 		Commands::Gui { sound } => {

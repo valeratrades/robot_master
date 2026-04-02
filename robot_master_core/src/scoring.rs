@@ -1,13 +1,13 @@
 use crate::{
 	board::{Board, Cell, EMPTY},
-	cards::{CardValue, MAX_CARD_VALUE},
+	cards::{CardValue, MAX_SUPPORTED_CARD_VALUE},
 	game::Player,
 };
 
-pub type LineCounts = [u8; MAX_CARD_VALUE + 1];
+pub type LineCounts = [u8; MAX_SUPPORTED_CARD_VALUE + 1];
 
 pub fn line_counts(line: &[Cell]) -> LineCounts {
-	let mut c = [0u8; MAX_CARD_VALUE + 1];
+	let mut c = [0u8; MAX_SUPPORTED_CARD_VALUE + 1];
 	for &cell in line {
 		if cell != EMPTY {
 			c[cell as usize] += 1;
@@ -65,7 +65,7 @@ mod tests {
 	use super::*;
 
 	fn counts(pairs: &[(usize, u8)]) -> LineCounts {
-		let mut c = [0u8; MAX_CARD_VALUE + 1];
+		let mut c = [0u8; MAX_SUPPORTED_CARD_VALUE + 1];
 		for &(v, n) in pairs {
 			c[v] = n;
 		}
