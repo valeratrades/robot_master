@@ -74,12 +74,12 @@ fn resolve_players(filter: &[String], models_dir: &std::path::Path, rating_db: &
 		if let Ok(entries) = std::fs::read_dir(models_dir) {
 			for entry in entries.flatten() {
 				let path = entry.path();
-				if path.extension().and_then(|e| e.to_str()) == Some("onnx") {
-					if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-						let id = ustr(&format!("onnx:{stem}"));
-						if !ids.contains(&id) {
-							ids.push(id);
-						}
+				if path.extension().and_then(|e| e.to_str()) == Some("onnx")
+					&& let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+				{
+					let id = ustr(&format!("onnx:{stem}"));
+					if !ids.contains(&id) {
+						ids.push(id);
 					}
 				}
 			}
@@ -125,7 +125,16 @@ where
 }
 
 fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, hide: bool, rating_db: Arc<dyn RatingDb>) {
-	let kinds = resolve_players(&players_filter, models_dir, rating_db.as_ref());
+	let config = GameConfig { size: size.into(), hide };
+	let mut kinds = resolve_players(&players_filter, models_dir, rating_db.as_ref());
+	kinds.retain(|k| {
+		if k.supports(&config) {
+			true
+		} else {
+			eprintln!("Skipping {k}: not compatible with current config ({}×{}, hide={hide})", config.size, config.size);
+			false
+		}
+	});
 	if kinds.len() < 2 {
 		die(NotEnoughPlayers { found: kinds.len() });
 	}
@@ -145,8 +154,6 @@ fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mod
 	for kind in &kinds {
 		eprintln!("  {kind}");
 	}
-
-	let config = GameConfig { size: size.into(), hide };
 
 	let ratings_map = rating_db.load_ratings();
 	let ratings_f64: std::collections::HashMap<Ustr, f64> = ratings_map.iter().map(|(k, v)| (*k, v.rating)).collect();
@@ -262,17 +269,29 @@ fn run_players(players_filter: Vec<String>, command: PlayersCommands, models_dir
 		ratings.keys().filter(|id| patterns.iter().any(|re| re.is_match(id.as_str()))).copied().collect()
 	};
 
-	if let PlayersCommands::New { .. } = command {
-		if !players_filter.is_empty() {
-			die(SelectWithNew);
-		}
+	if let PlayersCommands::New { .. } = command
+		&& !players_filter.is_empty()
+	{
+		die(SelectWithNew);
 	}
-	if let PlayersCommands::New { players } = command {
+	if let PlayersCommands::New {
+		players,
+		sizes,
+		hide: hide_constraint,
+	} = command
+	{
+		let constrain_sizes: Option<Vec<u8>> = if sizes.is_empty() { None } else { Some(sizes) };
 		let mut explicit: Vec<PlayerKind> = Vec::new();
 		for spec in &players {
-			let kind: PlayerKind = spec.parse().unwrap_or_else(|_| die(UnknownPlayerSpec { spec: spec.clone() }));
+			let mut kind: PlayerKind = spec.parse().unwrap_or_else(|_| die(UnknownPlayerSpec { spec: spec.clone() }));
 			if kind.is_manual() {
 				die(miette::miette!("cannot register manual players in arena — manual players participate via the TUI/GUI only"));
+			}
+			if kind.is_onnx() {
+				kind.constrain_sizes = constrain_sizes.clone();
+				kind.constrain_hide = hide_constraint;
+			} else if constrain_sizes.is_some() || hide_constraint.is_some() {
+				eprintln!("Note: --sizes/--hide ignored for rule-based bot {spec} (rule-based bots support all regimes)");
 			}
 			explicit.push(kind);
 		}
@@ -288,15 +307,17 @@ fn run_players(players_filter: Vec<String>, command: PlayersCommands, models_dir
 		if let Ok(entries) = std::fs::read_dir(models_dir) {
 			for entry in entries.flatten() {
 				let path = entry.path();
-				if path.extension().and_then(|e| e.to_str()) == Some("onnx") {
-					if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-						let kind = PlayerKind {
-							inner: InnerKind::OnnxPlayer(OnnxPlayer { stem: stem.to_string() }),
-							sims: None,
-						};
-						if !to_register.iter().any(|k| k.id() == kind.id()) {
-							to_register.push(kind);
-						}
+				if path.extension().and_then(|e| e.to_str()) == Some("onnx")
+					&& let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+				{
+					let kind = PlayerKind {
+						inner: InnerKind::OnnxPlayer(OnnxPlayer { stem: stem.to_string() }),
+						sims: None,
+						constrain_sizes: None,
+						constrain_hide: None,
+					};
+					if !to_register.iter().any(|k| k.id() == kind.id()) {
+						to_register.push(kind);
 					}
 				}
 			}

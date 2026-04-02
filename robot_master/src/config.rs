@@ -98,10 +98,16 @@ pub enum TourneyMode {
 
 #[derive(Subcommand)]
 pub enum PlayersCommands {
-	/// Register player algorithms (e.g. `rollout|800`, `random`, `onnx:model_v5|200`). Also auto-registers any missing default variants.
+	/// Register player algorithms (e.g. `rollout|800`, `random`, `onnx:model_v5|g200|s5|hh`). Also auto-registers any missing default variants.
 	New {
-		/// Player specs: algo names with optional sim counts (e.g. `rollout|800`, `greedy`)
+		/// Player specs: algo names with optional sim counts (e.g. `rollout|800`, `greedy`, `onnx:model_v5|g400`)
 		players: Vec<String>,
+		/// Constrain to specific board sizes, e.g. `5,7`. Required for onnx bots; ignored for rule-based bots.
+		#[arg(long, value_delimiter = ',')]
+		sizes: Vec<u8>,
+		/// Constrain to a specific hide mode. Optional; omit to support both modes.
+		#[arg(long)]
+		hide: Option<bool>,
 	},
 	/// List all players and their ratings
 	List,

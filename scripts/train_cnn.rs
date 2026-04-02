@@ -35,6 +35,9 @@ struct Args {
 	/// Pass --force-cpu to selfplay (sequential rayon, faster at 5×5/7×7).
 	#[arg(long)]
 	force_cpu: bool,
+	/// Hide opponent's hand (information-hidden mode). Determines `_hide` vs `_show` in run path.
+	#[arg(long)]
+	hide: bool,
 }
 
 fn main() {
@@ -43,7 +46,8 @@ fn main() {
 	// MiniZero: steps proportional to games collected, ratio 1:10 (final.tex line 299).
 	let train_steps = (args.games / 10).max(1);
 	let total_steps = train_steps * args.iterations;
-	let run_id = format!("{}:g{}:s{}/{}x{}", args.generation, args.games, args.sims, args.size, args.size);
+	let hide_label = if args.hide { "hide" } else { "show" };
+	let run_id = format!("{}:g{}:s{}/{}x{}_{}", args.generation, args.games, args.sims, args.size, args.size, hide_label);
 	let data_dir = xdg_cache_dir(&format!("{run_id}/training_data"));
 	let models_out = xdg_cache_dir(&format!("{run_id}/models"));
 
@@ -101,6 +105,9 @@ fn main() {
 		}
 		if args.force_cpu {
 			selfplay_cmd.arg("--force-cpu");
+		}
+		if args.hide {
+			selfplay_cmd.arg("--hide");
 		}
 		let sp_start = Instant::now();
 		run_or_die(&mut selfplay_cmd, "selfplay");

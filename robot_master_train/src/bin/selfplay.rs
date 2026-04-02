@@ -52,6 +52,9 @@ struct Args {
 	/// --model (rollout path is always CPU).
 	#[arg(long)]
 	force_cpu: bool,
+	/// Hide opponent's hand (information-hidden mode).
+	#[arg(long)]
+	hide: bool,
 }
 
 fn main() {
@@ -93,7 +96,8 @@ fn run_nn(args: &Args, config: &GumbelConfig, model_path: &str, timestamp: u64) 
 			let init_elapsed = init_start.elapsed().as_secs_f64();
 			let game_start = Instant::now();
 			let mut rng = SmallRng::seed_from_u64(42);
-			let game_batches = play_games_batched::<$N, _, _>(args.games as usize, &evaluator, config, &mut rng, args.batch_size as usize);
+			let game_config = GameConfig { size: $N, hide: args.hide };
+			let game_batches = play_games_batched::<$N, _, _>(args.games as usize, &evaluator, config, &mut rng, args.batch_size as usize, game_config);
 			let mut total = 0u32;
 			let mut games_done = 0u32;
 			for samples in game_batches {
@@ -141,12 +145,9 @@ fn run_nn_sequential(args: &Args, config: &GumbelConfig, model_path: &str, times
 				let mut rng = SmallRng::seed_from_u64(42 + thread_id as u64);
 				let mut thread_samples = 0u32;
 
+				let game_config = GameConfig { size: $N, hide: args.hide };
 				for _ in 0..games_per_thread {
-					let s = GameState::<$N>::new(
-						GameConfig { size: $N, ..GameConfig::default() },
-						&mut rng,
-						[PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)],
-					);
+					let s = GameState::<$N>::new(game_config, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 					let samples = play_game(&s, &evaluator, config, &mut rng);
 					for sample in &samples {
 						file.write_all(&sample.to_bytes()).expect("write failed");
@@ -195,34 +196,22 @@ fn run_rollout(args: &Args, config: &GumbelConfig, timestamp: u64, start: &Insta
 		for _ in 0..games_per_thread {
 			let samples = match args.size {
 				5 => {
-					let s = GameState::<5>::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
+					let s = GameState::<5>::new(GameConfig { size: 5, hide: args.hide }, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 					let ev: Box<dyn Evaluator<5>> = Box::new(RolloutEval::new(Rollout {}));
 					play_game(&s, &ev, config, &mut rng)
 				}
 				7 => {
-					let s = GameState::<7>::new(
-						GameConfig { size: 7, ..GameConfig::default() },
-						&mut rng,
-						[PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)],
-					);
+					let s = GameState::<7>::new(GameConfig { size: 7, hide: args.hide }, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 					let ev: Box<dyn Evaluator<7>> = Box::new(RolloutEval::new(Rollout {}));
 					play_game(&s, &ev, config, &mut rng)
 				}
 				9 => {
-					let s = GameState::<9>::new(
-						GameConfig { size: 9, ..GameConfig::default() },
-						&mut rng,
-						[PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)],
-					);
+					let s = GameState::<9>::new(GameConfig { size: 9, hide: args.hide }, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 					let ev: Box<dyn Evaluator<9>> = Box::new(RolloutEval::new(Rollout {}));
 					play_game(&s, &ev, config, &mut rng)
 				}
 				11 => {
-					let s = GameState::<11>::new(
-						GameConfig { size: 11, ..GameConfig::default() },
-						&mut rng,
-						[PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)],
-					);
+					let s = GameState::<11>::new(GameConfig { size: 11, hide: args.hide }, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 					let ev: Box<dyn Evaluator<11>> = Box::new(RolloutEval::new(Rollout {}));
 					play_game(&s, &ev, config, &mut rng)
 				}

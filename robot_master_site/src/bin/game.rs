@@ -11,10 +11,14 @@ fn main() {
 		PlayerKind {
 			inner: InnerKind::ManualPlayer(ManualPlayer::default()),
 			sims: None,
+			constrain_sizes: None,
+			constrain_hide: None,
 		},
 		PlayerKind {
 			inner: InnerKind::RandomPlayer(Default::default()),
 			sims: None,
+			constrain_sizes: None,
+			constrain_hide: None,
 		},
 		true,
 		std::path::PathBuf::new(),

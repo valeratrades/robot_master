@@ -222,6 +222,8 @@ fn build_candidates(ratings: &HashMap<Ustr, Rating>) -> Vec<(String, PlayerKind)
 					kinds.push(PlayerKind {
 						inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: s.to_string() }),
 						sims: None,
+						constrain_sizes: None,
+						constrain_hide: None,
 					});
 				},
 		}
@@ -404,6 +406,8 @@ fn button_system(
 							init.p2 = PlayerKind {
 								inner: InnerKind::RandomPlayer(RandomPlayer::default()),
 								sims: None,
+								constrain_sizes: None,
+								constrain_hide: None,
 							};
 							for (label, mut text) in &mut label_query {
 								if label.0 == 1 {
@@ -493,6 +497,8 @@ fn search_system(
 			Some(PlayerKind {
 				inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: query_str.clone() }),
 				sims: None,
+				constrain_sizes: None,
+				constrain_hide: None,
 			})
 		} else {
 			None

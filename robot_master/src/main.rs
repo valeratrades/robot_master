@@ -65,6 +65,8 @@ fn resolve_player(input: &str, auto_yes: bool) -> PlayerKind {
 		return PlayerKind {
 			inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: input.to_string() }),
 			sims: None,
+			constrain_sizes: None,
+			constrain_hide: None,
 		};
 	}
 
@@ -76,6 +78,8 @@ fn resolve_player(input: &str, auto_yes: bool) -> PlayerKind {
 		return PlayerKind {
 			inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: input.to_string() }),
 			sims: None,
+			constrain_sizes: None,
+			constrain_hide: None,
 		};
 	}
 

@@ -94,11 +94,16 @@ impl InnerKind {
 /// `sims = Some((Vanilla, n))` → wrap in vanilla UCT-MCTS with n simulations.
 /// `sims = Some((Gumbel, n))` → wrap in Gumbel Sequential Halving with n simulations.
 ///
-/// Display: `rollout`, `rollout|v800`, `rollout|g800`, `onnx:model_v5|g400`.
+/// Display: `rollout`, `rollout|v800`, `rollout|g800`, `onnx:model_v5|g400|s5|hh`.
+/// Constraint suffixes (only emitted if `Some`): `|s5,7` for sizes, `|hv`/`|hh` for hide mode.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlayerKind {
 	pub inner: InnerKind,
 	pub sims: Option<(SearchKind, u32)>,
+	/// `None` = all board sizes supported.
+	pub constrain_sizes: Option<Vec<u8>>,
+	/// `None` = both hide modes supported.
+	pub constrain_hide: Option<bool>,
 }
 impl PlayerKind {
 	pub fn is_manual(&self) -> bool {
@@ -113,16 +118,27 @@ impl PlayerKind {
 		ustr(&self.to_string())
 	}
 
+	pub fn supports(&self, config: &robot_master_core::game::GameConfig) -> bool {
+		self.constrain_sizes.as_ref().map_or(true, |s| s.contains(&config.size)) && self.constrain_hide.map_or(true, |h| h == config.hide)
+	}
+
 	/// All non-Manual inner variants unwrapped, plus common vanilla-MCTS-wrapped rollout sims.
 	pub fn defaults() -> Vec<PlayerKind> {
 		let mut out: Vec<PlayerKind> = InnerKind::iter()
 			.filter(|k| !k.is_manual() && !k.is_onnx())
-			.map(|inner| PlayerKind { inner, sims: None })
+			.map(|inner| PlayerKind {
+				inner,
+				sims: None,
+				constrain_sizes: None,
+				constrain_hide: None,
+			})
 			.collect();
 		for sims in [50, 200, 800] {
 			out.push(PlayerKind {
 				inner: InnerKind::Rollout(Rollout {}),
 				sims: Some((SearchKind::Vanilla, sims)),
+				constrain_sizes: None,
+				constrain_hide: None,
 			});
 		}
 		out
@@ -142,10 +158,18 @@ impl PlayerKind {
 impl std::fmt::Display for PlayerKind {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self.sims {
-			None => write!(f, "{}", self.inner),
-			Some((SearchKind::Vanilla, n)) => write!(f, "{}|v{n}", self.inner),
-			Some((SearchKind::Gumbel, n)) => write!(f, "{}|g{n}", self.inner),
+			None => write!(f, "{}", self.inner)?,
+			Some((SearchKind::Vanilla, n)) => write!(f, "{}|v{n}", self.inner)?,
+			Some((SearchKind::Gumbel, n)) => write!(f, "{}|g{n}", self.inner)?,
 		}
+		if let Some(sizes) = &self.constrain_sizes {
+			let s: Vec<String> = sizes.iter().map(|n| n.to_string()).collect();
+			write!(f, "|s{}", s.join(","))?;
+		}
+		if let Some(hide) = self.constrain_hide {
+			write!(f, "|h{}", if hide { "h" } else { "v" })?;
+		}
+		Ok(())
 	}
 }
 
@@ -153,27 +177,47 @@ impl std::str::FromStr for PlayerKind {
 	type Err = String;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		// Try stripping a trailing `|v<digits>` or `|g<digits>` suffix for sims.
-		let (base, sims) = if let Some(pos) = s.rfind('|') {
-			let suffix = &s[pos + 1..];
-			let (kind, digits) = if let Some(rest) = suffix.strip_prefix('v') {
-				(SearchKind::Vanilla, rest)
-			} else if let Some(rest) = suffix.strip_prefix('g') {
-				(SearchKind::Gumbel, rest)
+		// Split on `|` and parse each suffix token after the first (base) segment.
+		// Base may itself contain `:` (e.g. `onnx:stem`), never `|`.
+		let parts: Vec<&str> = s.split('|').collect();
+		let base = parts[0];
+		let inner = base.parse::<InnerKind>().map_err(|_| s.to_string())?;
+
+		let mut sims: Option<(SearchKind, u32)> = None;
+		let mut constrain_sizes: Option<Vec<u8>> = None;
+		let mut constrain_hide: Option<bool> = None;
+
+		for tok in &parts[1..] {
+			if let Some(rest) = tok.strip_prefix('v') {
+				if rest.is_empty() || !rest.chars().all(|c| c.is_ascii_digit()) {
+					return Err(s.to_string());
+				}
+				let n: u32 = rest.parse().map_err(|e: std::num::ParseIntError| e.to_string())?;
+				sims = Some((SearchKind::Vanilla, n));
+			} else if let Some(rest) = tok.strip_prefix('g') {
+				if rest.is_empty() || !rest.chars().all(|c| c.is_ascii_digit()) {
+					return Err(s.to_string());
+				}
+				let n: u32 = rest.parse().map_err(|e: std::num::ParseIntError| e.to_string())?;
+				sims = Some((SearchKind::Gumbel, n));
+			} else if let Some(rest) = tok.strip_prefix('s') {
+				let sizes: Result<Vec<u8>, _> = rest.split(',').map(|n| n.parse::<u8>()).collect();
+				constrain_sizes = Some(sizes.map_err(|e: std::num::ParseIntError| e.to_string())?);
+			} else if *tok == "hh" {
+				constrain_hide = Some(true);
+			} else if *tok == "hv" {
+				constrain_hide = Some(false);
 			} else {
 				return Err(s.to_string());
-			};
-			if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
-				return Err(s.to_string());
 			}
-			let n: u32 = digits.parse().map_err(|e| format!("{e}"))?;
-			(&s[..pos], Some((kind, n)))
-		} else {
-			(s, None)
-		};
+		}
 
-		let inner = base.parse::<InnerKind>().map_err(|_| s.to_string())?;
-		Ok(Self { inner, sims })
+		Ok(Self {
+			inner,
+			sims,
+			constrain_sizes,
+			constrain_hide,
+		})
 	}
 }
 

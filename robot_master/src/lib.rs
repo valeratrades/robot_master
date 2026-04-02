@@ -41,27 +41,22 @@ macro_rules! algo_move_dispatch {
 		use robot_master_arena::player::Bot;
 		use robot_master_core::{
 			cards::Hand,
-			game::{GameConfig, GameState, Player},
+			game::{GameState, Player},
 			python::board_from_plateau,
 		};
 
 		let n = $plateau.len();
 		let turn = if $joueuse_active % 2 == 0 { Player::A } else { Player::B };
-		let config = GameConfig { size: n as u8 };
 
 		macro_rules! go {
 			($N: literal) => {{
 				let hand = Hand::<$N>::from(&$dico_main);
 				let board = board_from_plateau::<$N>(&$plateau)?;
-				let state = GameState {
-					board,
-					hands: match turn {
-						Player::A => [hand, Hand::default()],
-						Player::B => [Hand::default(), hand],
-					},
-					turn,
-					config,
+				let hands = match turn {
+					Player::A => [hand, Hand::default()],
+					Player::B => [Hand::default(), hand],
 				};
+				let state = GameState::from_parts(board, hands, turn);
 				let m = $player.choose_move(&state);
 				Ok((m.card.0, m.pos.row, m.pos.col))
 			}};

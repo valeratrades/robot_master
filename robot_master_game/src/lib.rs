@@ -50,10 +50,14 @@ pub fn create_app() -> App {
 		p1: PlayerKind {
 			inner: InnerKind::ManualPlayer(ManualPlayer::default()),
 			sims: None,
+			constrain_sizes: None,
+			constrain_hide: None,
 		},
 		p2: PlayerKind {
 			inner: InnerKind::RandomPlayer(RandomPlayer::default()),
 			sims: None,
+			constrain_sizes: None,
+			constrain_hide: None,
 		},
 		size: BoardSize::DEFAULT,
 		hide: false,

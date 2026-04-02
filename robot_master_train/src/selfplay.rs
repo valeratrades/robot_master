@@ -87,7 +87,7 @@ where
 /// - `evaluate_batch` is called at most once per loop iteration.
 /// - The total number of NN calls equals (root evals + leaf evals) × total_games,
 ///   same as the sequential path — just batched differently.
-pub fn play_games_batched<const N: usize, E, R>(total_games: usize, evaluator: &E, config: &GumbelConfig, rng: &mut R, batch_size: usize) -> Vec<Vec<Sample>>
+pub fn play_games_batched<const N: usize, E, R>(total_games: usize, evaluator: &E, config: &GumbelConfig, rng: &mut R, batch_size: usize, game_config: GameConfig) -> Vec<Vec<Sample>>
 where
 	E: Evaluator<N>,
 	R: Rng,
@@ -103,7 +103,7 @@ where
 		if games_started >= total_games {
 			break;
 		}
-		*slot = Some(GameInFlight::new(rng));
+		*slot = Some(GameInFlight::new(rng, game_config));
 		games_started += 1;
 	}
 
@@ -176,7 +176,7 @@ where
 					let samples = slot.take().unwrap().finish();
 					completed.push(samples);
 					if games_started < total_games {
-						*slot = Some(GameInFlight::new(rng));
+						*slot = Some(GameInFlight::new(rng, game_config));
 						games_started += 1;
 					}
 				}
@@ -237,15 +237,8 @@ where
 	[(); N * N]:,
 	[(); N + 1]:,
 {
-	fn new(rng: &mut impl Rng) -> Self {
-		let game = GameState::<N>::new(
-			GameConfig {
-				size: N as u8,
-				..GameConfig::default()
-			},
-			rng,
-			[PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)],
-		);
+	fn new(rng: &mut impl Rng, game_config: GameConfig) -> Self {
+		let game = GameState::<N>::new(game_config, rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let state = game.clone();
 		Self {
 			phase: GamePhase::NeedsRootEval { state },

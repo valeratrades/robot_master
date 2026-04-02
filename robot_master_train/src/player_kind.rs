@@ -13,7 +13,8 @@ use crate::{
 ///
 /// `models_dir` is used to resolve `.onnx` paths for `OnnxPlayer`.
 /// Returns `Err` if an ONNX model fails to load.
-#[deprecated(note = "can this not be moved as a method on [PlayerKind] itself? If it's structurally impossible, - why?")]
+// Structurally impossible to move onto PlayerKind: this fn needs NnEval/VanillaMcts/GumbelMcts
+// from this crate, but PlayerKind lives in robot_master_arena which cannot depend on robot_master_train.
 pub fn kind_into_bot<const N: usize>(kind: &PlayerKind, models_dir: &std::path::Path) -> Result<Box<dyn Bot<N>>, String>
 where
 	[(); N * N]:,

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use pyo3::{exceptions::PyValueError, prelude::*};
+use pyo3::{exceptions::PyValueError, prelude::*, types::PyAny};
 use rand::{rngs::SmallRng, seq::IteratorRandom};
 
 use crate::{
@@ -135,8 +135,8 @@ pub fn new_pile_cartes(dico_options: Option<HashMap<String, i64>>) -> Vec<u8> {
 /// Distribute cards: returns [center_card, hand1_list, hand2_list, ...].
 #[pyfunction]
 #[pyo3(signature = (pile_cartes, dico_options = None))]
-pub fn distribution_cartes(pile_cartes: Vec<u8>, dico_options: Option<HashMap<String, i64>>) -> Vec<PyObject> {
-	Python::with_gil(|py| {
+pub fn distribution_cartes(pile_cartes: Vec<u8>, dico_options: Option<HashMap<String, i64>>) -> Vec<Py<PyAny>> {
+	Python::try_attach(|py| {
 		let opts = dico_options.unwrap_or_default();
 		let nb_j = opts.get("nbJ").copied().unwrap_or(2) as usize;
 		//HACK: apparently in IA_test.py they try to force different number of cards. So uhh, gotta support that bullshit
@@ -147,7 +147,7 @@ pub fn distribution_cartes(pile_cartes: Vec<u8>, dico_options: Option<HashMap<St
 			(taille * taille - 1) / 2
 		};
 
-		let mut result: Vec<PyObject> = Vec::new();
+		let mut result: Vec<Py<PyAny>> = Vec::new();
 		// first element: center card (scalar int)
 		result.push(pile_cartes[0].into_pyobject(py).unwrap().into_any().unbind());
 		// then one hand list per player (as list[int], not bytes)
@@ -159,6 +159,7 @@ pub fn distribution_cartes(pile_cartes: Vec<u8>, dico_options: Option<HashMap<St
 		}
 		result
 	})
+	.expect("Python interpreter not available")
 }
 /// Convert card list to frequency dict {card_value: count}, all values 0..=maxC present.
 #[pyfunction]
@@ -274,6 +275,7 @@ pub fn random_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: HashMap<u8, u8>,
 pub fn config_from_options(opts: &HashMap<String, i64>) -> GameConfig {
 	GameConfig {
 		size: opts.get("taille").copied().unwrap_or(5) as u8,
+		hide: false,
 	}
 }
 
