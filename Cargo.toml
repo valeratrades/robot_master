@@ -41,7 +41,7 @@ strum = { version = "0.28", features = ["derive"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 ustr = { version = "1", features = ["serde"] }
-uuid = "^1.23.0"
+uuid = { version = "^1.23.0", features = ["v4"] }
 v_utils = { version = "^2.15", features = ["macros", "cli"] }
 
 [profile.wasm-release]

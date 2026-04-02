@@ -5,7 +5,7 @@ use std::{
 
 use rand::{Rng, RngExt, SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
-use robot_master_core::game::{GameConfig, GameState};
+use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
 use ustr::Ustr;
 use v_utils::io::ProgressBar;
 
@@ -509,7 +509,7 @@ where
 	[(); N * N]:,
 	[(); N + 1]:, {
 	let mut rng = SmallRng::seed_from_u64(seed);
-	let game = GameState::<N>::new(config, &mut rng);
+	let game = GameState::<N>::new(config, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 	let p1 = factory.create(p1_id);
 	let p2 = factory.create(p2_id);
 	Match::new(game, p1, p2, p1_id, p2_id).run()

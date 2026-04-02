@@ -111,7 +111,8 @@ where
 			}
 		}
 	}
-	let own_hand = &game.hands[player.index() as usize];
+	let hands = game.hands().expect("sadist does not support hidden hands");
+	let own_hand = hands[player.index() as usize];
 	let mut remaining = [0u8; MAX_BOARD_SIZE + 1];
 	for v in 0..=N {
 		let in_hand = own_hand.count(CardValue(v as u8));

@@ -4,7 +4,7 @@ pub use board_game::board::Player;
 use board_game::board::{BoardDone, BoardMoves, BoardSymmetry, PlayError};
 use internal_iterator::InternalIterator;
 use rand::Rng;
-use secrecy::{ExposeSecret as _, SecretString};
+use uuid::Uuid;
 
 use crate::{
 	board::{Board, Pos},
@@ -79,30 +79,51 @@ where
 
 	hands: [Hand<N>; 2],
 	hide: bool,
-	player_secrets: [SecretString; 2],
+	player_secrets: [Uuid; 2],
 }
-impl PartialEq for GameState<const N: usize> {
+
+impl<const N: usize> PartialEq for GameState<N>
+where
+	[(); N * N]:,
+	[(); N + 1]:,
+{
 	fn eq(&self, other: &Self) -> bool {
 		self.board == other.board && self.turn == other.turn && self.hands == other.hands
 	}
 }
 
-#[derive(Clone, Debug, derive_more::Deref)]
-pub struct PlayerSigned {
-	#[deref]
-	pub player: Player,
-	secret: SecretString = SecretString::new(Uuid::new_v7()),
+impl<const N: usize> Eq for GameState<N>
+where
+	[(); N * N]:,
+	[(); N + 1]:,
+{
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct PlayerSigned {
+	pub player: Player,
+	secret: Uuid,
+}
+
 impl PlayerSigned {
-	pub fn new(player: Player) {
-		Self { player, ..Default::default() }
+	pub fn new(player: Player) -> Self {
+		Self { player, secret: Uuid::new_v4() }
 	}
-	pub fn check(&self, key: SecretString) -> bool {
+
+	pub fn check(&self, key: Uuid) -> bool {
 		self.secret == key
 	}
 }
 
-#[derive(derive_more::Display, miette::Display, thiserror::Error)]
+impl std::ops::Deref for PlayerSigned {
+	type Target = Player;
+
+	fn deref(&self) -> &Player {
+		&self.player
+	}
+}
+
+#[derive(Debug, derive_more::Display, thiserror::Error)]
 pub enum GameError {
 	UnauthorizedHandLookup,
 }
@@ -134,23 +155,31 @@ where
 		}
 	}
 
-	pub fn hands(&self) -> Result<[Hand<N>;2], GameError> {
+	/// Construct a game with an explicit board + hands for use in tests.
+	/// Sets `hide = false` and fills `player_secrets` with zeroed UUIDs.
+	pub fn from_parts(board: Board<N>, hands: [Hand<N>; 2], turn: Player) -> Self {
+		Self {
+			board,
+			hands,
+			hide: false,
+			turn,
+			player_secrets: [Uuid::nil(), Uuid::nil()],
+		}
+	}
+
+	pub fn hands(&self) -> Result<[Hand<N>; 2], GameError> {
 		match self.hide {
 			true => Err(GameError::UnauthorizedHandLookup),
 			false => Ok(self.hands),
 		}
 	}
 
-	pub fn hand_signed(&self, player: Player, key: SecretString) -> Result<Hand<N>, GameError> {
-		let player_idx = match *player {
-			Player::A => 0,
-			Player::B => 1,
-		};
+	pub fn hand_signed(&self, player: Player, key: Uuid) -> Result<Hand<N>, GameError> {
+		let player_idx = player.index() as usize;
 		if !self.hide {
-			return Ok(self.hands[player_idx])
+			return Ok(self.hands[player_idx]);
 		}
-		//Q: does .expose_secret() get optimized, knowing that secrets don't change, or should I forego pure secrecy, and just imply it with simple privately stored ids?
-		match self.player_secrets[player_idx].expose_secret() == key.expose_secret() {
+		match self.player_secrets[player_idx] == key {
 			true => Ok(self.hands[player_idx]),
 			false => Err(GameError::UnauthorizedHandLookup),
 		}
@@ -342,7 +371,7 @@ mod tests {
 
 	fn state5() -> GameState<5> {
 		let mut rng = SmallRng::seed_from_u64(7);
-		GameState::new(GameConfig::default(), &mut rng)
+		GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)])
 	}
 
 	#[test]
@@ -397,7 +426,7 @@ mod tests {
 	fn play_card_not_in_hand() {
 		use board_game::board::Board as _;
 		let mut rng = SmallRng::seed_from_u64(7);
-		let mut s: GameState<5> = GameState::new(GameConfig::default(), &mut rng);
+		let mut s: GameState<5> = GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		while s.hands[0].count(CardValue(5)) > 0 {
 			s.hands[0].take(CardValue(5));
 		}

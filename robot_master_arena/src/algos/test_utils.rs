@@ -17,14 +17,11 @@ pub(super) mod fixtures {
 				}
 			}
 		}
-		GameState {
-			board,
-			hands: match turn {
-				Player::A => [hand, Hand::default()],
-				Player::B => [Hand::default(), hand],
-			},
-			turn,
-		}
+		let hands = match turn {
+			Player::A => [hand, Hand::default()],
+			Player::B => [Hand::default(), hand],
+		};
+		GameState::from_parts(board, hands, turn)
 	}
 
 	pub fn hand(pairs: &[(u8, u8)]) -> Hand<5> {
@@ -92,15 +89,11 @@ pub(super) mod fixtures {
 			if h.is_empty() {
 				break;
 			}
-			let state = GameState {
-				board,
-				hands: match turn {
-					Player::A => [h, Hand::default()],
-					Player::B => [Hand::default(), h],
-				},
-				turn,
-				config: GameConfig::default(),
+			let hands = match turn {
+				Player::A => [h, Hand::default()],
+				Player::B => [Hand::default(), h],
 			};
+			let state = GameState::from_parts(board, hands, turn);
 			let m = bot.choose_move(&state);
 			let prev = board;
 			board.set(m.pos, m.card.0);

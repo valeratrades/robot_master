@@ -13,7 +13,7 @@ use clap::Parser;
 use rand::{SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
 use robot_master_arena::algos::rollout::Rollout;
-use robot_master_core::game::{GameConfig, GameState};
+use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
 use robot_master_train::{
 	gumbel::GumbelConfig,
 	mcts::{Evaluator, RolloutEval},
@@ -145,6 +145,7 @@ fn run_nn_sequential(args: &Args, config: &GumbelConfig, model_path: &str, times
 					let s = GameState::<$N>::new(
 						GameConfig { size: $N, ..GameConfig::default() },
 						&mut rng,
+						[PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)],
 					);
 					let samples = play_game(&s, &evaluator, config, &mut rng);
 					for sample in &samples {
@@ -194,22 +195,34 @@ fn run_rollout(args: &Args, config: &GumbelConfig, timestamp: u64, start: &Insta
 		for _ in 0..games_per_thread {
 			let samples = match args.size {
 				5 => {
-					let s = GameState::<5>::new(GameConfig::default(), &mut rng);
+					let s = GameState::<5>::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 					let ev: Box<dyn Evaluator<5>> = Box::new(RolloutEval::new(Rollout {}));
 					play_game(&s, &ev, config, &mut rng)
 				}
 				7 => {
-					let s = GameState::<7>::new(GameConfig { size: 7, ..GameConfig::default() }, &mut rng);
+					let s = GameState::<7>::new(
+						GameConfig { size: 7, ..GameConfig::default() },
+						&mut rng,
+						[PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)],
+					);
 					let ev: Box<dyn Evaluator<7>> = Box::new(RolloutEval::new(Rollout {}));
 					play_game(&s, &ev, config, &mut rng)
 				}
 				9 => {
-					let s = GameState::<9>::new(GameConfig { size: 9, ..GameConfig::default() }, &mut rng);
+					let s = GameState::<9>::new(
+						GameConfig { size: 9, ..GameConfig::default() },
+						&mut rng,
+						[PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)],
+					);
 					let ev: Box<dyn Evaluator<9>> = Box::new(RolloutEval::new(Rollout {}));
 					play_game(&s, &ev, config, &mut rng)
 				}
 				11 => {
-					let s = GameState::<11>::new(GameConfig { size: 11, ..GameConfig::default() }, &mut rng);
+					let s = GameState::<11>::new(
+						GameConfig { size: 11, ..GameConfig::default() },
+						&mut rng,
+						[PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)],
+					);
 					let ev: Box<dyn Evaluator<11>> = Box::new(RolloutEval::new(Rollout {}));
 					play_game(&s, &ev, config, &mut rng)
 				}

@@ -15,7 +15,7 @@ use board_game::board::{Board as _, Outcome};
 use rand::{SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
 use robot_master_arena::player::Bot;
-use robot_master_core::game::{GameConfig, GameState, Player};
+use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
 use robot_master_train::{
 	gumbel::{GumbelBot, GumbelConfig},
 	nn_eval::NnEval,
@@ -87,7 +87,7 @@ fn play_game_5(player_a_model: &str, player_b_model: &str, sims: u32, rng: &mut 
 	};
 	let mut bot_a = GumbelBot::new(NnEval::new(player_a_model, 5, false).expect("failed to load player A model"), make_config());
 	let mut bot_b = GumbelBot::new(NnEval::new(player_b_model, 5, false).expect("failed to load player B model"), make_config());
-	let mut state = GameState::<5>::new(GameConfig::default(), rng);
+	let mut state = GameState::<5>::new(GameConfig::default(), rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 
 	while state.outcome().is_none() {
 		let mv = if state.turn == Player::A { bot_a.choose_move(&state) } else { bot_b.choose_move(&state) };

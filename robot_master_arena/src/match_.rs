@@ -270,7 +270,8 @@ where
 	}
 
 	fn hands(&self) -> [Vec<u8>; 2] {
-		[self.game.hands[0].to_counts_vec(), self.game.hands[1].to_counts_vec()]
+		let hands = self.game.hands().expect("match hands called in hidden game");
+		[hands[0].to_counts_vec(), hands[1].to_counts_vec()]
 	}
 
 	fn next(&mut self, external_move: Option<Move>) -> ControlFlow<MatchResult> {
@@ -288,7 +289,7 @@ where
 #[cfg(test)]
 mod tests {
 	use rand::{SeedableRng, rngs::SmallRng, seq::IteratorRandom};
-	use robot_master_core::game::GameConfig;
+	use robot_master_core::game::{GameConfig, Player, PlayerSigned};
 	use ustr::ustr;
 
 	use super::*;
@@ -303,7 +304,7 @@ mod tests {
 	#[test]
 	fn match_runs_to_completion() {
 		let mut rng = SmallRng::seed_from_u64(42);
-		let game = GameState::new(GameConfig::default(), &mut rng);
+		let game = GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let p1 = DummyRandom(SmallRng::seed_from_u64(1));
 		let p2 = DummyRandom(SmallRng::seed_from_u64(2));
 		let m = Match::new(game, p1, p2, ustr("p1"), ustr("p2"));
@@ -315,7 +316,7 @@ mod tests {
 	#[test]
 	fn match_next_step_by_step() {
 		let mut rng = SmallRng::seed_from_u64(42);
-		let game = GameState::new(GameConfig::default(), &mut rng);
+		let game = GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let p1 = DummyRandom(SmallRng::seed_from_u64(1));
 		let p2 = DummyRandom(SmallRng::seed_from_u64(2));
 		let mut m = Match::new(game, p1, p2, ustr("p1"), ustr("p2"));

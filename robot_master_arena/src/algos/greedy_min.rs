@@ -27,7 +27,8 @@ where
 {
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		let turn = game.turn;
-		let hand = &game.hands[turn.index() as usize];
+		let hands = game.hands().expect("greedy_min does not support hidden hands");
+		let hand = &hands[turn.index() as usize];
 		let board = &game.board;
 
 		let mut best_scores: Option<Vec<u16>> = None;

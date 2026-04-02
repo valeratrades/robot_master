@@ -14,7 +14,7 @@ use robot_master_arena::{
 use robot_master_core::{
 	board::{Board, Pos},
 	cards::{CardValue, Hand},
-	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
+	game::{GameConfig, GameState, Move, Player, PlayerDisplay, PlayerSigned},
 };
 use robot_master_train::player_kind::kind_into_bot;
 
@@ -137,7 +137,7 @@ fn run_sized<const N: usize>(
 ) where
 	[(); N * N]:,
 	[(); N + 1]:, {
-	let game: GameState<N> = GameState::new(config, rng);
+	let game: GameState<N> = GameState::new(config, rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 
 	let p1_display = format!("{p1_kind} ({})", PlayerDisplay(Player::A));
 	let p2_display = format!("{p2_kind} ({})", PlayerDisplay(Player::B));
@@ -175,7 +175,8 @@ fn run_sized<const N: usize>(
 		}
 
 		let external_move = if is_manual {
-			let hand = &game.hands[game.turn.index() as usize];
+			let hands = game.hands().expect("tui does not support hidden hands");
+			let hand = &hands[game.turn.index() as usize];
 			Some(read_manual_move(&game.board, hand, current_name, stdout, stdin))
 		} else {
 			None

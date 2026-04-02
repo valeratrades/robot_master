@@ -1,6 +1,6 @@
 use board_game::board::{Board as _, Outcome};
 use rand::Rng;
-use robot_master_core::game::{GameConfig, GameState, Player};
+use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
 
 use crate::{
 	encoding::{action_index, action_size, encode_planes, encode_sample},
@@ -238,7 +238,14 @@ where
 	[(); N + 1]:,
 {
 	fn new(rng: &mut impl Rng) -> Self {
-		let game = GameState::<N>::new(GameConfig { size: N as u8 }, rng);
+		let game = GameState::<N>::new(
+			GameConfig {
+				size: N as u8,
+				..GameConfig::default()
+			},
+			rng,
+			[PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)],
+		);
 		let state = game.clone();
 		Self {
 			phase: GamePhase::NeedsRootEval { state },
@@ -340,7 +347,7 @@ where
 mod tests {
 	use rand::{SeedableRng, rngs::SmallRng};
 	use robot_master_arena::algos::rollout::Rollout;
-	use robot_master_core::game::{GameConfig, GameState};
+	use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
 
 	use super::*;
 	use crate::{
@@ -360,7 +367,7 @@ mod tests {
 	#[test]
 	fn play_game_produces_correct_sample_count() {
 		let mut rng = SmallRng::seed_from_u64(7);
-		let state = GameState::<5>::new(GameConfig::default(), &mut rng);
+		let state = GameState::<5>::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let evaluator = RolloutEval::new(Rollout {});
 
 		let samples = play_game(&state, &evaluator, &config(8), &mut rng);
@@ -371,7 +378,7 @@ mod tests {
 	#[test]
 	fn play_game_sample_shapes() {
 		let mut rng = SmallRng::seed_from_u64(99);
-		let state = GameState::<5>::new(GameConfig::default(), &mut rng);
+		let state = GameState::<5>::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let evaluator = RolloutEval::new(Rollout {});
 
 		let samples = play_game(&state, &evaluator, &config(4), &mut rng);

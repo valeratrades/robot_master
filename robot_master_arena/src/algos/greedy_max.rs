@@ -25,7 +25,8 @@ where
 {
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		let turn = game.turn;
-		let hand = &game.hands[turn.index() as usize];
+		let hands = game.hands().expect("greedy_max does not support hidden hands");
+		let hand = &hands[turn.index() as usize];
 		let board = &game.board;
 
 		let lines: Vec<_> = (0..N).map(|i| line_counts(&board.line(turn, i))).collect();

@@ -60,8 +60,9 @@ where
 
 	let current_idx = state.turn.index() as usize;
 	let opponent_idx = 1 - current_idx;
-	let hand_cur = &state.hands[current_idx];
-	let hand_opp = &state.hands[opponent_idx];
+	let hands = state.hands().expect("encoding requires visible hands");
+	let hand_cur = &hands[current_idx];
+	let hand_opp = &hands[opponent_idx];
 
 	// broadcast: fill entire plane with 1.0
 	let fill_plane = |planes: &mut Vec<f32>, ch: usize| {
@@ -124,13 +125,13 @@ pub fn encode_sample(state_planes: &[f32], policy: &[f32], value: f32) -> Vec<u8
 #[cfg(test)]
 mod tests {
 	use rand::{SeedableRng, rngs::SmallRng};
-	use robot_master_core::game::{GameConfig, GameState};
+	use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
 
 	use super::*;
 
 	fn state5() -> GameState<5> {
 		let mut rng = SmallRng::seed_from_u64(42);
-		GameState::new(GameConfig::default(), &mut rng)
+		GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)])
 	}
 
 	#[test]

@@ -23,6 +23,9 @@ pub struct PlayerArgs {
 	/// Board size (5, 7, 9, or 11)
 	#[arg(short = 's', long, default_value = "5")]
 	pub size: BoardSize,
+	/// Hide opponent's hand (information-hidden mode)
+	#[arg(long, default_value = "false")]
+	pub hide: bool,
 	/// Directory containing .onnx model files
 	#[arg(long, default_value = "./models")]
 	pub models_dir: std::path::PathBuf,

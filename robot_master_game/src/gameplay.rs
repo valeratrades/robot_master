@@ -9,7 +9,7 @@ use robot_master_arena::{
 use robot_master_core::{
 	board::{EMPTY, Pos},
 	cards::CardValue,
-	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
+	game::{GameConfig, GameState, Move, Player, PlayerDisplay, PlayerSigned},
 };
 use robot_master_train::player_kind::kind_into_bot;
 use v_utils::bevy::{ModalActionFired, ModalState, PressedChars};
@@ -93,15 +93,15 @@ struct Warning {
 }
 
 /// Helper: create a `Box<dyn DynMatch>` for the given board size.
-fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind, models_dir: &std::path::Path) -> Box<dyn DynMatch + Send + Sync> {
+fn make_match(size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, models_dir: &std::path::Path) -> Box<dyn DynMatch + Send + Sync> {
 	let mut rng: rand::rngs::SmallRng = rand::make_rng();
-	let config = GameConfig { size: size.into() };
+	let config = GameConfig { size: size.into(), hide };
 	let p1_id = p1.id();
 	let p2_id = p2.id();
 
 	macro_rules! go {
 		($N:literal) => {{
-			let game = GameState::<$N>::new(config, &mut rng);
+			let game = GameState::<$N>::new(config, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 			let p1 = kind_into_bot::<$N>(&p1, models_dir).unwrap_or_else(|e| panic!("{e}"));
 			let p2 = kind_into_bot::<$N>(&p2, models_dir).unwrap_or_else(|e| panic!("{e}"));
 			Box::new(Match::new(game, p1, p2, p1_id, p2_id))
@@ -137,7 +137,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 	let p2_kind = init.p2.clone();
 	let models_dir = init.models_dir.clone();
 
-	let m = make_match(size, p1_kind.clone(), p2_kind.clone(), &models_dir);
+	let m = make_match(size, init.hide, p1_kind.clone(), p2_kind.clone(), &models_dir);
 
 	// Snapshot initial state before handing ownership to the resource.
 	let hands = m.hands();

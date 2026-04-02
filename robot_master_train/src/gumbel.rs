@@ -586,7 +586,7 @@ where
 mod tests {
 	use rand::{SeedableRng, rngs::SmallRng};
 	use robot_master_arena::algos::rollout::Rollout;
-	use robot_master_core::game::{GameConfig, GameState};
+	use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
 
 	use super::*;
 	use crate::mcts::RolloutEval;
@@ -594,7 +594,7 @@ mod tests {
 	#[test]
 	fn gumbel_returns_legal_move() {
 		let mut rng = SmallRng::seed_from_u64(42);
-		let state = GameState::<5>::new(GameConfig::default(), &mut rng);
+		let state = GameState::<5>::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let evaluator = RolloutEval::new(Rollout {});
 		let config = GumbelConfig::default();
 
@@ -606,7 +606,7 @@ mod tests {
 	#[test]
 	fn gumbel_policy_target_sums_to_one() {
 		let mut rng = SmallRng::seed_from_u64(7);
-		let state = GameState::<5>::new(GameConfig::default(), &mut rng);
+		let state = GameState::<5>::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let evaluator = RolloutEval::new(Rollout {});
 		let config = GumbelConfig {
 			n_simulations: 8,

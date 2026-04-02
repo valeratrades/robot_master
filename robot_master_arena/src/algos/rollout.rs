@@ -88,7 +88,8 @@ where
 	[(); N + 1]:, {
 	let fmin = analysis.finished_min.expect("target_weak called without finished lines");
 	let player = game.turn;
-	let hand = &game.hands[player.index() as usize];
+	let hands = game.hands().expect("rollout does not support hidden hands");
+	let hand = hands[player.index() as usize];
 	let board = &game.board;
 
 	let target_lines: Vec<usize> = analysis.lines.iter().filter(|l| !l.2 && l.1 < fmin).map(|l| l.0).collect();
@@ -179,14 +180,14 @@ mod tests {
 	use board_game::board::Board as _;
 	use insta::assert_snapshot;
 	use rand::{SeedableRng, rngs::SmallRng};
-	use robot_master_core::game::{GameConfig, GameState};
+	use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
 
 	use super::{super::test_utils::fixtures::*, *};
 
 	#[test]
 	fn rollout_returns_legal_move() {
 		let mut rng = SmallRng::seed_from_u64(42);
-		let state: GameState<5> = GameState::new(GameConfig::default(), &mut rng);
+		let state: GameState<5> = GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let mv = Rollout {}.choose_move(&state);
 		assert!(state.valid_moves().any(|m| m == mv), "illegal move: {mv}");
 	}
@@ -194,7 +195,7 @@ mod tests {
 	#[test]
 	fn rollout_plays_full_game() {
 		let mut rng = SmallRng::seed_from_u64(42);
-		let mut state: GameState<5> = GameState::new(GameConfig::default(), &mut rng);
+		let mut state: GameState<5> = GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let mut bot = Rollout {};
 
 		while state.outcome().is_none() {

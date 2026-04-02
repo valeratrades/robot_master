@@ -21,9 +21,9 @@ use v_utils::io::ProgressBar;
 
 use crate::config::{ArenaCommands, PlayersCommands, TourneyMode};
 
-pub fn run(players_filter: Vec<String>, models_dir: std::path::PathBuf, command: ArenaCommands, size: BoardSize, rating_db: Arc<dyn RatingDb>, auto_yes: bool) {
+pub fn run(players_filter: Vec<String>, models_dir: std::path::PathBuf, command: ArenaCommands, size: BoardSize, hide: bool, rating_db: Arc<dyn RatingDb>, auto_yes: bool) {
 	match command {
-		ArenaCommands::Tourney { mode } => run_tournament(players_filter, &models_dir, mode, size, rating_db),
+		ArenaCommands::Tourney { mode } => run_tournament(players_filter, &models_dir, mode, size, hide, rating_db),
 		ArenaCommands::Players { command } => run_players(players_filter, command, &models_dir, rating_db, auto_yes),
 	}
 }
@@ -124,7 +124,7 @@ where
 	kind_into_bot(kind, models_dir).unwrap_or_else(|e| die(miette::miette!("{e}")))
 }
 
-fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, rating_db: Arc<dyn RatingDb>) {
+fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, hide: bool, rating_db: Arc<dyn RatingDb>) {
 	let kinds = resolve_players(&players_filter, models_dir, rating_db.as_ref());
 	if kinds.len() < 2 {
 		die(NotEnoughPlayers { found: kinds.len() });
@@ -146,7 +146,7 @@ fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mod
 		eprintln!("  {kind}");
 	}
 
-	let config = GameConfig { size: size.into() };
+	let config = GameConfig { size: size.into(), hide };
 
 	let ratings_map = rating_db.load_ratings();
 	let ratings_f64: std::collections::HashMap<Ustr, f64> = ratings_map.iter().map(|(k, v)| (*k, v.rating)).collect();
