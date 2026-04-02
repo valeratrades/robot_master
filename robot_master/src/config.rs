@@ -99,6 +99,15 @@ pub enum TourneyMode {
 		#[arg(short, long, default_value = "0")]
 		threads: usize,
 	},
+	/// Round-robin: every player plays every other exactly once per sweep, repeat for N sweeps
+	RoundRobin {
+		/// Number of full round-robin sweeps to run
+		#[arg(default_value = "3")]
+		cycles: usize,
+		/// Number of threads (0 = all cores)
+		#[arg(short, long, default_value = "0")]
+		threads: usize,
+	},
 }
 
 #[derive(Subcommand)]

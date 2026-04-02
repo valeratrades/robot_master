@@ -168,6 +168,7 @@ fn run_tournament_no_priors(specs: Vec<String>, models_dir: &std::path::Path, mo
 		TourneyMode::Swiss { cycles, threads } => (format!("Swiss ({cycles} cycles)"), *threads),
 		TourneyMode::Rating { target_rounds, threads } => (format!("Rating ({target_rounds} rounds)"), *threads),
 		TourneyMode::Elimination { cycles, threads } => (format!("Elimination ({cycles} cycles)"), *threads),
+		TourneyMode::RoundRobin { cycles, threads } => (format!("Round-Robin ({cycles} sweeps)"), *threads),
 	};
 	let threads = if raw_threads == 0 {
 		std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
@@ -180,7 +181,7 @@ fn run_tournament_no_priors(specs: Vec<String>, models_dir: &std::path::Path, mo
 		eprintln!("  {kind}");
 	}
 
-	let rating_db: Arc<dyn RatingDb> = Arc::new(NoopRatingDb);
+	let rating_db: Arc<dyn RatingDb> = Arc::new(NoopRatingDb::default());
 	match size {
 		BoardSize::Five => run_tournament_sized::<5>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db),
 		BoardSize::Seven => run_tournament_sized::<7>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db),
@@ -208,6 +209,7 @@ fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mod
 		TourneyMode::Swiss { cycles, threads } => (format!("Swiss ({cycles} cycles)"), *threads),
 		TourneyMode::Rating { target_rounds, threads } => (format!("Rating ({target_rounds} rounds)"), *threads),
 		TourneyMode::Elimination { cycles, threads } => (format!("Elimination ({cycles} cycles)"), *threads),
+		TourneyMode::RoundRobin { cycles, threads } => (format!("Round-Robin ({cycles} sweeps)"), *threads),
 	};
 	let threads = if raw_threads == 0 {
 		std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
@@ -260,6 +262,7 @@ fn run_tournament_sized<const N: usize>(
 			("Rating", cycles)
 		}
 		TourneyMode::Elimination { cycles, .. } => ("Elimination", cycles),
+		TourneyMode::RoundRobin { cycles, .. } => ("RoundRobin", cycles),
 	};
 	let mut pb = ProgressBar::builder().total(estimated_total).prefix(pb_label.to_string()).build();
 	pb.init();
@@ -268,6 +271,7 @@ fn run_tournament_sized<const N: usize>(
 		TourneyMode::Swiss { cycles, .. } => tournament::swiss::<N>(&player_ids, config, cycles, rating_db.as_ref(), &factory, &mut rng, threads, Some(&mut pb)),
 		TourneyMode::Rating { target_rounds, .. } => tournament::rating_based::<N>(&player_ids, config, target_rounds, rating_db.as_ref(), &factory, &mut rng, threads, Some(&mut pb)),
 		TourneyMode::Elimination { cycles, .. } => tournament::elimination::<N>(&player_ids, config, cycles, rating_db.as_ref(), &factory, &mut rng, threads, Some(&mut pb)),
+		TourneyMode::RoundRobin { cycles, .. } => tournament::round_robin::<N>(&player_ids, config, cycles, rating_db.as_ref(), &factory, &mut rng, threads, Some(&mut pb)),
 	};
 	pb.finish();
 

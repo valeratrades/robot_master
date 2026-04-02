@@ -84,6 +84,26 @@ where
 	[(); N + 1]:, {
 	run_tournament(Swiss::new(cycles), player_ids, config, rating_db, factory, rng, threads, pb)
 }
+/// Round-robin tournament, repeated for `cycles` full sweeps.
+///
+/// Each cycle: every player plays every other player exactly once (N*(N-1)/2 games).
+/// Pairings use the standard circle-method schedule so all games in one round can run in
+/// parallel. Glicko-2 is updated after every game.
+pub fn round_robin<const N: usize>(
+	player_ids: &[Ustr],
+	config: GameConfig,
+	cycles: usize,
+	rating_db: &dyn RatingDb,
+	factory: &dyn BotFactory<N>,
+	rng: &mut impl Rng,
+	threads: usize,
+	pb: Option<&mut ProgressBar>,
+) -> Vec<MatchResult>
+where
+	[(); N * N]:,
+	[(); N + 1]:, {
+	run_tournament(RoundRobin::new(cycles), player_ids, config, rating_db, factory, rng, threads, pb)
+}
 /// Single-elimination tournament, repeated for `cycles` full brackets.
 ///
 /// Each bracket:
@@ -565,11 +585,101 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Public API (unchanged signatures)
+// Round Robin
 // ---------------------------------------------------------------------------
 
+/// Round-robin tournament. The outer cycle = one full sweep (every player vs every other once).
+/// The circle-method schedule flattens N-1 rounds (each with floor(N/2) games) into the outer
+/// cycle counter: `sched_round = cycle % (n - 1 + n % 2)`.
+///
+/// Because the runner's outer loop is one cycle = one progress tick, we use one cycle = one
+/// full sweep. All games in a sweep are returned from `pairs_for_cycle` in a single batch.
+struct RoundRobin {
+	sweeps: usize,
+	/// Pinned player for the circle method (index 0); the rest rotate.
+	/// Length = n (or n+1 if n is odd, with the phantom "bye" slot at index n).
+	schedule: Vec<Option<Ustr>>, // None = phantom bye slot
+}
 
+impl RoundRobin {
+	fn new(sweeps: usize) -> Self {
+		Self { sweeps, schedule: Vec::new() }
+	}
+}
 
+impl<const N: usize> Tournament<N> for RoundRobin
+where
+	[(); N * N]:,
+	[(); N + 1]:,
+{
+	fn init(&mut self, player_ids: &[Ustr], _live_ratings: &DashMap<Ustr, Rating>) {
+		let n = player_ids.len();
+		// If odd, add a phantom bye slot so the schedule math is uniform.
+		if n % 2 == 0 {
+			self.schedule = player_ids.iter().map(|&id| Some(id)).collect();
+		} else {
+			self.schedule = player_ids.iter().map(|&id| Some(id)).chain(std::iter::once(None)).collect();
+		}
+	}
+
+	fn cycles(&self) -> usize {
+		self.sweeps
+	}
+
+	fn pairs_for_cycle(&mut self, cycle: usize, _player_ids: &[Ustr], _live_ratings: &DashMap<Ustr, Rating>, rng: &mut dyn Rng) -> Vec<(Ustr, Ustr, u64)> {
+		let n = self.schedule.len(); // even (phantom added if needed)
+		let rounds = n - 1; // one full sweep needs exactly n-1 rounds
+
+		let mut pairs = Vec::with_capacity(n / 2 * rounds);
+
+		// Circle method: fix slot 0, rotate slots 1..n each round.
+		// After `rounds` rotations we're back to the original arrangement.
+		// For sweep `cycle` we rotate the schedule by `cycle * 1` positions first (optional
+		// shuffle between sweeps), then enumerate all n-1 rounds within.
+		//
+		// We build the rotated schedule for this sweep's starting point so repeated sweeps
+		// produce the same matchups in a different order (deterministic, no RNG needed for
+		// pairing itself).
+		let sweep_offset = cycle % rounds; // deterministic inter-sweep rotation
+		let mut slots: Vec<Option<Ustr>> = self.schedule[1..].to_vec();
+		slots.rotate_left(sweep_offset);
+		let fixed = self.schedule[0];
+
+		for round in 0..rounds {
+			// Pair fixed vs slots[n/2 - 1], then slots[i] vs slots[n - 2 - i].
+			let top = fixed;
+			let bot = slots[n / 2 - 1];
+			if let (Some(a), Some(b)) = (top, bot) {
+				let seed = rng.random::<u64>();
+				let (p1, p2) = if (cycle + round) % 2 == 0 { (a, b) } else { (b, a) };
+				pairs.push((p1, p2, seed));
+			}
+			for i in 0..n / 2 - 1 {
+				let a = slots[i];
+				let b = slots[n - 2 - i];
+				if let (Some(a), Some(b)) = (a, b) {
+					let seed = rng.random::<u64>();
+					let (p1, p2) = if (cycle + round + i + 1) % 2 == 0 { (a, b) } else { (b, a) };
+					pairs.push((p1, p2, seed));
+				}
+			}
+			// Rotate for next round.
+			slots.rotate_left(1);
+		}
+
+		pairs
+	}
+
+	fn apply_result(&mut self, result: &MatchResult, live_ratings: &DashMap<Ustr, Rating>) {
+		glicko_update_single(result, live_ratings);
+	}
+
+	fn end_cycle(&mut self, _cycle: usize, _player_ids: &[Ustr], _live_ratings: &DashMap<Ustr, Rating>) {}
+}
+
+// ---------------------------------------------------------------------------
+// Public API (unchanged signatures)
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // FIDE pairing helper (Swiss rounds 2+)
