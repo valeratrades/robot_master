@@ -167,6 +167,15 @@ where
 		}
 	}
 
+	pub fn is_hidden(&self) -> bool {
+		self.hide
+	}
+
+	/// Returns Player A's hand unconditionally. For use by the local player's own display.
+	pub fn p1_hand(&self) -> Hand<N> {
+		self.hands[0]
+	}
+
 	pub fn hands(&self) -> Result<[Hand<N>; 2], GameError> {
 		match self.hide {
 			true => Err(GameError::UnauthorizedHandLookup),

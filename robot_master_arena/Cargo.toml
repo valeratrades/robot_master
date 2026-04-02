@@ -11,7 +11,6 @@ clickhouse = ["dep:clickhouse", "dep:tokio"]
 robot_master_core = { path = "../robot_master_core" }
 
 clickhouse = { version = "0.14", optional = true }
-
 dashmap = "6"
 
 board-game.workspace = true

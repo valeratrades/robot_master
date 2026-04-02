@@ -22,7 +22,9 @@ pub trait DynMatch {
 	fn is_playable(&self, pos: Pos) -> bool;
 	fn is_done(&self) -> bool;
 	fn turn(&self) -> Player;
+	fn hide(&self) -> bool;
 	fn hands(&self) -> [Vec<u8>; 2];
+	fn p1_hand(&self) -> Vec<u8>;
 	fn next(&mut self, external_move: Option<Move>) -> ControlFlow<MatchResult>;
 	/// (p1_score, p1_weak_line, p2_score, p2_weak_line)
 	fn scores(&self) -> (u16, usize, u16, usize);
@@ -267,6 +269,14 @@ where
 
 	fn turn(&self) -> Player {
 		self.game.turn
+	}
+
+	fn hide(&self) -> bool {
+		self.game.is_hidden()
+	}
+
+	fn p1_hand(&self) -> Vec<u8> {
+		self.game.p1_hand().to_counts_vec()
 	}
 
 	fn hands(&self) -> [Vec<u8>; 2] {

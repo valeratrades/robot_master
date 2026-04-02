@@ -141,7 +141,12 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 	let m = make_match(size, hide, p1_kind.clone(), p2_kind.clone(), &models_dir);
 
 	// Snapshot initial state before handing ownership to the resource.
-	let hands = m.hands();
+	// In hidden mode Player B's hand is never shown, so use an empty placeholder for B.
+	let hands = if hide {
+		[m.p1_hand(), vec![0u8; 6]]
+	} else {
+		m.hands()
+	};
 	let mut cells = Vec::with_capacity(n * n);
 	for r in 0..n as u8 {
 		for c in 0..n as u8 {
@@ -641,8 +646,12 @@ fn sync_visuals(
 	mut turn_indicator: Query<(&mut Text, &mut TextColor), (With<TurnIndicator>, Without<HandCountLabel>, Without<HandCard>, Without<CommandLine>)>,
 ) {
 	let turn = game.0.turn();
-	let hands = game.0.hands();
 	let hide = init.hide;
+	let hands = if hide {
+		[game.0.p1_hand(), vec![0u8; 6]]
+	} else {
+		game.0.hands()
+	};
 
 	// If user has typed a column letter, narrow highlight to that column only
 	let highlight_col: Option<u8> = if modal.active && !modal.sequence.is_empty() {

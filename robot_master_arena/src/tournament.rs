@@ -35,6 +35,82 @@ where
 	}
 }
 
+/// Rating-based tournament.
+///
+/// Each cycle:
+/// 1. Pick player A by weighted random: probability proportional to their rating
+/// 2. Sort all players by current rating; pick player B = the neighbor of A (one rank up or down,
+///    coin-flip; top player always goes down, bottom always goes up)
+/// 3. Play `threads` games between A and B in parallel (batch Glicko-2 update after)
+///
+/// Total cycles = `ceil(target_rounds / threads)`.
+pub fn rating_based<const N: usize>(
+	player_ids: &[Ustr],
+	config: GameConfig,
+	target_rounds: usize,
+	rating_db: &dyn RatingDb,
+	factory: &dyn BotFactory<N>,
+	rng: &mut impl Rng,
+	threads: usize,
+	pb: Option<&mut ProgressBar>,
+) -> Vec<MatchResult>
+where
+	[(); N * N]:,
+	[(); N + 1]:, {
+	run_tournament(RatingBased::new(target_rounds, threads), player_ids, config, rating_db, factory, rng, threads, pb)
+}
+/// True FIDE Swiss tournament.
+///
+/// Each "bracket" (one full Swiss sweep):
+/// - Round 1: sort by rating desc, pair rank i vs rank (n/2 + i)
+/// - Subsequent rounds: group by cumulative score desc, within each group sort by rating desc
+///   and pair top-half vs bottom-half; odd-sized groups float the last player down to the next group
+/// - Exactly 1 game per pairing per bracket round
+/// - Scores and ratings update after each round
+///
+/// `cycles` full brackets are run; win counts accumulate across all of them.
+pub fn swiss<const N: usize>(
+	player_ids: &[Ustr],
+	config: GameConfig,
+	cycles: usize,
+	rating_db: &dyn RatingDb,
+	factory: &dyn BotFactory<N>,
+	rng: &mut impl Rng,
+	threads: usize,
+	pb: Option<&mut ProgressBar>,
+) -> Vec<MatchResult>
+where
+	[(); N * N]:,
+	[(); N + 1]:, {
+	run_tournament(Swiss::new(cycles), player_ids, config, rating_db, factory, rng, threads, pb)
+}
+/// Single-elimination tournament, repeated for `cycles` full brackets.
+///
+/// Each bracket:
+/// 1. Sort all players by rating; pair adjacent players (rank 0 vs 1, rank 2 vs 3, …)
+///    so each matchup is between players of closest ELO — under-valued players beat their
+///    near-peers and advance to play more games.
+/// 2. Winners advance to the next round; losers are eliminated for this bracket.
+///    Draws are resolved deterministically on player id ordering so there are no byes.
+/// 3. Glicko-2 is updated after every game. The bracket collapses until one player remains.
+/// 4. Repeat from step 1 for the next cycle.
+///
+/// A player with an odd draw in any round receives a bye (no game, advances automatically).
+pub fn elimination<const N: usize>(
+	player_ids: &[Ustr],
+	config: GameConfig,
+	cycles: usize,
+	rating_db: &dyn RatingDb,
+	factory: &dyn BotFactory<N>,
+	rng: &mut impl Rng,
+	threads: usize,
+	pb: Option<&mut ProgressBar>,
+) -> Vec<MatchResult>
+where
+	[(); N * N]:,
+	[(); N + 1]:, {
+	run_tournament(Elimination::new(cycles), player_ids, config, rating_db, factory, rng, threads, pb)
+}
 /// Strategy for one tournament type. Implemented by `RatingBased`, `Swiss`, `Elimination`.
 ///
 /// The shared runner [`run_tournament`] handles rating init/save, the rayon pool, and the outer
@@ -492,84 +568,8 @@ where
 // Public API (unchanged signatures)
 // ---------------------------------------------------------------------------
 
-/// Rating-based tournament.
-///
-/// Each cycle:
-/// 1. Pick player A by weighted random: probability proportional to their rating
-/// 2. Sort all players by current rating; pick player B = the neighbor of A (one rank up or down,
-///    coin-flip; top player always goes down, bottom always goes up)
-/// 3. Play `threads` games between A and B in parallel (batch Glicko-2 update after)
-///
-/// Total cycles = `ceil(target_rounds / threads)`.
-pub fn rating_based<const N: usize>(
-	player_ids: &[Ustr],
-	config: GameConfig,
-	target_rounds: usize,
-	rating_db: &dyn RatingDb,
-	factory: &dyn BotFactory<N>,
-	rng: &mut impl Rng,
-	threads: usize,
-	pb: Option<&mut ProgressBar>,
-) -> Vec<MatchResult>
-where
-	[(); N * N]:,
-	[(); N + 1]:, {
-	run_tournament(RatingBased::new(target_rounds, threads), player_ids, config, rating_db, factory, rng, threads, pb)
-}
 
-/// True FIDE Swiss tournament.
-///
-/// Each "bracket" (one full Swiss sweep):
-/// - Round 1: sort by rating desc, pair rank i vs rank (n/2 + i)
-/// - Subsequent rounds: group by cumulative score desc, within each group sort by rating desc
-///   and pair top-half vs bottom-half; odd-sized groups float the last player down to the next group
-/// - Exactly 1 game per pairing per bracket round
-/// - Scores and ratings update after each round
-///
-/// `cycles` full brackets are run; win counts accumulate across all of them.
-pub fn swiss<const N: usize>(
-	player_ids: &[Ustr],
-	config: GameConfig,
-	cycles: usize,
-	rating_db: &dyn RatingDb,
-	factory: &dyn BotFactory<N>,
-	rng: &mut impl Rng,
-	threads: usize,
-	pb: Option<&mut ProgressBar>,
-) -> Vec<MatchResult>
-where
-	[(); N * N]:,
-	[(); N + 1]:, {
-	run_tournament(Swiss::new(cycles), player_ids, config, rating_db, factory, rng, threads, pb)
-}
 
-/// Single-elimination tournament, repeated for `cycles` full brackets.
-///
-/// Each bracket:
-/// 1. Sort all players by rating; pair adjacent players (rank 0 vs 1, rank 2 vs 3, …)
-///    so each matchup is between players of closest ELO — under-valued players beat their
-///    near-peers and advance to play more games.
-/// 2. Winners advance to the next round; losers are eliminated for this bracket.
-///    Draws are resolved deterministically on player id ordering so there are no byes.
-/// 3. Glicko-2 is updated after every game. The bracket collapses until one player remains.
-/// 4. Repeat from step 1 for the next cycle.
-///
-/// A player with an odd draw in any round receives a bye (no game, advances automatically).
-pub fn elimination<const N: usize>(
-	player_ids: &[Ustr],
-	config: GameConfig,
-	cycles: usize,
-	rating_db: &dyn RatingDb,
-	factory: &dyn BotFactory<N>,
-	rng: &mut impl Rng,
-	threads: usize,
-	pb: Option<&mut ProgressBar>,
-) -> Vec<MatchResult>
-where
-	[(); N * N]:,
-	[(); N + 1]:, {
-	run_tournament(Elimination::new(cycles), player_ids, config, rating_db, factory, rng, threads, pb)
-}
 
 // ---------------------------------------------------------------------------
 // FIDE pairing helper (Swiss rounds 2+)

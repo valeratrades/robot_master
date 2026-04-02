@@ -358,9 +358,6 @@ fn button_system(
 	settings_modals: Query<Entity, With<SettingsModal>>,
 	mut init: ResMut<InitialPlayers>,
 	mut label_query: Query<(&PlayerLabel, &mut Text), Without<SizeLabel>>,
-	mut size_label: Query<&mut Text, With<SizeLabel>>,
-	mut segments: Query<(&HideSegment, &mut BackgroundColor, &Children), Without<StartButton>>,
-	mut segment_texts: Query<&mut TextColor>,
 	ratings: Res<Ratings>,
 ) {
 	for (interaction, mut color, start, player_btn, settings_btn, size_opt, hide_seg, result_item) in &mut interaction_query {
@@ -393,23 +390,14 @@ fn button_system(
 					}
 				} else if let Some(opt) = size_opt {
 					init.size = opt.0;
-					let n = u8::from(opt.0);
-					for mut text in &mut size_label {
-						**text = format!("{n}x{n}");
+					// Reopen the settings modal so the selected size is highlighted correctly.
+					for entity in &settings_modals {
+						commands.entity(entity).despawn();
 					}
+					spawn_settings_modal(&mut commands, init.size, init.hide);
 				} else if let Some(seg) = hide_seg {
 					if seg.0 != init.hide {
 						init.hide = seg.0;
-						// Sync segment highlight colors.
-						for (s, mut bg, children) in &mut segments {
-							let active = s.0 == init.hide;
-							*bg = BackgroundColor(if active { theme::BTN_HOVERED } else { theme::BTN_NORMAL });
-							for child in children.iter() {
-								if let Ok(mut tc) = segment_texts.get_mut(child) {
-									*tc = TextColor(if active { theme::TEXT_PRIMARY } else { theme::TEXT_MUTED });
-								}
-							}
-						}
 						// If hide just turned on and p2 is manual, reset p2 to random.
 						if init.hide && init.p2.is_manual() {
 							use robot_master_arena::algos::{InnerKind, RandomPlayer};
@@ -423,6 +411,11 @@ fn button_system(
 								}
 							}
 						}
+						// Reopen the settings modal so segment highlight reflects new state.
+						for entity in &settings_modals {
+							commands.entity(entity).despawn();
+						}
+						spawn_settings_modal(&mut commands, init.size, init.hide);
 					}
 				} else if let Some(item) = result_item {
 					match item.player_idx {
@@ -447,6 +440,10 @@ fn button_system(
 			Interaction::None =>
 				if start.is_some() {
 					// sync_start_button handles the disabled color, leave it alone here
+				} else if let Some(opt) = size_opt {
+					*color = if opt.0 == init.size { theme::BTN_HOVERED.into() } else { theme::BTN_NORMAL.into() };
+				} else if let Some(seg) = hide_seg {
+					*color = if seg.0 == init.hide { theme::BTN_HOVERED.into() } else { theme::BTN_NORMAL.into() };
 				} else if result_item.is_none() {
 					*color = theme::BTN_NORMAL.into();
 				},
