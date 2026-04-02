@@ -20,6 +20,7 @@ pub struct Rollout {}
 impl<const N: usize> Bot<N> for Rollout
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		let analysis = LineAnalysis::new(game);
@@ -50,7 +51,8 @@ struct LineAnalysis {
 impl LineAnalysis {
 	fn new<const N: usize>(game: &GameState<N>) -> Self
 	where
-		[(); N * N]:, {
+		[(); N * N]:,
+		[(); N + 1]:, {
 		let player = game.turn;
 		let lines: Vec<_> = (0..N)
 			.map(|i| {
@@ -82,7 +84,8 @@ impl LineAnalysis {
 /// Mode 2: maximize score_delta on unfinished lines below finished_min.
 fn target_weak<const N: usize>(game: &GameState<N>, analysis: &LineAnalysis) -> Move
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let fmin = analysis.finished_min.expect("target_weak called without finished lines");
 	let player = game.turn;
 	let hand = &game.hands[player.index() as usize];
@@ -122,7 +125,8 @@ struct Averse {
 impl Averse {
 	fn choose<const N: usize>(&self, game: &GameState<N>) -> Move
 	where
-		[(); N * N]:, {
+		[(); N * N]:,
+		[(); N + 1]:, {
 		let opponent = game.turn.other();
 		let mut best_move: Option<Move> = None;
 		let mut best_opp_score: Option<u16> = None;
@@ -151,7 +155,8 @@ impl Averse {
 /// Simulates until the game ends, then returns opponent's final min-line score.
 fn project_opponent_score<const N: usize>(game: &GameState<N>, opponent: Player) -> u16
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let mut sim = game.clone();
 	let mut greedy = GreedyForNumber {};
 

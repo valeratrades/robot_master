@@ -3,12 +3,12 @@ pub(super) mod fixtures {
 	use robot_master_core::{
 		board::{Board, Pos},
 		cards::{CardValue, Hand},
-		game::{GameConfig, GameState, Player},
+		game::{GameState, Player},
 	};
 
 	use crate::player::Bot;
 
-	pub fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand, turn: Player) -> GameState<5> {
+	pub fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand<5>, turn: Player) -> GameState<5> {
 		let mut board = Board::<5>::default();
 		for row in 0..5u8 {
 			for col in 0..5u8 {
@@ -24,11 +24,10 @@ pub(super) mod fixtures {
 				Player::B => [Hand::default(), hand],
 			},
 			turn,
-			config: GameConfig::default(),
 		}
 	}
 
-	pub fn hand(pairs: &[(u8, u8)]) -> Hand {
+	pub fn hand(pairs: &[(u8, u8)]) -> Hand<5> {
 		let mut h = Hand::default();
 		for &(v, n) in pairs {
 			for _ in 0..n {
@@ -115,7 +114,7 @@ pub(super) mod fixtures {
 		moves.join("\n---\n")
 	}
 
-	fn hand_from_counts(counts: &[u8; 6]) -> Hand {
+	fn hand_from_counts(counts: &[u8; 6]) -> Hand<5> {
 		let mut h = Hand::default();
 		for (v, &n) in counts.iter().enumerate() {
 			for _ in 0..n {

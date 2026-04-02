@@ -119,7 +119,8 @@ fn resolve_players(filter: &[String], models_dir: &std::path::Path, rating_db: &
 
 fn bot_from_kind<const N: usize>(kind: &PlayerKind, models_dir: &std::path::Path) -> Box<dyn Bot<N>>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	kind_into_bot(kind, models_dir).unwrap_or_else(|e| die(miette::miette!("{e}")))
 }
 
@@ -167,7 +168,8 @@ fn run_tournament_sized<const N: usize>(
 	models_dir: &std::path::Path,
 	rating_db: Arc<dyn RatingDb>,
 ) where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let kind_map: std::collections::HashMap<Ustr, PlayerKind> = kinds.iter().map(|k| (k.id(), k.clone())).collect();
 	let player_ids: Vec<Ustr> = kinds.iter().map(|k| k.id()).collect();
 	let models_dir = models_dir.to_path_buf();

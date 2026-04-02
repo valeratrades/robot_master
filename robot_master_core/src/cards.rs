@@ -2,20 +2,24 @@ use std::fmt;
 
 use rand::{Rng, seq::SliceRandom};
 
-/// Maximum card value across all supported board sizes (25×25 → cards 0..=24).
-pub const MAX_SUPPORTED_CARD_VALUE: usize = 24;
+/// Maximum supported board size (and max card value), capped at u4::MAX = 15.
+pub const MAX_BOARD_SIZE: usize = 15;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct CardValue(pub u8);
 
 /// Fixed-size count array — O(1) lookup, no allocation, Copy.
-/// Sized for the largest supported board (25×25); unused high slots stay zero.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct Hand {
-	counts: [u8; MAX_SUPPORTED_CARD_VALUE + 1],
+/// N is the board size; card values run 0..=N, so the array is N+1 slots.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Hand<const N: usize>
+where
+	[(); N + 1]:, {
+	counts: [u8; N + 1],
 }
-
-impl Hand {
+impl<const N: usize> Hand<N>
+where
+	[(); N + 1]:,
+{
 	#[inline]
 	pub fn count(&self, v: CardValue) -> u8 {
 		self.counts[v.0 as usize]
@@ -45,9 +49,26 @@ impl Hand {
 	pub fn total(&self) -> u8 {
 		self.counts.iter().sum()
 	}
+
+	/// Returns counts as a plain vec, indexed by card value.
+	pub fn to_counts_vec(&self) -> Vec<u8> {
+		self.counts.to_vec()
+	}
 }
 
-impl fmt::Display for Hand {
+impl<const N: usize> Default for Hand<N>
+where
+	[(); N + 1]:,
+{
+	fn default() -> Self {
+		Self { counts: [0; N + 1] }
+	}
+}
+
+impl<const N: usize> fmt::Display for Hand<N>
+where
+	[(); N + 1]:,
+{
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "{{")?;
 		let mut first = true;
@@ -73,7 +94,9 @@ pub fn new_deck(n: usize, rng: &mut impl Rng) -> Vec<CardValue> {
 	deck
 }
 
-pub fn deal(deck: &mut Vec<CardValue>, n: u8) -> Hand {
+pub fn deal<const N: usize>(deck: &mut Vec<CardValue>, n: u8) -> Hand<N>
+where
+	[(); N + 1]:, {
 	let mut hand = Hand::default();
 	for _ in 0..n {
 		let card = deck.pop().expect("deck exhausted during deal");
@@ -90,7 +113,7 @@ mod tests {
 
 	#[test]
 	fn hand_take_put() {
-		let mut h = Hand::default();
+		let mut h = Hand::<5>::default();
 		h.put(CardValue(3));
 		h.put(CardValue(3));
 		assert_eq!(h.count(CardValue(3)), 2);
@@ -104,7 +127,7 @@ mod tests {
 	#[test]
 	#[should_panic]
 	fn hand_take_absent_panics() {
-		let mut h = Hand::default();
+		let mut h = Hand::<5>::default();
 		h.take(CardValue(0));
 	}
 
@@ -132,7 +155,7 @@ mod tests {
 	fn deal_removes_from_deck() {
 		let mut rng = SmallRng::seed_from_u64(0);
 		let mut deck = new_deck(5, &mut rng);
-		let hand = deal(&mut deck, 12);
+		let hand: Hand<5> = deal(&mut deck, 12);
 		assert_eq!(deck.len(), 24); // 36 - 12
 		let total: u8 = hand.counts.iter().sum();
 		assert_eq!(total, 12);

@@ -120,7 +120,7 @@ fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind, models_dir: &std:
 struct InitialBoard {
 	n: usize,
 	cells: Vec<u8>,
-	hands: [robot_master_core::cards::Hand; 2],
+	hands: [Vec<u8>; 2],
 }
 
 impl InitialBoard {
@@ -252,7 +252,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 		});
 }
 
-fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::cards::Hand; 2], player: Player, tex: &Textures) {
+fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[Vec<u8>; 2], player: Player, tex: &Textures) {
 	let hand = &hands[player.index() as usize];
 	let title = format!("{}", PlayerDisplay(player));
 
@@ -275,7 +275,7 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::car
 			));
 
 			for v in 0..=5u8 {
-				let count = hand.count(CardValue(v));
+				let count = hand[v as usize];
 				col.spawn((
 					HandCard { player, value: CardValue(v) },
 					Button,
@@ -344,7 +344,7 @@ fn hand_click(
 			commands.entity(entity).insert(RejectFlash(Timer::from_seconds(0.3, TimerMode::Once)));
 			continue;
 		}
-		let count = hands[turn.index() as usize].count(hand_card.value);
+		let count = hands[turn.index() as usize][hand_card.value.0 as usize];
 		if count > 0 {
 			if selected.0 == Some(hand_card.value) {
 				selected.0 = None;
@@ -683,7 +683,7 @@ fn sync_visuals(
 
 	// Hand counts
 	for (hc, mut text, mut color) in &mut hand_counts {
-		let count = hands[hc.player.index() as usize].count(hc.value);
+		let count = hands[hc.player.index() as usize][hc.value.0 as usize];
 		**text = format!("x{count}");
 		*color = if count == 0 {
 			TextColor(theme::TEXT_MUTED)
@@ -699,7 +699,7 @@ fn sync_visuals(
 		if has_reject {
 			continue;
 		}
-		let count = hands[hc.player.index() as usize].count(hc.value);
+		let count = hands[hc.player.index() as usize][hc.value.0 as usize];
 		let is_own = hc.player == turn;
 		let is_selected = selected.0 == Some(hc.value) && is_own;
 		let is_hovered = *interaction == Interaction::Hovered && is_own && count > 0;
@@ -764,7 +764,7 @@ fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<Se
 	};
 	let Some(card) = pressed else { return };
 	let hands = game.0.hands();
-	let count = hands[turn.index() as usize].count(card);
+	let count = hands[turn.index() as usize][card.0 as usize];
 	if count > 0 {
 		if selected.0 == Some(card) {
 			selected.0 = None;

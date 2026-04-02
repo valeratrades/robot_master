@@ -61,7 +61,8 @@ pub fn gumbel_search<const N: usize, E, R>(state: &GameState<N>, evaluator: &E, 
 where
 	E: Evaluator<N>,
 	R: Rng,
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let root_eval = evaluator.evaluate(state);
 	let k = root_eval.policy.len();
 	assert!(k > 0, "no legal moves at root");
@@ -168,7 +169,8 @@ where
 /// next `collect_pending_selections` call.
 pub struct GumbelSearch<const N: usize>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	tree: Tree,
 	root_state: GameState<N>,
 	moves: Vec<Move>,
@@ -194,6 +196,7 @@ where
 impl<const N: usize> GumbelSearch<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	/// Start a new search. `root_eval` is the NN evaluation of `state` — the
 	/// caller is responsible for batching root evaluations across games.
@@ -368,7 +371,8 @@ where
 
 pub struct PendingLeaf<const N: usize>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	pub(crate) path: Vec<u32>,
 	pub(crate) parent: u32,
 	pub(crate) edge_idx: usize,
@@ -379,7 +383,8 @@ where
 /// blocking `gumbel_search` and the resumable `GumbelSearch`.
 pub fn gumbel_setup<const N: usize, R: Rng>(root_eval: &Evaluation, rng: &mut R) -> (Vec<f32>, Vec<Move>, Vec<f32>)
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let prior_sum: f32 = root_eval.policy.iter().map(|(_, p)| p).sum();
 	let priors: Vec<f32> = root_eval.policy.iter().map(|(_, p)| p / prior_sum).collect();
 	let moves: Vec<Move> = root_eval.policy.iter().map(|(mv, _)| *mv).collect();
@@ -430,10 +435,12 @@ fn run_phase_batched<const N: usize, E>(
 	sims_used: &mut usize,
 ) where
 	E: Evaluator<N>,
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	struct Pending<const M: usize>
 	where
-		[(); M * M]:, {
+		[(); M * M]:,
+		[(); M + 1]:, {
 		path: Vec<u32>,
 		parent: u32,
 		edge_idx: usize,
@@ -549,6 +556,7 @@ impl<E, const N: usize> Bot<N> for GumbelBot<E>
 where
 	E: Evaluator<N> + Send + Sync,
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		let mut rng = rand::make_rng::<rand::rngs::SmallRng>();
@@ -560,6 +568,7 @@ impl<E, const N: usize> SearchBot<E, N> for GumbelBot<E>
 where
 	E: Evaluator<N> + Send + Sync,
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn with_sims(evaluator: E, sims: u32) -> Self {
 		Self::new(

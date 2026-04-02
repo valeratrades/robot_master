@@ -19,6 +19,7 @@ derive_more.workspace = true
 miette.workspace = true
 rand.workspace = true
 rayon.workspace = true
+secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true

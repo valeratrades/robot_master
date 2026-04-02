@@ -20,7 +20,8 @@ pub const fn in_channels(n: usize) -> usize {
 /// Encode `GameState<N>` into `in_channels(N) * N * N` f32 values, channel-first (CHW).
 pub fn encode_planes<const N: usize>(state: &GameState<N>) -> Vec<f32>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let n2 = N * N;
 	let channels = in_channels(N);
 	let mut planes = vec![0.0f32; channels * n2];

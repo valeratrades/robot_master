@@ -9,7 +9,8 @@ use robot_master_core::game::{GameState, Move};
 /// - `NnEval`: ONNX inference. Phase 3.
 pub trait Evaluator<const N: usize>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	fn evaluate(&self, state: &GameState<N>) -> Evaluation;
 
 	/// Evaluate a batch of states. Default impl calls `evaluate` in a loop;
@@ -22,7 +23,8 @@ where
 /// Implementors wrap an `Evaluator<N>` and expose construction from a sim count.
 pub trait SearchBot<E, const N: usize>: Bot<N>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	fn with_sims(evaluator: E, sims: u32) -> Self;
 }
 /// Evaluation result for a leaf node: policy prior over moves and a value estimate.
@@ -49,6 +51,7 @@ impl<B, const N: usize> Evaluator<N> for RolloutEval<B>
 where
 	B: Bot<N> + Clone,
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn evaluate(&self, state: &GameState<N>) -> Evaluation {
 		let player = state.turn;
@@ -69,6 +72,7 @@ where
 impl<const N: usize> Evaluator<N> for Box<dyn Evaluator<N>>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn evaluate(&self, state: &GameState<N>) -> Evaluation {
 		(**self).evaluate(state)
@@ -230,7 +234,8 @@ impl Default for Tree {
 /// Result of walking the tree to a leaf during selection.
 pub(crate) enum SelectResult<const N: usize>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	/// Reached an unexpanded node: the parent edge index and leaf state need NN evaluation.
 	NeedsEval {
 		path: Vec<u32>,
@@ -246,7 +251,8 @@ where
 /// Returns either a leaf needing NN evaluation, or a terminal with its value.
 pub(crate) fn select<const N: usize>(tree: &Tree, node_idx: u32, forced_root_action: Option<usize>, state: &GameState<N>, c_puct: f32) -> SelectResult<N>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let mut path: Vec<u32> = Vec::new();
 	let mut current = node_idx;
 	let mut sim_state = state.clone();
@@ -290,7 +296,8 @@ where
 /// Expansion + backprop for one pending leaf after batch evaluation.
 pub(crate) fn expand_and_backprop<const N: usize>(tree: &mut Tree, path: Vec<u32>, parent: u32, edge_idx: usize, leaf_state: &GameState<N>, eval: Evaluation)
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let child_idx = if let Some(outcome) = leaf_state.outcome() {
 		tree.expand_terminal(outcome_value(outcome, leaf_state.turn))
 	} else {
@@ -306,7 +313,8 @@ where
 /// If `None`, use PUCT at the root as normal.
 pub(crate) fn simulate<const N: usize>(tree: &mut Tree, node_idx: u32, forced_root_action: Option<usize>, state: &GameState<N>, evaluator: &impl Evaluator<N>, c_puct: f32)
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	match select(tree, node_idx, forced_root_action, state, c_puct) {
 		SelectResult::NeedsEval {
 			path,
@@ -380,6 +388,7 @@ impl<E, const N: usize> SearchBot<E, N> for VanillaBot<E>
 where
 	E: Evaluator<N> + Send + Sync,
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn with_sims(evaluator: E, sims: u32) -> Self {
 		Self::new(evaluator, sims)
@@ -390,6 +399,7 @@ impl<E, const N: usize> Bot<N> for VanillaBot<E>
 where
 	E: Evaluator<N> + Send + Sync,
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		let mut tree = Tree::default();

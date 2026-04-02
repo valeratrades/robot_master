@@ -74,7 +74,8 @@ impl InnerKind {
 	/// Panics for `OnnxPlayer` — the binary crate must construct `GumbelBot<NnEval>`.
 	pub fn into_bot<const N: usize>(self) -> Box<dyn Bot<N>>
 	where
-		[(); N * N]:, {
+		[(); N * N]:,
+		[(); N + 1]:, {
 		match self {
 			InnerKind::ManualPlayer(p) => Box::new(p),
 			InnerKind::RandomPlayer(p) => Box::new(p),
@@ -131,7 +132,8 @@ impl PlayerKind {
 	/// Prefer using `kind_into_bot` in the binary crate which handles search wrapping.
 	pub fn into_bot<const N: usize>(self) -> Box<dyn Bot<N>>
 	where
-		[(); N * N]:, {
+		[(); N * N]:,
+		[(); N + 1]:, {
 		assert!(self.sims.is_none(), "into_bot called on search-wrapped player; use kind_into_bot in the binary crate");
 		self.inner.into_bot()
 	}

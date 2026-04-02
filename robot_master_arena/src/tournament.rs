@@ -20,7 +20,8 @@ use crate::{
 /// Must be `Send + Sync` so rayon threads can call it concurrently.
 pub trait BotFactory<const N: usize>: Send + Sync
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	fn create(&self, id: Ustr) -> Box<dyn Bot<N>>;
 }
 
@@ -29,6 +30,7 @@ impl<const N: usize, F> BotFactory<N> for F
 where
 	F: Fn(Ustr) -> Box<dyn Bot<N>> + Send + Sync,
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn create(&self, id: Ustr) -> Box<dyn Bot<N>> {
 		(self)(id)
@@ -55,7 +57,8 @@ pub fn rating_based<const N: usize>(
 	mut pb: Option<&mut ProgressBar>,
 ) -> Vec<MatchResult>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let n = player_ids.len();
 	assert!(n >= 2, "need at least 2 players for a tournament");
 
@@ -199,7 +202,8 @@ pub fn swiss<const N: usize>(
 	mut pb: Option<&mut ProgressBar>,
 ) -> Vec<MatchResult>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let n = player_ids.len();
 	assert!(n >= 2, "need at least 2 players for a tournament");
 
@@ -336,7 +340,8 @@ pub fn elimination<const N: usize>(
 	mut pb: Option<&mut ProgressBar>,
 ) -> Vec<MatchResult>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let n = player_ids.len();
 	assert!(n >= 2, "need at least 2 players for a tournament");
 
@@ -501,7 +506,8 @@ fn fide_pair_by_score(player_ids: &[Ustr], scores: &HashMap<Ustr, u32>, live_rat
 
 fn play_game<const N: usize>(p1_id: Ustr, p2_id: Ustr, seed: u64, config: GameConfig, factory: &dyn BotFactory<N>) -> MatchResult
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let mut rng = SmallRng::seed_from_u64(seed);
 	let game = GameState::<N>::new(config, &mut rng);
 	let p1 = factory.create(p1_id);

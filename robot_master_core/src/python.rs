@@ -5,7 +5,7 @@ use rand::{rngs::SmallRng, seq::IteratorRandom};
 
 use crate::{
 	board::{Board, Pos},
-	cards::{CardValue, Hand, MAX_SUPPORTED_CARD_VALUE},
+	cards::{CardValue, Hand},
 	game::{GameConfig, Move},
 };
 
@@ -13,11 +13,14 @@ use crate::{
 // Conversion helpers (standard trait impls, no helper fns)
 // ---------------------------------------------------------------------------
 
-impl From<&HashMap<u8, u8>> for Hand {
+impl<const N: usize> From<&HashMap<u8, u8>> for Hand<N>
+where
+	[(); N + 1]:,
+{
 	fn from(m: &HashMap<u8, u8>) -> Self {
 		let mut hand = Hand::default();
 		for (&v, &c) in m {
-			if v as usize <= MAX_SUPPORTED_CARD_VALUE {
+			if v as usize <= N {
 				for _ in 0..c {
 					hand.put(CardValue(v));
 				}
@@ -236,25 +239,28 @@ pub fn victoire_py(plateau: Vec<Vec<Option<u8>>>, dico_options: Option<HashMap<S
 #[pyfunction]
 pub fn random_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: HashMap<u8, u8>, dico_options: HashMap<String, i64>) -> PyResult<(u8, u8, u8)> {
 	let config = config_from_options(&dico_options);
-	let hand = Hand::from(&dico_main);
 
 	let m: Option<Move> = match config.size {
 		5 => {
+			let hand = Hand::<5>::from(&dico_main);
 			let board = board_from_plateau::<5>(&plateau)?;
 			let mut rng: SmallRng = rand::make_rng();
 			board.valid_placements().flat_map(|pos| hand.iter_playable().map(move |card| Move { pos, card })).choose(&mut rng)
 		}
 		7 => {
+			let hand = Hand::<7>::from(&dico_main);
 			let board = board_from_plateau::<7>(&plateau)?;
 			let mut rng: SmallRng = rand::make_rng();
 			board.valid_placements().flat_map(|pos| hand.iter_playable().map(move |card| Move { pos, card })).choose(&mut rng)
 		}
 		9 => {
+			let hand = Hand::<9>::from(&dico_main);
 			let board = board_from_plateau::<9>(&plateau)?;
 			let mut rng: SmallRng = rand::make_rng();
 			board.valid_placements().flat_map(|pos| hand.iter_playable().map(move |card| Move { pos, card })).choose(&mut rng)
 		}
 		11 => {
+			let hand = Hand::<11>::from(&dico_main);
 			let board = board_from_plateau::<11>(&plateau)?;
 			let mut rng: SmallRng = rand::make_rng();
 			board.valid_placements().flat_map(|pos| hand.iter_playable().map(move |card| Move { pos, card })).choose(&mut rng)

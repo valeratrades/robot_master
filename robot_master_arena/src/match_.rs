@@ -3,7 +3,6 @@ use std::{ops::ControlFlow, sync::Arc};
 use board_game::board::Board as _;
 use robot_master_core::{
 	board::{Cell, Pos},
-	cards::Hand,
 	game::{GameState, Move, Player},
 	scoring::victoire,
 };
@@ -23,7 +22,7 @@ pub trait DynMatch {
 	fn is_playable(&self, pos: Pos) -> bool;
 	fn is_done(&self) -> bool;
 	fn turn(&self) -> Player;
-	fn hands(&self) -> [Hand; 2];
+	fn hands(&self) -> [Vec<u8>; 2];
 	fn next(&mut self, external_move: Option<Move>) -> ControlFlow<MatchResult>;
 	/// (p1_score, p1_weak_line, p2_score, p2_weak_line)
 	fn scores(&self) -> (u16, usize, u16, usize);
@@ -155,7 +154,8 @@ impl From<Move> for SerMove {
 
 pub struct Match<const N: usize, P1: Bot<N>, P2: Bot<N>>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	game: GameState<N>,
 	p1: P1,
 	p2: P2,
@@ -168,6 +168,7 @@ where
 impl<const N: usize, P1: Bot<N>, P2: Bot<N>> Match<N, P1, P2>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	pub fn new(game: GameState<N>, p1: P1, p2: P2, p1_id: Ustr, p2_id: Ustr) -> Self {
 		Self {
@@ -246,6 +247,7 @@ where
 impl<const N: usize, P1: Bot<N>, P2: Bot<N>> DynMatch for Match<N, P1, P2>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn size(&self) -> u8 {
 		N as u8
@@ -267,8 +269,8 @@ where
 		self.game.turn
 	}
 
-	fn hands(&self) -> [Hand; 2] {
-		self.game.hands
+	fn hands(&self) -> [Vec<u8>; 2] {
+		[self.game.hands[0].to_counts_vec(), self.game.hands[1].to_counts_vec()]
 	}
 
 	fn next(&mut self, external_move: Option<Move>) -> ControlFlow<MatchResult> {

@@ -49,6 +49,7 @@ impl NnEval {
 impl<const N: usize> Evaluator<N> for NnEval
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn evaluate(&self, state: &GameState<N>) -> Evaluation {
 		self.evaluate_batch(std::slice::from_ref(state)).into_iter().next().expect("batch of 1 must return 1 result")
@@ -91,6 +92,7 @@ where
 impl<const N: usize> Bot<N> for NnEval
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn choose_move(&mut self, state: &GameState<N>) -> Move {
 		let eval = self.evaluate(state);
@@ -100,7 +102,8 @@ where
 
 fn extract_legal_policy<const N: usize>(logits: &[f32], state: &GameState<N>) -> Vec<(Move, f32)>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let legal: Vec<(Move, f32)> = state
 		.valid_moves()
 		.map(|mv| {

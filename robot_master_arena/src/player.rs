@@ -12,7 +12,8 @@ use crate::algos::validate_manual_name;
 ///   should panic — the interface must provide moves externally via `Match::next(Some(m))`.
 pub trait Bot<const N: usize>: Send + Sync
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	/// Pick a move given the current game state.
 	fn choose_move(&mut self, game: &GameState<N>) -> Move;
 }
@@ -22,6 +23,7 @@ where
 impl<const N: usize> Bot<N> for Box<dyn Bot<N>>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		(**self).choose_move(game)
@@ -62,6 +64,7 @@ impl FromStr for ManualPlayer {
 impl<const N: usize> Bot<N> for ManualPlayer
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn choose_move(&mut self, _game: &GameState<N>) -> Move {
 		panic!("ManualPlayer::choose_move called — caller must supply moves via Match::next(Some(m))")
@@ -73,6 +76,7 @@ where
 impl<const N: usize> Bot<N> for &mut dyn Bot<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		(**self).choose_move(game)

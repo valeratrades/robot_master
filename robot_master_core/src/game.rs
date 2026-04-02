@@ -4,6 +4,7 @@ pub use board_game::board::Player;
 use board_game::board::{BoardDone, BoardMoves, BoardSymmetry, PlayError};
 use internal_iterator::InternalIterator;
 use rand::Rng;
+use secrecy::{ExposeSecret as _, SecretString};
 
 use crate::{
 	board::{Board, Pos},
@@ -37,7 +38,10 @@ impl fmt::Debug for PlayerDisplay {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct GameConfig {
+	/// board side size (can't be even)
 	pub size: u8 = 5,
+	/// whether the opponent's cards are hidden
+	pub hide: bool = false,
 }
 
 impl GameConfig {
@@ -65,22 +69,51 @@ pub struct Move {
 	pub card: CardValue,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct GameState<const N: usize>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	pub board: Board<N>,
-	pub hands: [Hand; 2],
 	pub turn: Player,
-	pub config: GameConfig,
+
+	hands: [Hand<N>; 2],
+	hide: bool,
+	player_secrets: [SecretString; 2],
+}
+impl PartialEq for GameState<const N: usize> {
+	fn eq(&self, other: &Self) -> bool {
+		self.board == other.board && self.turn == other.turn && self.hands == other.hands
+	}
+}
+
+#[derive(Clone, Debug, derive_more::Deref)]
+pub struct PlayerSigned {
+	#[deref]
+	pub player: Player,
+	secret: SecretString = SecretString::new(Uuid::new_v7()),
+}
+impl PlayerSigned {
+	pub fn new(player: Player) {
+		Self { player, ..Default::default() }
+	}
+	pub fn check(&self, key: SecretString) -> bool {
+		self.secret == key
+	}
+}
+
+#[derive(derive_more::Display, miette::Display, thiserror::Error)]
+pub enum GameError {
+	UnauthorizedHandLookup,
 }
 
 impl<const N: usize> GameState<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
-	pub fn new(config: GameConfig, rng: &mut impl Rng) -> Self {
-		let mut deck = new_deck(config.size as usize, rng);
+	pub fn new(config: GameConfig, rng: &mut impl Rng, players: [PlayerSigned; 2]) -> Self {
+		let mut deck = new_deck(N, rng);
 		let mut board = Board::default();
 
 		// Place center card (first off the deck, like Python's distribution_cartes).
@@ -88,15 +121,38 @@ where
 		let center = Pos { row: N as u8 / 2, col: N as u8 / 2 };
 		board.set(center, center_card.0);
 
-		let cards_per_player = config.cards_per_player();
+		let cards_per_player = ((N * N - 1) / 2) as u8;
 		let hand0 = deal(&mut deck, cards_per_player);
 		let hand1 = deal(&mut deck, cards_per_player);
 
 		Self {
 			board,
 			hands: [hand0, hand1],
+			hide: config.hide,
 			turn: Player::A,
-			config,
+			player_secrets: [players[0].secret, players[1].secret],
+		}
+	}
+
+	pub fn hands(&self) -> Result<[Hand<N>;2], GameError> {
+		match self.hide {
+			true => Err(GameError::UnauthorizedHandLookup),
+			false => Ok(self.hands),
+		}
+	}
+
+	pub fn hand_signed(&self, player: Player, key: SecretString) -> Result<Hand<N>, GameError> {
+		let player_idx = match *player {
+			Player::A => 0,
+			Player::B => 1,
+		};
+		if !self.hide {
+			return Ok(self.hands[player_idx])
+		}
+		//Q: does .expose_secret() get optimized, knowing that secrets don't change, or should I forego pure secrecy, and just imply it with simple privately stored ids?
+		match self.player_secrets[player_idx].expose_secret() == key.expose_secret() {
+			true => Ok(self.hands[player_idx]),
+			false => Err(GameError::UnauthorizedHandLookup),
 		}
 	}
 
@@ -118,6 +174,7 @@ where
 impl<const N: usize> fmt::Display for GameState<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(
@@ -133,11 +190,10 @@ where
 	}
 }
 
-// --- board_game::Board trait implementation ---
-
 impl<const N: usize> board_game::board::Board for GameState<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	type Move = Move;
 
@@ -186,6 +242,7 @@ where
 impl<'a, const N: usize> BoardMoves<'a, GameState<N>> for GameState<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	type AllMovesIterator = AllMoves<N>;
 	type AvailableMovesIterator = AvailableMoves<'a, N>;
@@ -233,13 +290,15 @@ where
 #[derive(Clone)]
 pub struct AvailableMoves<'a, const N: usize>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	state: &'a GameState<N>,
 }
 
 impl<'a, const N: usize> InternalIterator for AvailableMoves<'a, N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	type Item = Move;
 
@@ -259,6 +318,7 @@ where
 impl<const N: usize> BoardSymmetry<GameState<N>> for GameState<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	type CanonicalKey = ();
 	type Symmetry = board_game::symmetry::UnitSymmetry;

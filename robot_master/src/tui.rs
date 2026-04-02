@@ -33,9 +33,10 @@ pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, 
 	}
 }
 /// Returns the move and erases all its own output, so the caller can re-display the board uniformly.
-fn read_manual_move<const N: usize>(board: &Board<N>, hand: &Hand, name: &str, stdout: &mut impl Write, stdin: &mut impl BufRead) -> Move
+fn read_manual_move<const N: usize>(board: &Board<N>, hand: &Hand<N>, name: &str, stdout: &mut impl Write, stdin: &mut impl BufRead) -> Move
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let mut lines_to_erase = 0usize;
 	let mut warning: Option<String> = None;
 	//LOOP: bound the loop to 256 // if user made 256 incorrect inputs in a row, sth's wrong
@@ -134,7 +135,8 @@ fn run_sized<const N: usize>(
 	rating_db: Arc<dyn RatingDb>,
 	models_dir: &std::path::Path,
 ) where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let game: GameState<N> = GameState::new(config, rng);
 
 	let p1_display = format!("{p1_kind} ({})", PlayerDisplay(Player::A));
@@ -202,7 +204,8 @@ fn run_sized<const N: usize>(
 
 fn display_result<const N: usize>(result: &MatchResult, p1_display: &str, p2_display: &str, stdout: &mut impl Write)
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let verdict = match result.p1_score.cmp(&result.p2_score) {
 		std::cmp::Ordering::Greater => format!("{p1_display} wins."),
 		std::cmp::Ordering::Less => format!("{p2_display} wins."),

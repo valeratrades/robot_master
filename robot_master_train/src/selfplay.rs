@@ -29,7 +29,8 @@ pub fn play_game<const N: usize, E, R>(state: &GameState<N>, evaluator: &E, conf
 where
 	E: crate::mcts::Evaluator<N>,
 	R: Rng,
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let mut game = state.clone();
 	let mut pending: Vec<PendingSample> = Vec::with_capacity(GameState::<N>::total_moves());
 
@@ -90,7 +91,8 @@ pub fn play_games_batched<const N: usize, E, R>(total_games: usize, evaluator: &
 where
 	E: Evaluator<N>,
 	R: Rng,
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	// Each slot is either active (Some) or available for a new game (None).
 	let mut slots: Vec<Option<GameInFlight<N>>> = (0..batch_size).map(|_| None).collect();
 	let mut games_started = 0usize;
@@ -205,7 +207,8 @@ struct PendingSample {
 /// State machine for one in-flight game within the vectorized pool.
 enum GamePhase<const N: usize>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	/// Waiting for the root NN evaluation of `state`.
 	NeedsRootEval { state: GameState<N> },
 	/// Root evaluated, Gumbel search in progress.
@@ -216,7 +219,8 @@ where
 
 struct GameInFlight<const N: usize>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	phase: GamePhase<N>,
 	/// Current game state (updated after each move).
 	game: GameState<N>,
@@ -231,6 +235,7 @@ where
 impl<const N: usize> GameInFlight<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn new(rng: &mut impl Rng) -> Self {
 		let game = GameState::<N>::new(GameConfig { size: N as u8 }, rng);

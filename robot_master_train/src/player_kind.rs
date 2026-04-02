@@ -15,7 +15,8 @@ use crate::{
 /// Returns `Err` if an ONNX model fails to load.
 pub fn kind_into_bot<const N: usize>(kind: &PlayerKind, models_dir: &std::path::Path) -> Result<Box<dyn Bot<N>>, String>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	if let InnerKind::OnnxPlayer(p) = &kind.inner {
 		let path = models_dir.join(format!("{}.onnx", p.stem));
 		let evaluator = NnEval::new(path.to_str().ok_or_else(|| format!("non-UTF8 model path: {path:?}"))?, N, false).map_err(|e| format!("failed to load {path:?}: {e}"))?;
@@ -30,7 +31,8 @@ where
 		where
 			S: SearchBot<RolloutEval<B>, N> + 'static,
 			B: 'static,
-			[(); N * N]:, {
+			[(); N * N]:,
+			[(); N + 1]:, {
 			Box::new(S::with_sims(RolloutEval::new(bot), sims))
 		}
 		return Ok(match search {

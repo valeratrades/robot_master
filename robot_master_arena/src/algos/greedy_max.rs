@@ -21,6 +21,7 @@ pub struct GreedyForNumber {}
 impl<const N: usize> Bot<N> for GreedyForNumber
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		let turn = game.turn;

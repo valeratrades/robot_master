@@ -91,7 +91,7 @@ maturin develop --features python
 
 The main binary is `robot_master`. It takes two players (`-a`, `-b`), an optional board size (`-s`), and a subcommand for the interface.
 
-Players: `manual`, `random`, `greedy`, `sadist`, `rollout`. Gumbel wrapping: append `|N` sims to any player — `rollout|800`, `sadist|200`. Unrecognized names prompt registration as a named manual player (with Elo tracking), or fall back to `fzf` selection.
+Players: `manual`, `random`, `greedy`, `sadist`, `rollout`. Search wrapping: append `|v<N>` (vanilla UCT-MCTS) or `|g<N>` (Gumbel) sims — `rollout|v800`, `rollout|g800`, `sadist|v200`. Unrecognized names prompt registration as a named manual player (with Elo tracking), or fall back to `fzf` selection.
 
 Board sizes: `5` (default), `7`, `9`, `11`.
 

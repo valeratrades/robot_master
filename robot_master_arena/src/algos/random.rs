@@ -43,6 +43,7 @@ impl FromStr for RandomPlayer {
 impl<const N: usize> Bot<N> for RandomPlayer
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		game.valid_moves().choose(&mut self.rng).expect("no valid moves")
