@@ -49,6 +49,7 @@ fn main() {
 	let hide_label = if args.hide { "hide" } else { "show" };
 	let run_id = format!("{}:g{}:s{}/{}x{}_{}", args.generation, args.games, args.sims, args.size, args.size, hide_label);
 	let data_dir = xdg_cache_dir(&format!("{run_id}/training_data"));
+	fs::create_dir_all(&data_dir).unwrap_or_else(|e| panic!("failed to create {}: {e}", data_dir.display()));
 	let models_out = xdg_cache_dir(&format!("{run_id}/models"));
 
 	// Detect the zlib path once (needed for Python/numpy on NixOS)
@@ -224,9 +225,7 @@ fn repo_root() -> PathBuf {
 
 fn xdg_cache_dir(subdir: &str) -> PathBuf {
 	let base = env::var("XDG_CACHE_HOME").unwrap_or_else(|_| format!("{}/.cache", env::var("HOME").expect("HOME not set")));
-	let dir = PathBuf::from(base).join("robot_master_train").join(subdir);
-	fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("failed to create {}: {e}", dir.display()));
-	dir
+	PathBuf::from(base).join("robot_master_train").join(subdir)
 }
 
 fn zlib_ld_path() -> String {
