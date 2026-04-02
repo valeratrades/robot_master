@@ -449,9 +449,19 @@ fn search_system(
 	}
 
 	if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter) {
-		if let Some((_, kind)) = filtered.get(state.highlighted) {
+		let kind: Option<PlayerKind> = if let Some((_, k)) = filtered.get(state.highlighted) {
+			Some(k.clone())
+		} else if !query_str.is_empty() {
+			// No matches — treat raw input as a manual player name.
+			Some(PlayerKind {
+				inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: query_str.clone() }),
+				sims: None,
+			})
+		} else {
+			None
+		};
+		if let Some(kind) = kind {
 			let player_idx = state.player_idx;
-			let kind: PlayerKind = kind.clone();
 			match player_idx {
 				0 => init.p1 = kind.clone(),
 				_ => init.p2 = kind.clone(),
