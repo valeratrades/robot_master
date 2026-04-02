@@ -247,9 +247,19 @@ where
 	Terminal { path: Vec<u32>, value: f64 },
 }
 
+/// How to assign Q to unvisited children during PUCT selection.
+///
+/// - `MuZero`: unvisited Q = 0.0 (AlphaZero / MuZero default).
+/// - `MiniZero`: unvisited Q = mean of visited siblings (MiniZero §III-B cautious prior).
+#[derive(Clone, Copy)]
+pub(crate) enum PuctVariant {
+	MuZero,
+	MiniZero,
+}
+
 /// Selection phase only — walks the tree from `node_idx` following PUCT/forced action.
 /// Returns either a leaf needing NN evaluation, or a terminal with its value.
-pub(crate) fn select<const N: usize>(tree: &Tree, node_idx: u32, forced_root_action: Option<usize>, state: &GameState<N>, c_puct: f32) -> SelectResult<N>
+pub(crate) fn select<const N: usize>(tree: &Tree, node_idx: u32, forced_root_action: Option<usize>, state: &GameState<N>, c_puct: f32, puct: PuctVariant) -> SelectResult<N>
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
@@ -264,10 +274,10 @@ where
 			is_root = false;
 			match forced_root_action {
 				Some(idx) => idx,
-				None => select_edge(&tree.nodes, node, c_puct),
+				None => select_edge(&tree.nodes, node, c_puct, puct),
 			}
 		} else {
-			select_edge(&tree.nodes, node, c_puct)
+			select_edge(&tree.nodes, node, c_puct, puct)
 		};
 
 		let child = tree.nodes[current as usize].edges[best_edge_idx].child;
@@ -311,11 +321,18 @@ where
 ///
 /// `forced_root_action`: if `Some(i)`, always take root edge `i` on the first step (Gumbel).
 /// If `None`, use PUCT at the root as normal.
-pub(crate) fn simulate<const N: usize>(tree: &mut Tree, node_idx: u32, forced_root_action: Option<usize>, state: &GameState<N>, evaluator: &impl Evaluator<N>, c_puct: f32)
-where
+pub(crate) fn simulate<const N: usize>(
+	tree: &mut Tree,
+	node_idx: u32,
+	forced_root_action: Option<usize>,
+	state: &GameState<N>,
+	evaluator: &impl Evaluator<N>,
+	c_puct: f32,
+	puct: PuctVariant,
+) where
 	[(); N * N]:,
 	[(); N + 1]:, {
-	match select(tree, node_idx, forced_root_action, state, c_puct) {
+	match select(tree, node_idx, forced_root_action, state, c_puct, puct) {
 		SelectResult::NeedsEval {
 			path,
 			parent,
@@ -331,34 +348,34 @@ where
 	}
 }
 
-fn select_edge(nodes: &[Node], node: &Node, c_puct: f32) -> usize {
-	// Precompute Q̂(s) = Q_Σ(s) / (N_Σ(s) + 1) once for the whole node.
-	// MiniZero §III-B (arxiv 2310.11305, line 207): non-visited actions receive the mean
-	// of observed sibling Q-values with one virtual losing visit (+1 denominator) to bias
-	// toward caution. Q values are stored from the child's perspective so we negate.
-	// N_Σ = number of visited children; Q_Σ = sum of their Q values (from parent's POV).
-	let mut n_sigma = 0u32;
-	let mut q_sigma = 0.0f64;
-	for edge in &node.edges {
-		if edge.child != u32::MAX {
-			n_sigma += 1;
-			q_sigma += -nodes[edge.child as usize].q(); // negate: child Q → parent POV
+fn select_edge(nodes: &[Node], node: &Node, c_puct: f32, puct: PuctVariant) -> usize {
+	let parent_visits = node.visit_count;
+	let q_unvisited = match puct {
+		PuctVariant::MuZero => 0.0f64,
+		PuctVariant::MiniZero => {
+			let mut n_sigma = 0u32;
+			let mut q_sigma = 0.0f64;
+			for edge in &node.edges {
+				if edge.child != u32::MAX {
+					n_sigma += 1;
+					q_sigma += -nodes[edge.child as usize].q();
+				}
+			}
+			q_sigma / (n_sigma + 1) as f64
 		}
-	}
-	let q_hat = q_sigma / (n_sigma + 1) as f64;
-
+	};
 	(0..node.edges.len())
 		.max_by(|&a, &b| {
-			let sa = edge_uct(nodes, &node.edges[a], node.visit_count, q_hat, c_puct);
-			let sb = edge_uct(nodes, &node.edges[b], node.visit_count, q_hat, c_puct);
+			let sa = edge_uct(nodes, &node.edges[a], parent_visits, q_unvisited, c_puct);
+			let sb = edge_uct(nodes, &node.edges[b], parent_visits, q_unvisited, c_puct);
 			sa.partial_cmp(&sb).expect("NaN in UCT")
 		})
 		.expect("edges is non-empty")
 }
 
-fn edge_uct(nodes: &[Node], edge: &Edge, parent_visits: u32, q_hat: f64, c_puct: f32) -> f64 {
+fn edge_uct(nodes: &[Node], edge: &Edge, parent_visits: u32, q_unvisited: f64, c_puct: f32) -> f64 {
 	let (child_q, child_visits) = if edge.child == u32::MAX {
-		(q_hat, 0)
+		(q_unvisited, 0)
 	} else {
 		let child = &nodes[edge.child as usize];
 		(-child.q(), child.visit_count)
@@ -405,7 +422,7 @@ where
 		let mut tree = Tree::default();
 		let root = tree.expand(self.evaluator.evaluate(game));
 		for _ in 0..self.sims {
-			simulate(&mut tree, root, None, game, &self.evaluator, self.c_puct);
+			simulate(&mut tree, root, None, game, &self.evaluator, self.c_puct, PuctVariant::MuZero);
 		}
 		tree.nodes[root as usize]
 			.edges

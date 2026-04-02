@@ -15,7 +15,7 @@ use rand_distr::{Distribution as _, Gumbel};
 use robot_master_arena::player::Bot;
 use robot_master_core::game::{GameState, Move};
 
-use crate::mcts::{Evaluation, Evaluator, SearchBot, SelectResult, Tree, backpropagate_pub, expand_and_backprop, select, simulate};
+use crate::mcts::{Evaluation, Evaluator, PuctVariant, SearchBot, SelectResult, Tree, backpropagate_pub, expand_and_backprop, select, simulate};
 
 #[derive(Clone)]
 pub struct GumbelConfig {
@@ -119,7 +119,7 @@ where
 
 	// Spend any remaining budget on the last survivor(s)
 	while sims_used < n {
-		simulate(&mut tree, root_idx, Some(survivors[0]), state, evaluator, config.c_puct);
+		simulate(&mut tree, root_idx, Some(survivors[0]), state, evaluator, config.c_puct, PuctVariant::MiniZero);
 		sims_used += 1;
 	}
 
@@ -263,7 +263,7 @@ where
 				}
 				self.sims_used += 1;
 
-				match select(&self.tree, 0, Some(action_idx), &self.root_state, self.config.c_puct) {
+				match select(&self.tree, 0, Some(action_idx), &self.root_state, self.config.c_puct, PuctVariant::MiniZero) {
 					SelectResult::Terminal { path, value } => {
 						backpropagate_pub(&mut self.tree, &path, value);
 					}
@@ -466,7 +466,7 @@ fn run_phase_batched<const N: usize, E>(
 			}
 			*sims_used += 1;
 
-			match select(tree, root_idx, Some(action_idx), state, c_puct) {
+			match select(tree, root_idx, Some(action_idx), state, c_puct, PuctVariant::MiniZero) {
 				SelectResult::Terminal { path, value } => {
 					crate::mcts::backpropagate_pub(tree, &path, value);
 				}
@@ -478,7 +478,7 @@ fn run_phase_batched<const N: usize, E>(
 						// simulate() which will navigate past the (still-unexpanded) edge
 						// via PUCT to find a different leaf or terminal.
 						*sims_used -= 1; // undo: simulate counts its own sim
-						simulate(tree, root_idx, Some(action_idx), state, evaluator, c_puct);
+						simulate(tree, root_idx, Some(action_idx), state, evaluator, c_puct, PuctVariant::MiniZero);
 						*sims_used += 1;
 					}
 				}
