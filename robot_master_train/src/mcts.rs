@@ -280,6 +280,7 @@ where
 			select_edge(&tree.nodes, node, c_puct, puct)
 		};
 
+		path.push(current);
 		let child = tree.nodes[current as usize].edges[best_edge_idx].child;
 		if child == u32::MAX {
 			let mv = tree.nodes[current as usize].edges[best_edge_idx].mv;
@@ -291,8 +292,6 @@ where
 				leaf_state: sim_state,
 			};
 		}
-
-		path.push(current);
 		let mv = tree.nodes[current as usize].edges[best_edge_idx].mv;
 		sim_state.play(mv).expect("search selected illegal move");
 		current = child;
