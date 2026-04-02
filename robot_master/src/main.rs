@@ -23,12 +23,20 @@ fn main() {
 		Commands::Tui => {
 			let p1 = resolve_player(&cli.players.player1, auto_yes);
 			let p2 = resolve_player(&cli.players.player2, auto_yes);
+			if hide && p1.is_manual() && p2.is_manual() {
+				eprintln!("error: --hide requires at most one manual player (both players cannot be manual in hidden-hand mode)");
+				process::exit(1);
+			}
 			let game_config = GameConfig { size: size.into(), hide };
 			robot_master::tui::run(game_config, size, p1, p2, rating_db, models_dir);
 		}
 		Commands::Gui { sound } => {
 			let p1 = resolve_player(&cli.players.player1, auto_yes);
 			let p2 = resolve_player(&cli.players.player2, auto_yes);
+			if hide && p1.is_manual() && p2.is_manual() {
+				eprintln!("error: --hide requires at most one manual player (both players cannot be manual in hidden-hand mode)");
+				process::exit(1);
+			}
 			let asset_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../robot_master_game/assets");
 			robot_master_game::create_app(asset_dir, size, hide, p1, p2, sound, models_dir).run();
 		}

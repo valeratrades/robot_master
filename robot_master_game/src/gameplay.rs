@@ -132,12 +132,13 @@ impl InitialBoard {
 fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Textures>) {
 	let size = init.size;
 	let n = u8::from(size) as usize;
+	let hide = init.hide;
 
 	let p1_kind = init.p1.clone();
 	let p2_kind = init.p2.clone();
 	let models_dir = init.models_dir.clone();
 
-	let m = make_match(size, init.hide, p1_kind.clone(), p2_kind.clone(), &models_dir);
+	let m = make_match(size, hide, p1_kind.clone(), p2_kind.clone(), &models_dir);
 
 	// Snapshot initial state before handing ownership to the resource.
 	let hands = m.hands();
@@ -188,7 +189,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 				..default()
 			})
 			.with_children(|row| {
-				spawn_hand(row, &snap.hands, Player::A, &tex);
+				spawn_hand(row, &snap.hands, Player::A, false, &tex);
 
 				row.spawn(Node {
 					flex_direction: FlexDirection::Column,
@@ -234,7 +235,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 					}
 				});
 
-				spawn_hand(row, &snap.hands, Player::B, &tex);
+				spawn_hand(row, &snap.hands, Player::B, hide, &tex);
 			});
 
 			// Command line at the bottom
@@ -252,7 +253,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 		});
 }
 
-fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[Vec<u8>; 2], player: Player, tex: &Textures) {
+fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[Vec<u8>; 2], player: Player, hidden: bool, tex: &Textures) {
 	let hand = &hands[player.index() as usize];
 	let title = format!("{}", PlayerDisplay(player));
 
@@ -275,7 +276,7 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[Vec<u8>; 2], player: P
 			));
 
 			for v in 0..=5u8 {
-				let count = hand[v as usize];
+				let count = if hidden { 0 } else { hand[v as usize] };
 				col.spawn((
 					HandCard { player, value: CardValue(v) },
 					Button,
@@ -286,7 +287,7 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[Vec<u8>; 2], player: P
 						align_items: AlignItems::Center,
 						..default()
 					},
-					BackgroundColor(if count == 0 { theme::HAND_CARD_EMPTY } else { theme::HAND_CARD }),
+					BackgroundColor(if hidden || count == 0 { theme::HAND_CARD_EMPTY } else { theme::HAND_CARD }),
 				))
 				.with_children(|card| {
 					card.spawn((
@@ -296,10 +297,11 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[Vec<u8>; 2], player: P
 							height: Val::Px(45.0),
 							..default()
 						},
+						if hidden { Visibility::Hidden } else { Visibility::Inherited },
 					));
 					card.spawn((
 						HandCountLabel { player, value: CardValue(v) },
-						Text::new(format!("x{count}")),
+						Text::new(if hidden { String::new() } else { format!("x{count}") }),
 						TextFont { font_size: 14.0, ..default() },
 						TextColor(if count == 0 { theme::TEXT_MUTED } else { theme::TEXT_PRIMARY }),
 					));
@@ -631,6 +633,7 @@ fn sync_visuals(
 	slots: Res<PlayerSlots>,
 	tex: Res<Textures>,
 	modal: Res<ModalState<GameAction>>,
+	init: Res<InitialPlayers>,
 	mut board_cells: Query<(&BoardCell, &mut BackgroundColor, &Children)>,
 	mut hand_counts: Query<(&HandCountLabel, &mut Text, &mut TextColor)>,
 	mut hand_cards: Query<(&HandCard, &mut BackgroundColor, &Interaction, Has<RejectFlash>), Without<BoardCell>>,
@@ -639,6 +642,7 @@ fn sync_visuals(
 ) {
 	let turn = game.0.turn();
 	let hands = game.0.hands();
+	let hide = init.hide;
 
 	// If user has typed a column letter, narrow highlight to that column only
 	let highlight_col: Option<u8> = if modal.active && !modal.sequence.is_empty() {
@@ -683,6 +687,11 @@ fn sync_visuals(
 
 	// Hand counts
 	for (hc, mut text, mut color) in &mut hand_counts {
+		if hide && hc.player == Player::B {
+			**text = String::new();
+			*color = TextColor(theme::TEXT_MUTED);
+			continue;
+		}
 		let count = hands[hc.player.index() as usize][hc.value.0 as usize];
 		**text = format!("x{count}");
 		*color = if count == 0 {
@@ -697,6 +706,10 @@ fn sync_visuals(
 	// Hand card backgrounds
 	for (hc, mut bg, interaction, has_reject) in &mut hand_cards {
 		if has_reject {
+			continue;
+		}
+		if hide && hc.player == Player::B {
+			*bg = BackgroundColor(theme::HAND_CARD_EMPTY);
 			continue;
 		}
 		let count = hands[hc.player.index() as usize][hc.value.0 as usize];

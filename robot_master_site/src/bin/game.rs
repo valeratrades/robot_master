@@ -7,6 +7,7 @@ fn main() {
 	robot_master_game::create_app(
 		"public",
 		BoardSize::DEFAULT,
+		false,
 		PlayerKind {
 			inner: InnerKind::ManualPlayer(ManualPlayer::default()),
 			sims: None,

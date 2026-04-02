@@ -368,7 +368,11 @@ fn button_system(
 					for entity in &modals {
 						commands.entity(entity).despawn();
 					}
-					let candidates = build_candidates(&ratings.0);
+					let mut candidates = build_candidates(&ratings.0);
+					// In hidden-hand mode, player 2 cannot be manual.
+					if init.hide && btn.0 == 1 {
+						candidates.retain(|(_, kind)| !kind.is_manual());
+					}
 					spawn_search_modal(&mut commands, btn.0, candidates);
 				} else if size_btn.is_some() {
 					let has_modal = !modals.is_empty();
@@ -449,10 +453,13 @@ fn search_system(
 	}
 
 	if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter) {
+		let hide = init.hide;
+		let player_idx = state.player_idx;
 		let kind: Option<PlayerKind> = if let Some((_, k)) = filtered.get(state.highlighted) {
 			Some(k.clone())
-		} else if !query_str.is_empty() {
+		} else if !query_str.is_empty() && !(hide && player_idx == 1) {
 			// No matches — treat raw input as a manual player name.
+			// Not allowed for player 2 in hidden-hand mode.
 			Some(PlayerKind {
 				inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: query_str.clone() }),
 				sims: None,
@@ -461,7 +468,6 @@ fn search_system(
 			None
 		};
 		if let Some(kind) = kind {
-			let player_idx = state.player_idx;
 			match player_idx {
 				0 => init.p1 = kind.clone(),
 				_ => init.p2 = kind.clone(),
