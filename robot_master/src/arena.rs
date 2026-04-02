@@ -216,17 +216,37 @@ fn run_tournament_sized<const N: usize>(
 	// Final ratings
 	let final_ratings = rating_db.load_ratings();
 	let mut standings: Vec<_> = final_ratings.iter().filter(|(id, _)| games.contains_key(id)).collect();
-	standings.sort_by(|a, b| b.1.rating.partial_cmp(&a.1.rating).unwrap());
+	standings.sort_by(|a, b| {
+		let wa = wins.get(a.0).copied().unwrap_or(0);
+		let wb = wins.get(b.0).copied().unwrap_or(0);
+		wb.cmp(&wa).then_with(|| b.1.rating.partial_cmp(&a.1.rating).unwrap())
+	});
+
+	let rows: Vec<(String, String, String, String)> = standings
+		.iter()
+		.map(|(id, rating)| {
+			let w = wins.get(*id).copied().unwrap_or(0);
+			let g = games.get(*id).copied().unwrap_or(0);
+			let prov = if rating.is_provisional() { "?" } else { "" };
+			let prev = ratings.get(*id).copied().unwrap_or(rating.rating);
+			let delta = rating.rating - prev;
+			let sign = if delta >= 0.0 { "+" } else { "" };
+			(
+				format!("{w}/{g}"),
+				id.to_string(),
+				format!("{:.0}{prov}", rating.rating),
+				format!("{sign}{delta:.0}, RD {:.0}", rating.deviation),
+			)
+		})
+		.collect();
+
+	let col0 = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
+	let col1 = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);
+	let col2 = rows.iter().map(|r| r.2.len()).max().unwrap_or(0);
 
 	eprintln!("\n--- Results ({} games) ---", results.len());
-	for (id, rating) in &standings {
-		let w = wins.get(id).copied().unwrap_or(0);
-		let g = games.get(id).copied().unwrap_or(0);
-		let prov = if rating.is_provisional() { "?" } else { "" };
-		let prev = ratings.get(id).copied().unwrap_or(rating.rating);
-		let delta = rating.rating - prev;
-		let sign = if delta >= 0.0 { "+" } else { "" };
-		eprintln!("  {id}: {:.0}{prov} ({sign}{delta:.0}, RD {:.0})  {w}/{g} wins", rating.rating, rating.deviation);
+	for (wins_col, name, rating_col, delta_col) in &rows {
+		eprintln!("  {wins_col:<col0$}  {name:<col1$}  {rating_col:>col2$}  ({delta_col})");
 	}
 }
 
