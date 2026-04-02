@@ -1,8 +1,6 @@
-use std::{
-	collections::HashMap,
-	sync::{Arc, Mutex},
-};
+use std::collections::HashMap;
 
+use dashmap::DashMap;
 use rand::{Rng, RngExt, SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
 use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
@@ -37,6 +35,463 @@ where
 	}
 }
 
+/// Strategy for one tournament type. Implemented by `RatingBased`, `Swiss`, `Elimination`.
+///
+/// The shared runner [`run_tournament`] handles rating init/save, the rayon pool, and the outer
+/// cycle loop. Implementors only need to provide pairing and result-application logic.
+trait Tournament<const N: usize>
+where
+	[(); N * N]:,
+	[(); N + 1]:, {
+	/// Called once before the outer loop. Implementors may pre-compute constants (e.g.
+	/// `rounds_per_bracket`) or seed per-run state from the initial ratings.
+	fn init(&mut self, player_ids: &[Ustr], live_ratings: &DashMap<Ustr, Rating>);
+
+	/// Total number of outer cycles (= progress bar ticks).
+	fn cycles(&self) -> usize;
+
+	/// Produce the list of `(p1_id, p2_id, seed)` games to play for `cycle`.
+	/// Return an empty vec to skip a cycle (used by `Elimination` for padding cycles).
+	fn pairs_for_cycle(&mut self, cycle: usize, player_ids: &[Ustr], live_ratings: &DashMap<Ustr, Rating>, rng: &mut dyn Rng) -> Vec<(Ustr, Ustr, u64)>;
+
+	/// Called once per `MatchResult` from the current cycle, in arbitrary order.
+	/// Should update `live_ratings` (Glicko-2) and any internal bookkeeping.
+	fn apply_result(&mut self, result: &MatchResult, live_ratings: &DashMap<Ustr, Rating>);
+
+	/// Called after all results for a cycle have been applied.
+	/// Used for deferred batch updates (e.g. `RatingBased`) and state transitions (e.g. `Elimination`).
+	fn end_cycle(&mut self, cycle: usize, player_ids: &[Ustr], live_ratings: &DashMap<Ustr, Rating>);
+}
+
+// ---------------------------------------------------------------------------
+// Shared runner
+// ---------------------------------------------------------------------------
+
+fn run_tournament<const N: usize, T: Tournament<N>>(
+	mut tourney: T,
+	player_ids: &[Ustr],
+	config: GameConfig,
+	rating_db: &dyn RatingDb,
+	factory: &dyn BotFactory<N>,
+	rng: &mut impl Rng,
+	threads: usize,
+	mut pb: Option<&mut ProgressBar>,
+) -> Vec<MatchResult>
+where
+	[(); N * N]:,
+	[(); N + 1]:, {
+	assert!(player_ids.len() >= 2, "need at least 2 players for a tournament");
+
+	let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().expect("failed to build rayon thread pool");
+
+	let live_ratings: DashMap<Ustr, Rating> = {
+		let loaded = rating_db.load_ratings();
+		let dm: DashMap<Ustr, Rating> = loaded.into_iter().collect();
+		for id in player_ids {
+			dm.entry(*id).or_default();
+		}
+		dm
+	};
+
+	tourney.init(player_ids, &live_ratings);
+
+	let mut all_results = Vec::new();
+
+	for cycle in 0..tourney.cycles() {
+		let pairs = tourney.pairs_for_cycle(cycle, player_ids, &live_ratings, rng as &mut dyn Rng);
+
+		if pairs.is_empty() {
+			// Padding cycle (e.g. elimination bracket already collapsed).
+			tourney.end_cycle(cycle, player_ids, &live_ratings);
+			if let Some(ref mut pb) = pb {
+				pb.progress(cycle + 1);
+			}
+			continue;
+		}
+
+		let round_results: Vec<MatchResult> = if threads == 1 {
+			pairs.into_iter().map(|(p1, p2, seed)| play_game::<N>(p1, p2, seed, config, factory)).collect()
+		} else {
+			pool.install(|| pairs.into_par_iter().map(|(p1, p2, seed)| play_game::<N>(p1, p2, seed, config, factory)).collect())
+		};
+
+		for result in &round_results {
+			tourney.apply_result(result, &live_ratings);
+		}
+		tourney.end_cycle(cycle, player_ids, &live_ratings);
+
+		all_results.extend(round_results);
+		if let Some(ref mut pb) = pb {
+			pb.progress(cycle + 1);
+		}
+	}
+
+	let final_ratings: HashMap<Ustr, Rating> = live_ratings.into_iter().collect();
+	rating_db.save_ratings(&final_ratings);
+	all_results
+}
+
+// ---------------------------------------------------------------------------
+// Rating-based
+// ---------------------------------------------------------------------------
+
+/// Each cycle picks one pair (A, B) by weighted-random + neighbor, plays `threads` games between
+/// them, then does a **batch** Glicko-2 update treating all those games as one rating period.
+struct RatingBased {
+	target_rounds: usize,
+	threads: usize,
+	/// Accumulated (opponent_rating_snapshot, score) per player for the current cycle.
+	/// Flushed as a single Glicko-2 batch in `end_cycle`.
+	pending_a: Vec<(Rating, f64)>,
+	pending_b: Vec<(Rating, f64)>,
+	/// The pair chosen this cycle, so `end_cycle` knows who to update.
+	current_pair: Option<(Ustr, Ustr)>,
+}
+
+impl RatingBased {
+	fn new(target_rounds: usize, threads: usize) -> Self {
+		Self {
+			target_rounds,
+			threads,
+			pending_a: Vec::new(),
+			pending_b: Vec::new(),
+			current_pair: None,
+		}
+	}
+}
+
+impl<const N: usize> Tournament<N> for RatingBased
+where
+	[(); N * N]:,
+	[(); N + 1]:,
+{
+	fn init(&mut self, _player_ids: &[Ustr], _live_ratings: &DashMap<Ustr, Rating>) {}
+
+	fn cycles(&self) -> usize {
+		(self.target_rounds as f64 / self.threads as f64).ceil() as usize
+	}
+
+	fn pairs_for_cycle(&mut self, cycle: usize, player_ids: &[Ustr], live_ratings: &DashMap<Ustr, Rating>, rng: &mut dyn Rng) -> Vec<(Ustr, Ustr, u64)> {
+		let n = player_ids.len();
+
+		// Build rating-sorted snapshot (ascending: rank 0 = weakest)
+		let mut sorted: Vec<(Ustr, f64)> = player_ids.iter().map(|&id| (id, live_ratings.get(&id).map(|r| r.rating).unwrap_or(1500.0))).collect();
+		sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+		// Pick A: weighted by rating
+		let total: f64 = sorted.iter().map(|(_, r)| r).sum();
+		let pick: f64 = rng.random::<f64>() * total;
+		let mut a_rank = n - 1;
+		let mut acc = 0.0;
+		for (i, (_, r)) in sorted.iter().enumerate() {
+			acc += r;
+			if acc >= pick {
+				a_rank = i;
+				break;
+			}
+		}
+
+		// Pick B: immediate neighbor
+		let b_rank = if a_rank == 0 {
+			1
+		} else if a_rank == n - 1 {
+			n - 2
+		} else if rng.random::<bool>() {
+			a_rank + 1
+		} else {
+			a_rank - 1
+		};
+
+		let a_id = sorted[a_rank].0;
+		let b_id = sorted[b_rank].0;
+		self.current_pair = Some((a_id, b_id));
+
+		// Snapshot ratings for the batch update (ratings may change mid-cycle for other tourneys,
+		// but for rating_based each cycle is one isolated pair so we snapshot once here).
+		let r_a = live_ratings.get(&a_id).map(|r| r.clone()).unwrap_or_default();
+		let r_b = live_ratings.get(&b_id).map(|r| r.clone()).unwrap_or_default();
+		self.pending_a.clear();
+		self.pending_b.clear();
+		// Store the opponent snapshot; scores filled in apply_result.
+		// We need n_games slots, so reserve by stashing sentinel values that apply_result replaces.
+		// Simpler: just let apply_result push; we pass the snapshot via fields.
+		drop((r_a, r_b)); // will re-read in end_cycle before any update happens
+
+		(0..self.threads)
+			.map(|game_n| {
+				let seed = rng.random::<u64>();
+				let (p1, p2) = if (cycle + game_n) % 2 == 0 { (a_id, b_id) } else { (b_id, a_id) };
+				(p1, p2, seed)
+			})
+			.collect()
+	}
+
+	fn apply_result(&mut self, result: &MatchResult, live_ratings: &DashMap<Ustr, Rating>) {
+		let (a_id, b_id) = self.current_pair.expect("apply_result called before pairs_for_cycle");
+		// Get opponent snapshot for Glicko-2 — we read current value (not yet updated this cycle).
+		let r_a = live_ratings.get(&a_id).map(|r| r.clone()).unwrap_or_default();
+		let r_b = live_ratings.get(&b_id).map(|r| r.clone()).unwrap_or_default();
+
+		let (score_a, score_b) = if result.p1_id == a_id {
+			(score_f64(result.p1_score, result.p2_score), score_f64(result.p2_score, result.p1_score))
+		} else {
+			(score_f64(result.p2_score, result.p1_score), score_f64(result.p1_score, result.p2_score))
+		};
+		self.pending_a.push((r_b, score_a));
+		self.pending_b.push((r_a, score_b));
+	}
+
+	fn end_cycle(&mut self, _cycle: usize, _player_ids: &[Ustr], live_ratings: &DashMap<Ustr, Rating>) {
+		let (a_id, b_id) = match self.current_pair.take() {
+			Some(p) => p,
+			None => return,
+		};
+		if self.pending_a.is_empty() {
+			return;
+		}
+
+		// Read current (pre-update) ratings for the batch computation.
+		let r_a = live_ratings.get(&a_id).map(|r| r.clone()).unwrap_or_default();
+		let r_b = live_ratings.get(&b_id).map(|r| r.clone()).unwrap_or_default();
+
+		// Build slices of (&Rating, score) — the opponent snapshot stored in pending is used.
+		let a_games: Vec<(&Rating, f64)> = self.pending_a.iter().map(|(opp, s)| (opp as &Rating, *s)).collect();
+		let b_games: Vec<(&Rating, f64)> = self.pending_b.iter().map(|(opp, s)| (opp as &Rating, *s)).collect();
+
+		live_ratings.insert(a_id, glicko_update_batch(&r_a, &a_games));
+		live_ratings.insert(b_id, glicko_update_batch(&r_b, &b_games));
+
+		self.pending_a.clear();
+		self.pending_b.clear();
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Swiss
+// ---------------------------------------------------------------------------
+
+/// FIDE Swiss tournament. The inner "rounds per bracket" loop is **flattened** into the outer
+/// cycle index: `bracket = cycle / rounds_per_bracket`, `swiss_round = cycle % rounds_per_bracket`.
+struct Swiss {
+	brackets: usize,
+	rounds_per_bracket: usize,
+	scores: HashMap<Ustr, u32>,
+}
+
+impl Swiss {
+	fn new(brackets: usize) -> Self {
+		Self {
+			brackets,
+			rounds_per_bracket: 0,
+			scores: HashMap::new(),
+		}
+	}
+}
+
+impl<const N: usize> Tournament<N> for Swiss
+where
+	[(); N * N]:,
+	[(); N + 1]:,
+{
+	fn init(&mut self, player_ids: &[Ustr], _live_ratings: &DashMap<Ustr, Rating>) {
+		self.rounds_per_bracket = (player_ids.len() as f64).log2().ceil() as usize;
+	}
+
+	fn cycles(&self) -> usize {
+		self.brackets * self.rounds_per_bracket
+	}
+
+	fn pairs_for_cycle(&mut self, cycle: usize, player_ids: &[Ustr], live_ratings: &DashMap<Ustr, Rating>, rng: &mut dyn Rng) -> Vec<(Ustr, Ustr, u64)> {
+		let n = player_ids.len();
+		let swiss_round = cycle % self.rounds_per_bracket;
+		let bracket = cycle / self.rounds_per_bracket;
+
+		let pairs: Vec<(usize, usize)> = if swiss_round == 0 {
+			// Start of a new bracket: reset scores
+			self.scores = player_ids.iter().map(|id| (*id, 0)).collect();
+			// Round 1: sort by rating desc, pair rank i vs rank (n/2 + i)
+			let mut order: Vec<usize> = (0..n).collect();
+			order.sort_by(|&a, &b| {
+				let ra = live_ratings.get(&player_ids[a]).map(|r| r.rating).unwrap_or(1500.0);
+				let rb = live_ratings.get(&player_ids[b]).map(|r| r.rating).unwrap_or(1500.0);
+				rb.partial_cmp(&ra).unwrap()
+			});
+			let n_pairs = n / 2;
+			(0..n_pairs).map(|i| (order[i], order[n / 2 + i])).collect()
+		} else {
+			fide_pair_by_score(player_ids, &self.scores, live_ratings)
+		};
+
+		pairs
+			.iter()
+			.enumerate()
+			.map(|(pair_idx, &(a_idx, b_idx))| {
+				let (p1_idx, p2_idx) = if (bracket + swiss_round + pair_idx) % 2 == 0 { (a_idx, b_idx) } else { (b_idx, a_idx) };
+				let seed = rng.random::<u64>();
+				(player_ids[p1_idx], player_ids[p2_idx], seed)
+			})
+			.collect()
+	}
+
+	fn apply_result(&mut self, result: &MatchResult, live_ratings: &DashMap<Ustr, Rating>) {
+		// Swiss score: winner gets +1
+		match result.p1_score.cmp(&result.p2_score) {
+			std::cmp::Ordering::Greater => *self.scores.entry(result.p1_id).or_default() += 1,
+			std::cmp::Ordering::Less => *self.scores.entry(result.p2_id).or_default() += 1,
+			std::cmp::Ordering::Equal => {}
+		}
+
+		glicko_update_single(result, live_ratings);
+	}
+
+	fn end_cycle(&mut self, _cycle: usize, _player_ids: &[Ustr], _live_ratings: &DashMap<Ustr, Rating>) {}
+}
+
+// ---------------------------------------------------------------------------
+// Elimination
+// ---------------------------------------------------------------------------
+
+/// Single-elimination bracket, repeated for `brackets` full runs.
+///
+/// The inner while-loop (rounds until 1 survivor) is flattened into the outer cycle using an
+/// upper-bound of `brackets * ceil(log2(n))` total cycles. Empty pairs signal a padding cycle.
+struct Elimination {
+	brackets: usize,
+	max_inner_rounds: usize,
+	n: usize,
+	/// Survivors in the current bracket round.
+	active: Vec<Ustr>,
+	/// Winners collected so far this inner round (including bye holder).
+	next_active: Vec<Ustr>,
+	/// Bracket index (increments when active collapses to 1).
+	current_bracket: usize,
+}
+
+impl Elimination {
+	fn new(brackets: usize) -> Self {
+		Self {
+			brackets,
+			max_inner_rounds: 0,
+			n: 0,
+			active: Vec::new(),
+			next_active: Vec::new(),
+			current_bracket: 0,
+		}
+	}
+
+	fn reset_bracket(&mut self, player_ids: &[Ustr], live_ratings: &DashMap<Ustr, Rating>) {
+		let mut v: Vec<(Ustr, f64)> = player_ids.iter().map(|&id| (id, live_ratings.get(&id).map(|r| r.rating).unwrap_or(1500.0))).collect();
+		v.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+		self.active = v.into_iter().map(|(id, _)| id).collect();
+		self.next_active.clear();
+	}
+
+	fn resort_active(&mut self, live_ratings: &DashMap<Ustr, Rating>) {
+		self.active.sort_by(|a, b| {
+			let ra = live_ratings.get(a).map(|r| r.rating).unwrap_or(1500.0);
+			let rb = live_ratings.get(b).map(|r| r.rating).unwrap_or(1500.0);
+			ra.partial_cmp(&rb).unwrap()
+		});
+	}
+}
+
+impl<const N: usize> Tournament<N> for Elimination
+where
+	[(); N * N]:,
+	[(); N + 1]:,
+{
+	fn init(&mut self, player_ids: &[Ustr], live_ratings: &DashMap<Ustr, Rating>) {
+		self.n = player_ids.len();
+		self.max_inner_rounds = (self.n as f64).log2().ceil() as usize;
+		self.current_bracket = 0;
+		self.reset_bracket(player_ids, live_ratings);
+	}
+
+	fn cycles(&self) -> usize {
+		self.brackets * self.max_inner_rounds
+	}
+
+	fn pairs_for_cycle(&mut self, cycle: usize, _player_ids: &[Ustr], _live_ratings: &DashMap<Ustr, Rating>, rng: &mut dyn Rng) -> Vec<(Ustr, Ustr, u64)> {
+		if self.active.len() <= 1 {
+			// Bracket already collapsed — padding cycle.
+			return Vec::new();
+		}
+
+		let inner_round = cycle % self.max_inner_rounds;
+		self.next_active.clear();
+
+		// Odd player gets a bye (last in sorted list).
+		if self.active.len() % 2 == 1 {
+			self.next_active.push(*self.active.last().unwrap());
+		}
+
+		let mut pairs = Vec::new();
+		let mut i = 0;
+		while i + 1 < self.active.len() {
+			let seed = rng.random::<u64>();
+			let (p1, p2) = if (self.current_bracket + inner_round + i) % 2 == 0 {
+				(self.active[i], self.active[i + 1])
+			} else {
+				(self.active[i + 1], self.active[i])
+			};
+			pairs.push((p1, p2, seed));
+			i += 2;
+		}
+		pairs
+	}
+
+	fn apply_result(&mut self, result: &MatchResult, live_ratings: &DashMap<Ustr, Rating>) {
+		glicko_update_single(result, live_ratings);
+
+		// Advance winner
+		let winner = match result.p1_score.cmp(&result.p2_score) {
+			std::cmp::Ordering::Greater => result.p1_id,
+			std::cmp::Ordering::Less => result.p2_id,
+			std::cmp::Ordering::Equal =>
+				if result.p1_id.as_str() < result.p2_id.as_str() {
+					result.p1_id
+				} else {
+					result.p2_id
+				},
+		};
+		self.next_active.push(winner);
+	}
+
+	fn end_cycle(&mut self, cycle: usize, player_ids: &[Ustr], live_ratings: &DashMap<Ustr, Rating>) {
+		if self.active.len() <= 1 {
+			// Was a padding cycle; check if we should start the next bracket.
+			let inner_round = cycle % self.max_inner_rounds;
+			if inner_round == self.max_inner_rounds - 1 {
+				self.current_bracket += 1;
+				if self.current_bracket < self.brackets {
+					self.reset_bracket(player_ids, live_ratings);
+				}
+			}
+			return;
+		}
+
+		self.active = std::mem::take(&mut self.next_active);
+		self.resort_active(live_ratings);
+
+		// If bracket is done, start the next one on the next bracket boundary.
+		if self.active.len() == 1 {
+			let inner_round = cycle % self.max_inner_rounds;
+			if inner_round == self.max_inner_rounds - 1 {
+				// Happened to finish exactly on the last inner slot — start next bracket now.
+				self.current_bracket += 1;
+				if self.current_bracket < self.brackets {
+					self.reset_bracket(player_ids, live_ratings);
+				}
+			}
+			// Otherwise: remaining padding cycles will be no-ops; bracket reset happens there.
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Public API (unchanged signatures)
+// ---------------------------------------------------------------------------
+
 /// Rating-based tournament.
 ///
 /// Each cycle:
@@ -54,131 +509,12 @@ pub fn rating_based<const N: usize>(
 	factory: &dyn BotFactory<N>,
 	rng: &mut impl Rng,
 	threads: usize,
-	mut pb: Option<&mut ProgressBar>,
+	pb: Option<&mut ProgressBar>,
 ) -> Vec<MatchResult>
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
-	let n = player_ids.len();
-	assert!(n >= 2, "need at least 2 players for a tournament");
-
-	let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().expect("failed to build rayon thread pool");
-
-	let live_ratings: Arc<Mutex<HashMap<Ustr, Rating>>> = {
-		let mut map = rating_db.load_ratings();
-		for id in player_ids {
-			map.entry(*id).or_default();
-		}
-		Arc::new(Mutex::new(map))
-	};
-
-	let cycles = (target_rounds as f64 / threads as f64).ceil() as usize;
-	let mut all_results = Vec::new();
-
-	for cycle in 0..cycles {
-		// Build rating-sorted snapshot (ascending so rank 0 = weakest)
-		let sorted: Vec<(Ustr, f64)> = {
-			let map = live_ratings.lock().unwrap();
-			let mut v: Vec<(Ustr, f64)> = player_ids.iter().map(|&id| (id, map.get(&id).map(|r| r.rating).unwrap_or(1500.0))).collect();
-			v.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-			v
-		};
-
-		// Pick player A: weighted by rating (higher rating = more likely)
-		let total_rating: f64 = sorted.iter().map(|(_, r)| r).sum();
-		let pick: f64 = rng.random::<f64>() * total_rating;
-		let mut a_rank = n - 1;
-		let mut acc = 0.0;
-		for (i, (_, r)) in sorted.iter().enumerate() {
-			acc += r;
-			if acc >= pick {
-				a_rank = i;
-				break;
-			}
-		}
-
-		// Pick player B: immediate neighbor; top goes down, bottom goes up, others coin-flip
-		let b_rank = if a_rank == 0 {
-			1
-		} else if a_rank == n - 1 {
-			n - 2
-		} else if rng.random::<bool>() {
-			a_rank + 1
-		} else {
-			a_rank - 1
-		};
-
-		let a_id = sorted[a_rank].0;
-		let b_id = sorted[b_rank].0;
-
-		// Play `threads` games between this pair in parallel
-		let seeds: Vec<u64> = (0..threads).map(|_| rng.random::<u64>()).collect();
-
-		let pair_results: Vec<MatchResult> = if threads == 1 {
-			seeds
-				.into_iter()
-				.enumerate()
-				.map(|(game_n, seed)| {
-					let (p1_id, p2_id) = if (cycle + game_n) % 2 == 0 { (a_id, b_id) } else { (b_id, a_id) };
-					play_game::<N>(p1_id, p2_id, seed, config, factory)
-				})
-				.collect()
-		} else {
-			pool.install(|| {
-				seeds
-					.into_par_iter()
-					.enumerate()
-					.map(|(game_n, seed)| {
-						let (p1_id, p2_id) = if (cycle + game_n) % 2 == 0 { (a_id, b_id) } else { (b_id, a_id) };
-						play_game::<N>(p1_id, p2_id, seed, config, factory)
-					})
-					.collect()
-			})
-		};
-
-		// Batch Glicko-2 update for this pairing
-		{
-			let mut map = live_ratings.lock().unwrap();
-			let r_a = map.entry(a_id).or_default().clone();
-			let r_b = map.entry(b_id).or_default().clone();
-
-			let a_games: Vec<(&Rating, f64)> = pair_results
-				.iter()
-				.map(|res| {
-					let score = if res.p1_id == a_id {
-						score_f64(res.p1_score, res.p2_score)
-					} else {
-						score_f64(res.p2_score, res.p1_score)
-					};
-					(&r_b as &Rating, score)
-				})
-				.collect();
-			let b_games: Vec<(&Rating, f64)> = pair_results
-				.iter()
-				.map(|res| {
-					let score = if res.p1_id == b_id {
-						score_f64(res.p1_score, res.p2_score)
-					} else {
-						score_f64(res.p2_score, res.p1_score)
-					};
-					(&r_a as &Rating, score)
-				})
-				.collect();
-
-			let new_r_a = glicko_update_batch(&r_a, &a_games);
-			let new_r_b = glicko_update_batch(&r_b, &b_games);
-			map.insert(a_id, new_r_a);
-			map.insert(b_id, new_r_b);
-		}
-
-		all_results.extend(pair_results);
-		if let Some(ref mut pb) = pb {
-			pb.progress(cycle + 1);
-		}
-	}
-
-	rating_db.save_ratings(&live_ratings.lock().unwrap());
-	all_results
+	run_tournament(RatingBased::new(target_rounds, threads), player_ids, config, rating_db, factory, rng, threads, pb)
 }
 
 /// True FIDE Swiss tournament.
@@ -199,122 +535,12 @@ pub fn swiss<const N: usize>(
 	factory: &dyn BotFactory<N>,
 	rng: &mut impl Rng,
 	threads: usize,
-	mut pb: Option<&mut ProgressBar>,
+	pb: Option<&mut ProgressBar>,
 ) -> Vec<MatchResult>
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
-	let n = player_ids.len();
-	assert!(n >= 2, "need at least 2 players for a tournament");
-
-	let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().expect("failed to build rayon thread pool");
-
-	let live_ratings: Arc<Mutex<HashMap<Ustr, Rating>>> = {
-		let mut map = rating_db.load_ratings();
-		for id in player_ids {
-			map.entry(*id).or_default();
-		}
-		Arc::new(Mutex::new(map))
-	};
-
-	let rounds_per_bracket = (n as f64).log2().ceil() as usize;
-	let mut all_results = Vec::new();
-
-	for bracket in 0..cycles {
-		// Reset scores for this bracket
-		let mut scores: HashMap<Ustr, u32> = player_ids.iter().map(|id| (*id, 0)).collect();
-
-		for swiss_round in 0..rounds_per_bracket {
-			let pairs: Vec<(usize, usize)> = if swiss_round == 0 {
-				// Round 1: sort by rating desc, pair rank i vs rank (n/2 + i)
-				let mut order: Vec<usize> = (0..n).collect();
-				{
-					let map = live_ratings.lock().unwrap();
-					order.sort_by(|&a, &b| {
-						let ra = map.get(&player_ids[a]).map(|r| r.rating).unwrap_or(1500.0);
-						let rb = map.get(&player_ids[b]).map(|r| r.rating).unwrap_or(1500.0);
-						rb.partial_cmp(&ra).unwrap()
-					});
-				}
-				let n_pairs = n / 2;
-				(0..n_pairs).map(|i| (order[i], order[n / 2 + i])).collect()
-			} else {
-				// Subsequent rounds: group by score, within group sort by rating, pair top vs bottom half
-				fide_pair_by_score(player_ids, &scores, &live_ratings)
-			};
-
-			// Build work: one game per pair
-			let pair_work: Vec<(usize, Ustr, Ustr, u64)> = pairs
-				.iter()
-				.enumerate()
-				.map(|(pair_idx, &(a_idx, b_idx))| {
-					let (p1_idx, p2_idx) = if (bracket + swiss_round) % 2 == 0 { (a_idx, b_idx) } else { (b_idx, a_idx) };
-					let seed = rng.random::<u64>();
-					(pair_idx, player_ids[p1_idx], player_ids[p2_idx], seed)
-				})
-				.collect();
-
-			let round_results: Vec<(usize, MatchResult)> = if threads == 1 {
-				pair_work
-					.into_iter()
-					.map(|(pair_idx, p1_id, p2_id, seed)| (pair_idx, play_game::<N>(p1_id, p2_id, seed, config, factory)))
-					.collect()
-			} else {
-				pool.install(|| {
-					pair_work
-						.into_par_iter()
-						.map(|(pair_idx, p1_id, p2_id, seed)| (pair_idx, play_game::<N>(p1_id, p2_id, seed, config, factory)))
-						.collect()
-				})
-			};
-
-			// Update ratings and scores; collect results
-			for (pair_idx, result) in round_results {
-				let (a_idx, b_idx) = pairs[pair_idx];
-				let p1_id = player_ids[a_idx];
-				let p2_id = player_ids[b_idx];
-
-				// Determine the canonical p1/p2 for this pairing (may be swapped vs played order)
-				// We track score for the pairing's "a" and "b" player
-				let (canon_a_score, canon_b_score) = if result.p1_id == player_ids[a_idx] {
-					(result.p1_score, result.p2_score)
-				} else {
-					(result.p2_score, result.p1_score)
-				};
-
-				match canon_a_score.cmp(&canon_b_score) {
-					std::cmp::Ordering::Greater => *scores.entry(player_ids[a_idx]).or_default() += 1,
-					std::cmp::Ordering::Less => *scores.entry(player_ids[b_idx]).or_default() += 1,
-					std::cmp::Ordering::Equal => {}
-				}
-
-				// Single-game Glicko-2 update
-				{
-					let mut map = live_ratings.lock().unwrap();
-					let r1 = map.entry(p1_id).or_default().clone();
-					let r2 = map.entry(p2_id).or_default().clone();
-
-					let (s1, s2) = if result.p1_id == p1_id {
-						(score_f64(result.p1_score, result.p2_score), score_f64(result.p2_score, result.p1_score))
-					} else {
-						(score_f64(result.p2_score, result.p1_score), score_f64(result.p1_score, result.p2_score))
-					};
-					let new_r1 = glicko_update_batch(&r1, &[(&r2, s1)]);
-					let new_r2 = glicko_update_batch(&r2, &[(&r1, s2)]);
-					map.insert(p1_id, new_r1);
-					map.insert(p2_id, new_r2);
-				}
-
-				all_results.push(result);
-			}
-		}
-		if let Some(ref mut pb) = pb {
-			pb.progress(bracket + 1);
-		}
-	}
-
-	rating_db.save_ratings(&live_ratings.lock().unwrap());
-	all_results
+	run_tournament(Swiss::new(cycles), player_ids, config, rating_db, factory, rng, threads, pb)
 }
 
 /// Single-elimination tournament, repeated for `cycles` full brackets.
@@ -324,7 +550,7 @@ where
 ///    so each matchup is between players of closest ELO — under-valued players beat their
 ///    near-peers and advance to play more games.
 /// 2. Winners advance to the next round; losers are eliminated for this bracket.
-///    Draws are resolved by coin-flip (seeded from the game seed) so there are no byes.
+///    Draws are resolved deterministically on player id ordering so there are no byes.
 /// 3. Glicko-2 is updated after every game. The bracket collapses until one player remains.
 /// 4. Repeat from step 1 for the next cycle.
 ///
@@ -337,133 +563,33 @@ pub fn elimination<const N: usize>(
 	factory: &dyn BotFactory<N>,
 	rng: &mut impl Rng,
 	threads: usize,
-	mut pb: Option<&mut ProgressBar>,
+	pb: Option<&mut ProgressBar>,
 ) -> Vec<MatchResult>
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
-	let n = player_ids.len();
-	assert!(n >= 2, "need at least 2 players for a tournament");
-
-	let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().expect("failed to build rayon thread pool");
-
-	let live_ratings: Arc<Mutex<HashMap<Ustr, Rating>>> = {
-		let mut map = rating_db.load_ratings();
-		for id in player_ids {
-			map.entry(*id).or_default();
-		}
-		Arc::new(Mutex::new(map))
-	};
-
-	let mut all_results = Vec::new();
-
-	for cycle in 0..cycles {
-		// Sort all players by rating asc so adjacent = closest ELO
-		let mut active: Vec<Ustr> = {
-			let map = live_ratings.lock().unwrap();
-			let mut v: Vec<(Ustr, f64)> = player_ids.iter().map(|&id| (id, map.get(&id).map(|r| r.rating).unwrap_or(1500.0))).collect();
-			v.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-			v.into_iter().map(|(id, _)| id).collect()
-		};
-
-		while active.len() > 1 {
-			// Build pairs: adjacent players. Odd one out gets a bye (appended to next round as-is).
-			let mut pairs: Vec<(Ustr, Ustr, u64)> = Vec::new();
-			let mut bye: Option<Ustr> = None;
-
-			let mut i = 0;
-			while i + 1 < active.len() {
-				let seed = rng.random::<u64>();
-				let (p1, p2) = if (cycle + i) % 2 == 0 { (active[i], active[i + 1]) } else { (active[i + 1], active[i]) };
-				pairs.push((p1, p2, seed));
-				i += 2;
-			}
-			if active.len() % 2 == 1 {
-				bye = Some(*active.last().unwrap());
-			}
-
-			// Play all games in this elimination round in parallel
-			let round_results: Vec<MatchResult> = if threads == 1 {
-				pairs.into_iter().map(|(p1_id, p2_id, seed)| play_game::<N>(p1_id, p2_id, seed, config, factory)).collect()
-			} else {
-				pool.install(|| pairs.into_par_iter().map(|(p1_id, p2_id, seed)| play_game::<N>(p1_id, p2_id, seed, config, factory)).collect())
-			};
-
-			// Determine winners, update ratings, collect results
-			let mut next_active: Vec<Ustr> = Vec::new();
-			if let Some(b) = bye {
-				next_active.push(b);
-			}
-
-			for result in round_results {
-				let (winner, loser) = match result.p1_score.cmp(&result.p2_score) {
-					std::cmp::Ordering::Greater => (result.p1_id, result.p2_id),
-					std::cmp::Ordering::Less => (result.p2_id, result.p1_id),
-					// Draw: use the game seed's low bit via a deterministic tiebreak on ids
-					std::cmp::Ordering::Equal =>
-						if result.p1_id.as_str() < result.p2_id.as_str() {
-							(result.p1_id, result.p2_id)
-						} else {
-							(result.p2_id, result.p1_id)
-						},
-				};
-
-				// Glicko-2 update
-				{
-					let mut map = live_ratings.lock().unwrap();
-					let r1 = map.entry(result.p1_id).or_default().clone();
-					let r2 = map.entry(result.p2_id).or_default().clone();
-					let (s1, s2) = (score_f64(result.p1_score, result.p2_score), score_f64(result.p2_score, result.p1_score));
-					let new_r1 = glicko_update_batch(&r1, &[(&r2, s1)]);
-					let new_r2 = glicko_update_batch(&r2, &[(&r1, s2)]);
-					map.insert(result.p1_id, new_r1);
-					map.insert(result.p2_id, new_r2);
-				}
-
-				next_active.push(winner);
-				let _ = loser; // eliminated for this bracket
-				all_results.push(result);
-			}
-
-			// Re-sort survivors by current rating so next round also pairs by proximity
-			{
-				let map = live_ratings.lock().unwrap();
-				next_active.sort_by(|a, b| {
-					let ra = map.get(a).map(|r| r.rating).unwrap_or(1500.0);
-					let rb = map.get(b).map(|r| r.rating).unwrap_or(1500.0);
-					ra.partial_cmp(&rb).unwrap()
-				});
-			}
-			active = next_active;
-		}
-		if let Some(ref mut pb) = pb {
-			pb.progress(cycle + 1);
-		}
-	}
-
-	rating_db.save_ratings(&live_ratings.lock().unwrap());
-	all_results
+	run_tournament(Elimination::new(cycles), player_ids, config, rating_db, factory, rng, threads, pb)
 }
 
-/// FIDE Swiss pairing for rounds 2+: group by cumulative score (desc), within each group sort by
-/// rating (desc) and pair top-half vs bottom-half. Odd groups float the last player into the next
-/// lower score group.
+// ---------------------------------------------------------------------------
+// FIDE pairing helper (Swiss rounds 2+)
+// ---------------------------------------------------------------------------
+
+/// Group by cumulative score (desc), within each group sort by rating (desc) and pair top-half vs
+/// bottom-half. Odd groups float the last player into the next lower score group.
 ///
 /// Returns pairs as `(index_into_player_ids, index_into_player_ids)`.
-fn fide_pair_by_score(player_ids: &[Ustr], scores: &HashMap<Ustr, u32>, live_ratings: &Arc<Mutex<HashMap<Ustr, Rating>>>) -> Vec<(usize, usize)> {
+fn fide_pair_by_score(player_ids: &[Ustr], scores: &HashMap<Ustr, u32>, live_ratings: &DashMap<Ustr, Rating>) -> Vec<(usize, usize)> {
 	let n = player_ids.len();
 
-	// Build (player_index, score, rating) triples
-	let map = live_ratings.lock().unwrap();
 	let mut players: Vec<(usize, u32, f64)> = (0..n)
 		.map(|i| {
 			let id = player_ids[i];
 			let score = scores[&id];
-			let rating = map.get(&id).map(|r| r.rating).unwrap_or(1500.0);
+			let rating = live_ratings.get(&id).map(|r| r.rating).unwrap_or(1500.0);
 			(i, score, rating)
 		})
 		.collect();
-	drop(map);
 
 	// Sort by score desc, then rating desc
 	players.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.2.partial_cmp(&a.2).unwrap()));
@@ -473,7 +599,6 @@ fn fide_pair_by_score(player_ids: &[Ustr], scores: &HashMap<Ustr, u32>, live_rat
 	let mut i = 0;
 
 	while i < players.len() {
-		// Collect the current score group (including any floaters from previous group)
 		let group_score = players[i].1;
 		let mut group: Vec<(usize, u32, f64)> = unpaired.drain(..).collect();
 		while i < players.len() && players[i].1 == group_score {
@@ -481,28 +606,25 @@ fn fide_pair_by_score(player_ids: &[Ustr], scores: &HashMap<Ustr, u32>, live_rat
 			i += 1;
 		}
 
-		// Sort group by rating desc
 		group.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
 
-		// If odd, float the last player to the next group
 		if group.len() % 2 == 1 {
-			let floater = group.pop().unwrap();
-			unpaired.push(floater);
+			unpaired.push(group.pop().unwrap());
 		}
 
-		// Pair top-half vs bottom-half
 		let mid = group.len() / 2;
 		for j in 0..mid {
 			pairs.push((group[j].0, group[mid + j].0));
 		}
 	}
 
-	// Any remaining unpaired floaters (can only happen if n is odd overall — bye)
-	// With an even n this should never leave anyone unpaired.
 	debug_assert!(unpaired.is_empty() || n % 2 == 1, "unpaired players remain with even n");
-
 	pairs
 }
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
 
 fn play_game<const N: usize>(p1_id: Ustr, p2_id: Ustr, seed: u64, config: GameConfig, factory: &dyn BotFactory<N>) -> MatchResult
 where
@@ -513,6 +635,15 @@ where
 	let p1 = factory.create(p1_id);
 	let p2 = factory.create(p2_id);
 	Match::new(game, p1, p2, p1_id, p2_id).run()
+}
+
+fn glicko_update_single(result: &MatchResult, live_ratings: &DashMap<Ustr, Rating>) {
+	let r1 = live_ratings.get(&result.p1_id).map(|r| r.clone()).unwrap_or_default();
+	let r2 = live_ratings.get(&result.p2_id).map(|r| r.clone()).unwrap_or_default();
+	let s1 = score_f64(result.p1_score, result.p2_score);
+	let s2 = score_f64(result.p2_score, result.p1_score);
+	live_ratings.insert(result.p1_id, glicko_update_batch(&r1, &[(&r2, s1)]));
+	live_ratings.insert(result.p2_id, glicko_update_batch(&r2, &[(&r1, s2)]));
 }
 
 fn score_f64(my_score: u16, opp_score: u16) -> f64 {

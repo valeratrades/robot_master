@@ -19,7 +19,7 @@ impl Plugin for MenuPlugin {
 	fn build(&self, app: &mut App) {
 		app.add_plugins(TextInputPlugin)
 			.add_systems(OnEnter(AppState::Menu), setup_menu)
-			.add_systems(Update, (button_system, search_system, keyboard_shortcuts).run_if(in_state(AppState::Menu)))
+			.add_systems(Update, (button_system, search_system, keyboard_shortcuts, sync_start_button).run_if(in_state(AppState::Menu)))
 			.add_systems(OnExit(AppState::Menu), cleanup_menu);
 	}
 }
@@ -37,13 +37,22 @@ struct PlayerButton(usize);
 struct PlayerLabel(usize);
 
 #[derive(Component)]
-struct SizeButton;
+struct SettingsButton;
 
+/// Marker for the settings popup modal.
+#[derive(Component)]
+struct SettingsModal;
+
+/// The size label shown inside the settings modal.
 #[derive(Component)]
 struct SizeLabel;
 
 #[derive(Component)]
 struct SizeDropdownOption(BoardSize);
+
+/// One segment of the show/hide cards toggle. `true` = "Hide cards" option, `false` = "Show cards".
+#[derive(Component)]
+struct HideSegment(bool);
 
 /// The full-screen search modal overlay.
 #[derive(Component)]
@@ -130,7 +139,7 @@ fn setup_menu(mut commands: Commands, init: Res<InitialPlayers>, asset_server: R
 						panel.spawn((Text::new("ROBOT MASTER"), TextFont { font_size: 64.0, ..default() }, TextColor(theme::TEXT_TITLE)));
 						panel.spawn(player_button(0, format_player_label(&p1_kind, &ratings)));
 						panel.spawn(player_button(1, format_player_label(&p2_kind, &ratings)));
-						panel.spawn(size_button(init.size));
+						panel.spawn(settings_button());
 						panel.spawn((
 							StartButton,
 							Button,
@@ -178,29 +187,20 @@ fn player_button(idx: usize, display: String) -> impl Bundle {
 	)
 }
 
-fn size_button(size: BoardSize) -> impl Bundle {
+fn settings_button() -> impl Bundle {
 	(
-		SizeButton,
+		SettingsButton,
 		Button,
 		Node {
 			width: Val::Px(400.0),
 			height: Val::Px(50.0),
-			justify_content: JustifyContent::SpaceBetween,
+			justify_content: JustifyContent::Center,
 			align_items: AlignItems::Center,
-			padding: UiRect::horizontal(Val::Px(20.0)),
 			border_radius: BorderRadius::all(Val::Px(10.0)),
 			..default()
 		},
 		BackgroundColor(theme::BTN_NORMAL),
-		children![
-			(Text::new("Board Size"), TextFont { font_size: 24.0, ..default() }, TextColor(theme::TEXT_PRIMARY)),
-			(
-				SizeLabel,
-				Text::new(format!("{}x{}", u8::from(size), u8::from(size))),
-				TextFont { font_size: 22.0, ..default() },
-				TextColor(theme::TEXT_LABEL)
-			),
-		],
+		children![(Text::new("Settings"), TextFont { font_size: 24.0, ..default() }, TextColor(theme::TEXT_PRIMARY))],
 	)
 }
 
@@ -345,27 +345,36 @@ fn button_system(
 			&mut BackgroundColor,
 			Option<&StartButton>,
 			Option<&PlayerButton>,
-			Option<&SizeButton>,
+			Option<&SettingsButton>,
 			Option<&SizeDropdownOption>,
+			Option<&HideSegment>,
 			Option<&SearchResultItem>,
 		),
 		Changed<Interaction>,
 	>,
 	mut next_state: ResMut<NextState<AppState>>,
 	mut commands: Commands,
-	modals: Query<Entity, With<SearchModal>>,
+	search_modals: Query<Entity, (With<SearchModal>, Without<SettingsModal>)>,
+	settings_modals: Query<Entity, With<SettingsModal>>,
 	mut init: ResMut<InitialPlayers>,
 	mut label_query: Query<(&PlayerLabel, &mut Text), Without<SizeLabel>>,
 	mut size_label: Query<&mut Text, With<SizeLabel>>,
+	mut segments: Query<(&HideSegment, &mut BackgroundColor, &Children), Without<StartButton>>,
+	mut segment_texts: Query<&mut TextColor>,
 	ratings: Res<Ratings>,
 ) {
-	for (interaction, mut color, start, player_btn, size_btn, size_opt, result_item) in &mut interaction_query {
+	for (interaction, mut color, start, player_btn, settings_btn, size_opt, hide_seg, result_item) in &mut interaction_query {
 		match *interaction {
 			Interaction::Pressed => {
 				if start.is_some() {
-					next_state.set(AppState::Playing);
+					// Guard: hide mode forbids two manual players.
+					if init.hide && init.p1.is_manual() && init.p2.is_manual() {
+						// do nothing — sync_start_button keeps it visually disabled
+					} else {
+						next_state.set(AppState::Playing);
+					}
 				} else if let Some(btn) = player_btn {
-					for entity in &modals {
+					for entity in &search_modals {
 						commands.entity(entity).despawn();
 					}
 					let mut candidates = build_candidates(&ratings.0);
@@ -374,13 +383,13 @@ fn button_system(
 						candidates.retain(|(_, kind)| !kind.is_manual());
 					}
 					spawn_search_modal(&mut commands, btn.0, candidates);
-				} else if size_btn.is_some() {
-					let has_modal = !modals.is_empty();
-					for entity in &modals {
+				} else if settings_btn.is_some() {
+					let has_modal = !settings_modals.is_empty();
+					for entity in &settings_modals {
 						commands.entity(entity).despawn();
 					}
 					if !has_modal {
-						spawn_size_modal(&mut commands);
+						spawn_settings_modal(&mut commands, init.size, init.hide);
 					}
 				} else if let Some(opt) = size_opt {
 					init.size = opt.0;
@@ -388,8 +397,32 @@ fn button_system(
 					for mut text in &mut size_label {
 						**text = format!("{n}x{n}");
 					}
-					for entity in &modals {
-						commands.entity(entity).despawn();
+				} else if let Some(seg) = hide_seg {
+					if seg.0 != init.hide {
+						init.hide = seg.0;
+						// Sync segment highlight colors.
+						for (s, mut bg, children) in &mut segments {
+							let active = s.0 == init.hide;
+							*bg = BackgroundColor(if active { theme::BTN_HOVERED } else { theme::BTN_NORMAL });
+							for child in children.iter() {
+								if let Ok(mut tc) = segment_texts.get_mut(child) {
+									*tc = TextColor(if active { theme::TEXT_PRIMARY } else { theme::TEXT_MUTED });
+								}
+							}
+						}
+						// If hide just turned on and p2 is manual, reset p2 to random.
+						if init.hide && init.p2.is_manual() {
+							use robot_master_arena::algos::{InnerKind, RandomPlayer};
+							init.p2 = PlayerKind {
+								inner: InnerKind::RandomPlayer(RandomPlayer::default()),
+								sims: None,
+							};
+							for (label, mut text) in &mut label_query {
+								if label.0 == 1 {
+									**text = format_player_label(&init.p2.clone(), &ratings.0);
+								}
+							}
+						}
 					}
 				} else if let Some(item) = result_item {
 					match item.player_idx {
@@ -401,7 +434,7 @@ fn button_system(
 							**text = format_player_label(&item.kind, &ratings.0);
 						}
 					}
-					for entity in &modals {
+					for entity in &search_modals {
 						commands.entity(entity).despawn();
 					}
 				}
@@ -413,7 +446,7 @@ fn button_system(
 				},
 			Interaction::None =>
 				if start.is_some() {
-					*color = theme::BTN_START.into();
+					// sync_start_button handles the disabled color, leave it alone here
 				} else if result_item.is_none() {
 					*color = theme::BTN_NORMAL.into();
 				},
@@ -529,12 +562,12 @@ fn filter_candidates(candidates: &[(String, PlayerKind)], query: &str) -> Vec<(S
 	scored.into_iter().map(|(_, label, kind)| (label, kind)).collect()
 }
 
-// ── size modal ────────────────────────────────────────────────────────────────
+// ── settings modal ────────────────────────────────────────────────────────────
 
-fn spawn_size_modal(commands: &mut Commands) {
+fn spawn_settings_modal(commands: &mut Commands, current_size: BoardSize, hide: bool) {
 	commands
 		.spawn((
-			SearchModal,
+			SettingsModal,
 			Node {
 				position_type: PositionType::Absolute,
 				width: Val::Percent(100.0),
@@ -551,45 +584,118 @@ fn spawn_size_modal(commands: &mut Commands) {
 				.spawn((
 					Node {
 						flex_direction: FlexDirection::Column,
-						width: Val::Px(240.0),
-						padding: UiRect::all(Val::Px(16.0)),
-						row_gap: Val::Px(8.0),
+						width: Val::Px(320.0),
+						padding: UiRect::all(Val::Px(20.0)),
+						row_gap: Val::Px(12.0),
 						border_radius: BorderRadius::all(Val::Px(16.0)),
 						..default()
 					},
 					BackgroundColor(Color::oklcha(0.18, 0.03, 260.0, 0.98)),
 				))
 				.with_children(|modal| {
-					for size in BoardSize::iter() {
-						let n = u8::from(size);
-						modal.spawn((
-							SizeDropdownOption(size),
-							Button,
-							Node {
-								width: Val::Percent(100.0),
-								height: Val::Px(44.0),
-								justify_content: JustifyContent::Center,
-								align_items: AlignItems::Center,
-								border_radius: BorderRadius::all(Val::Px(8.0)),
-								..default()
-							},
-							BackgroundColor(theme::BTN_NORMAL),
-							children![(Text::new(format!("{n}x{n}")), TextFont { font_size: 22.0, ..default() }, TextColor(theme::TEXT_PRIMARY))],
-						));
-					}
+					// Header
+					modal.spawn((Text::new("Settings"), TextFont { font_size: 26.0, ..default() }, TextColor(theme::TEXT_TITLE)));
+
+					// Board size section label
+					modal.spawn((Text::new("Board Size"), TextFont { font_size: 18.0, ..default() }, TextColor(theme::TEXT_LABEL)));
+
+					// Size options row
+					modal
+						.spawn(Node {
+							flex_direction: FlexDirection::Row,
+							column_gap: Val::Px(8.0),
+							..default()
+						})
+						.with_children(|row| {
+							for size in BoardSize::iter() {
+								let n = u8::from(size);
+								let is_current = size == current_size;
+								row.spawn((
+									SizeDropdownOption(size),
+									Button,
+									Node {
+										width: Val::Px(60.0),
+										height: Val::Px(44.0),
+										justify_content: JustifyContent::Center,
+										align_items: AlignItems::Center,
+										border_radius: BorderRadius::all(Val::Px(8.0)),
+										..default()
+									},
+									BackgroundColor(if is_current { theme::BTN_HOVERED } else { theme::BTN_NORMAL }),
+									children![(
+										SizeLabel,
+										Text::new(format!("{n}x{n}")),
+										TextFont { font_size: 18.0, ..default() },
+										TextColor(theme::TEXT_PRIMARY)
+									)],
+								));
+							}
+						});
+
+					// Opponent cards segmented toggle
+					modal.spawn((Text::new("Opponent Cards"), TextFont { font_size: 18.0, ..default() }, TextColor(theme::TEXT_LABEL)));
+					modal
+						.spawn(Node {
+							flex_direction: FlexDirection::Row,
+							width: Val::Percent(100.0),
+							..default()
+						})
+						.with_children(|row| {
+							for (value, label) in [(false, "Show"), (true, "Hide")] {
+								let active = value == hide;
+								row.spawn((
+									HideSegment(value),
+									Button,
+									Node {
+										flex_grow: 1.0,
+										height: Val::Px(44.0),
+										justify_content: JustifyContent::Center,
+										align_items: AlignItems::Center,
+										border_radius: if value { BorderRadius::right(Val::Px(8.0)) } else { BorderRadius::left(Val::Px(8.0)) },
+										..default()
+									},
+									BackgroundColor(if active { theme::BTN_HOVERED } else { theme::BTN_NORMAL }),
+									children![(
+										Text::new(label),
+										TextFont { font_size: 18.0, ..default() },
+										TextColor(if active { theme::TEXT_PRIMARY } else { theme::TEXT_MUTED })
+									)],
+								));
+							}
+						});
 				});
 		});
 }
 
-fn keyboard_shortcuts(keys: Res<ButtonInput<KeyCode>>, mut next_state: ResMut<NextState<AppState>>, modals: Query<Entity, With<SearchModal>>, mut commands: Commands) {
+fn keyboard_shortcuts(
+	keys: Res<ButtonInput<KeyCode>>,
+	mut next_state: ResMut<NextState<AppState>>,
+	search_modals: Query<Entity, (With<SearchModal>, Without<SettingsModal>)>,
+	settings_modals: Query<Entity, With<SettingsModal>>,
+	mut commands: Commands,
+	init: Res<InitialPlayers>,
+) {
 	if keys.just_pressed(KeyCode::Escape) {
-		for entity in &modals {
+		for entity in search_modals.iter().chain(settings_modals.iter()) {
 			commands.entity(entity).despawn();
 		}
 		return;
 	}
-	if (keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter)) && modals.is_empty() {
+	let no_modals = search_modals.is_empty() && settings_modals.is_empty();
+	let can_start = !(init.hide && init.p1.is_manual() && init.p2.is_manual());
+	if (keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter)) && no_modals && can_start {
 		next_state.set(AppState::Playing);
+	}
+}
+
+/// Keep the Start button colour reflecting whether a valid config is selected.
+fn sync_start_button(init: Res<InitialPlayers>, mut query: Query<&mut BackgroundColor, With<StartButton>>) {
+	if !init.is_changed() {
+		return;
+	}
+	let blocked = init.hide && init.p1.is_manual() && init.p2.is_manual();
+	for mut color in &mut query {
+		*color = if blocked { BackgroundColor(theme::BTN_NORMAL) } else { BackgroundColor(theme::BTN_START) };
 	}
 }
 
@@ -604,8 +710,13 @@ fn load_ratings() -> HashMap<Ustr, Rating> {
 	HashMap::new()
 }
 
-fn cleanup_menu(mut commands: Commands, query: Query<Entity, With<MenuScene>>, modals: Query<Entity, With<SearchModal>>) {
-	for entity in query.iter().chain(modals.iter()) {
+fn cleanup_menu(
+	mut commands: Commands,
+	scenes: Query<Entity, With<MenuScene>>,
+	search_modals: Query<Entity, (With<SearchModal>, Without<SettingsModal>)>,
+	settings_modals: Query<Entity, With<SettingsModal>>,
+) {
+	for entity in scenes.iter().chain(search_modals.iter()).chain(settings_modals.iter()) {
 		commands.entity(entity).despawn();
 	}
 	commands.remove_resource::<Ratings>();

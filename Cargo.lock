@@ -6532,6 +6532,7 @@ dependencies = [
  "board-game",
  "bon",
  "clickhouse",
+ "dashmap",
  "derive-new",
  "derive_more",
  "insta",

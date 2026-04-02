@@ -12,6 +12,8 @@ robot_master_core = { path = "../robot_master_core" }
 
 clickhouse = { version = "0.14", optional = true }
 
+dashmap = "6"
+
 board-game.workspace = true
 bon.workspace = true
 derive-new.workspace = true
