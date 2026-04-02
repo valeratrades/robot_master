@@ -80,12 +80,12 @@ where
 }
 
 /// Vanilla UCT-MCTS bot. Runs `sims` full simulations from the root, picks most-visited child.
-pub struct VanillaBot<E> {
+pub struct VanillaMcts<E> {
 	evaluator: E,
 	sims: u32,
 	c_puct: f32,
 }
-impl<E> VanillaBot<E> {
+impl<E> VanillaMcts<E> {
 	pub fn new(evaluator: E, sims: u32) -> Self {
 		Self { evaluator, sims, c_puct: 1.41 }
 	}
@@ -384,7 +384,7 @@ fn backpropagate(tree: &mut Tree, path: &[u32], leaf_value: f64) {
 
 // --- SearchBot trait + VanillaBot ---
 
-impl<E, const N: usize> SearchBot<E, N> for VanillaBot<E>
+impl<E, const N: usize> SearchBot<E, N> for VanillaMcts<E>
 where
 	E: Evaluator<N> + Send + Sync,
 	[(); N * N]:,
@@ -395,7 +395,7 @@ where
 	}
 }
 
-impl<E, const N: usize> Bot<N> for VanillaBot<E>
+impl<E, const N: usize> Bot<N> for VanillaMcts<E>
 where
 	E: Evaluator<N> + Send + Sync,
 	[(); N * N]:,

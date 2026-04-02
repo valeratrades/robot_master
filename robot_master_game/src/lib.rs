@@ -69,11 +69,12 @@ struct SoundEnabled(bool);
 /// Shared texture handles, loaded once at startup.
 #[derive(Resource)]
 struct Textures {
-	card_faces: [Handle<Image>; 6],
+	card_faces: Vec<Handle<Image>>,
+	card_back: Handle<Image>,
 }
 impl Textures {
 	fn card_face(&self, v: CardValue) -> Handle<Image> {
-		self.card_faces[v.0 as usize].clone()
+		self.card_faces.get(v.0 as usize).unwrap_or(&self.card_back).clone()
 	}
 }
 
@@ -107,8 +108,9 @@ fn configure_app(app: &mut App, file_path: String) {
 	// Insert texture resources eagerly so they're available for OnEnter(Menu) on the first frame.
 	{
 		let asset_server = app.world().resource::<AssetServer>().clone();
-		let card_faces = std::array::from_fn(|i| asset_server.load(format!("cards/card_{i}.png")));
-		app.insert_resource(Textures { card_faces });
+		let card_back = asset_server.load("cards/card_back.png");
+		let card_faces = (0..6).map(|i| asset_server.load(format!("cards/card_{i}.png"))).collect();
+		app.insert_resource(Textures { card_faces, card_back });
 	}
 
 	app.init_resource::<PressedChars>()

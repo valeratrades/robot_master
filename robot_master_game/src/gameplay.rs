@@ -142,11 +142,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 
 	// Snapshot initial state before handing ownership to the resource.
 	// In hidden mode Player B's hand is never shown, so use an empty placeholder for B.
-	let hands = if hide {
-		[m.p1_hand(), vec![0u8; 6]]
-	} else {
-		m.hands()
-	};
+	let hands = if hide { [m.p1_hand(), vec![0u8; 6]] } else { m.hands() };
 	let mut cells = Vec::with_capacity(n * n);
 	for r in 0..n as u8 {
 		for c in 0..n as u8 {
@@ -335,6 +331,7 @@ fn hand_click(
 	mut selected: ResMut<SelectedCard>,
 	game: Res<Game>,
 	slots: Res<PlayerSlots>,
+	init: Res<InitialPlayers>,
 	mut modal: ResMut<ModalState<GameAction>>,
 ) {
 	let turn = game.0.turn();
@@ -342,7 +339,7 @@ fn hand_click(
 	if !is_manual {
 		return;
 	}
-	let hands = game.0.hands();
+	let hands = if init.hide { [game.0.p1_hand(), vec![0u8; 6]] } else { game.0.hands() };
 	for (entity, interaction, hand_card) in &interaction_query {
 		if *interaction != Interaction::Pressed {
 			continue;
@@ -647,11 +644,7 @@ fn sync_visuals(
 ) {
 	let turn = game.0.turn();
 	let hide = init.hide;
-	let hands = if hide {
-		[game.0.p1_hand(), vec![0u8; 6]]
-	} else {
-		game.0.hands()
-	};
+	let hands = if hide { [game.0.p1_hand(), vec![0u8; 6]] } else { game.0.hands() };
 
 	// If user has typed a column letter, narrow highlight to that column only
 	let highlight_col: Option<u8> = if modal.active && !modal.sequence.is_empty() {
@@ -757,7 +750,14 @@ fn check_terminal(game: Res<Game>, mut next_state: ResMut<NextState<AppState>>) 
 	}
 }
 
-fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<SelectedCard>, game: Res<Game>, slots: Res<PlayerSlots>, mut modal: ResMut<ModalState<GameAction>>) {
+fn keyboard_card_select(
+	keys: Res<ButtonInput<KeyCode>>,
+	mut selected: ResMut<SelectedCard>,
+	game: Res<Game>,
+	slots: Res<PlayerSlots>,
+	init: Res<InitialPlayers>,
+	mut modal: ResMut<ModalState<GameAction>>,
+) {
 	if game.0.is_done() {
 		return;
 	}
@@ -785,7 +785,7 @@ fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<Se
 		None
 	};
 	let Some(card) = pressed else { return };
-	let hands = game.0.hands();
+	let hands = if init.hide { [game.0.p1_hand(), vec![0u8; 6]] } else { game.0.hands() };
 	let count = hands[turn.index() as usize][card.0 as usize];
 	if count > 0 {
 		if selected.0 == Some(card) {

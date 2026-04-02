@@ -397,12 +397,12 @@ where
 }
 
 /// Gumbel-based bot: wraps `gumbel_search` and implements `Bot<N>`.
-pub struct GumbelBot<E> {
+pub struct GumbelMcts<E> {
 	evaluator: E,
 	config: GumbelConfig,
 }
 
-impl<E> GumbelBot<E> {
+impl<E> GumbelMcts<E> {
 	pub fn new(evaluator: E, config: GumbelConfig) -> Self {
 		Self { evaluator, config }
 	}
@@ -552,7 +552,7 @@ fn softmax_to_moves(moves: &[Move], logits: &[f32]) -> Vec<(Move, f32)> {
 	moves.iter().copied().zip(exps.iter().map(|&e| e / sum)).collect()
 }
 
-impl<E, const N: usize> Bot<N> for GumbelBot<E>
+impl<E, const N: usize> Bot<N> for GumbelMcts<E>
 where
 	E: Evaluator<N> + Send + Sync,
 	[(); N * N]:,
@@ -564,7 +564,7 @@ where
 	}
 }
 
-impl<E, const N: usize> SearchBot<E, N> for GumbelBot<E>
+impl<E, const N: usize> SearchBot<E, N> for GumbelMcts<E>
 where
 	E: Evaluator<N> + Send + Sync,
 	[(); N * N]:,
