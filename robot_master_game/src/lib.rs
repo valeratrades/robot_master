@@ -25,23 +25,43 @@ pub struct InitialPlayers {
 	pub p1: PlayerKind,
 	pub p2: PlayerKind,
 	pub size: BoardSize,
+	pub hide: bool,
+	pub models_dir: std::path::PathBuf,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn create_app(asset_dir: &str, size: BoardSize, p1: PlayerKind, p2: PlayerKind, sound: bool) -> App {
+pub fn create_app(asset_dir: &str, size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, sound: bool, models_dir: std::path::PathBuf) -> App {
 	let mut app = App::new();
-	app.insert_resource(InitialPlayers { p1, p2, size });
+	app.insert_resource(InitialPlayers { p1, p2, size, hide, models_dir });
 	app.insert_resource(SoundEnabled(sound));
 	configure_app(&mut app, asset_dir.to_string());
 	app
 }
 #[cfg(target_arch = "wasm32")]
 pub fn create_app() -> App {
+	use robot_master_arena::{
+		algos::{InnerKind, RandomPlayer},
+		player::ManualPlayer,
+	};
+
 	let mut app = App::new();
+	//HACK: don't really like this
 	app.insert_resource(InitialPlayers {
-		p1: PlayerKind::Manual { name: "Player".into() },
-		p2: PlayerKind::Random(robot_master_arena::algos::Random {}),
+		p1: PlayerKind {
+			inner: InnerKind::ManualPlayer(ManualPlayer::default()),
+			sims: None,
+			constrain_sizes: None,
+			constrain_hide: None,
+		},
+		p2: PlayerKind {
+			inner: InnerKind::RandomPlayer(RandomPlayer::default()),
+			sims: None,
+			constrain_sizes: None,
+			constrain_hide: None,
+		},
 		size: BoardSize::DEFAULT,
+		hide: false,
+		models_dir: std::path::PathBuf::new(),
 	});
 	app.insert_resource(SoundEnabled(true));
 	configure_app(&mut app, String::new());
@@ -53,11 +73,12 @@ struct SoundEnabled(bool);
 /// Shared texture handles, loaded once at startup.
 #[derive(Resource)]
 struct Textures {
-	card_faces: [Handle<Image>; 6],
+	card_faces: Vec<Handle<Image>>,
+	card_back: Handle<Image>,
 }
 impl Textures {
 	fn card_face(&self, v: CardValue) -> Handle<Image> {
-		self.card_faces[v.0 as usize].clone()
+		self.card_faces.get(v.0 as usize).unwrap_or(&self.card_back).clone()
 	}
 }
 
@@ -91,8 +112,9 @@ fn configure_app(app: &mut App, file_path: String) {
 	// Insert texture resources eagerly so they're available for OnEnter(Menu) on the first frame.
 	{
 		let asset_server = app.world().resource::<AssetServer>().clone();
-		let card_faces = std::array::from_fn(|i| asset_server.load(format!("cards/card_{i}.png")));
-		app.insert_resource(Textures { card_faces });
+		let card_back = asset_server.load("cards/card_back.png");
+		let card_faces = (0..6).map(|i| asset_server.load(format!("cards/card_{i}.png"))).collect();
+		app.insert_resource(Textures { card_faces, card_back });
 	}
 
 	app.init_resource::<PressedChars>()

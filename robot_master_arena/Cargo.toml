@@ -10,14 +10,17 @@ clickhouse = ["dep:clickhouse", "dep:tokio"]
 [dependencies]
 robot_master_core = { path = "../robot_master_core" }
 
-board-game = "0.8"
 clickhouse = { version = "0.14", optional = true }
-rayon = "1"
+dashmap = "6"
 
+board-game.workspace = true
 bon.workspace = true
 derive-new.workspace = true
+derive_more.workspace = true
 miette.workspace = true
 rand.workspace = true
+rayon.workspace = true
+secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
@@ -28,7 +31,7 @@ ustr.workspace = true
 v_utils.workspace = true
 
 [dev-dependencies]
-insta = "1"
+insta.workspace = true
 
 [lints]
 workspace = true

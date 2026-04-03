@@ -31,6 +31,14 @@ pub fn from_config(config: &ArenaConfig) -> Box<dyn RatingDb> {
 		DbBackend::Clickhouse { .. } => panic!("compiled without `clickhouse` feature — enable it in robot_master_arena/Cargo.toml"),
 	}
 }
+/// In-memory database: ratings are saved and loaded from memory, never persisted to disk.
+/// Used by `arena tourney --no-priors` for ephemeral matchups.
+pub struct NoopRatingDb(std::sync::Mutex<HashMap<Ustr, Rating>>);
+impl Default for NoopRatingDb {
+	fn default() -> Self {
+		Self(std::sync::Mutex::new(HashMap::new()))
+	}
+}
 #[derive(Debug, Diagnostic, Error, derive_new::new)]
 #[error("failed to load ratings from {path}")]
 #[diagnostic(help("the ratings file schema may have changed (e.g. Elo → Glicko-2).\ndelete it and start fresh: rm {path}"))]
@@ -40,6 +48,16 @@ struct CorruptRatingsDb {
 	source: serde_json::Error,
 	#[new(value = "std::backtrace::Backtrace::capture()")]
 	backtrace: std::backtrace::Backtrace,
+}
+
+impl RatingDb for NoopRatingDb {
+	fn load_ratings(&self) -> HashMap<Ustr, Rating> {
+		self.0.lock().expect("NoopRatingDb poisoned").clone()
+	}
+
+	fn save_ratings(&self, ratings: &HashMap<Ustr, Rating>) {
+		*self.0.lock().expect("NoopRatingDb poisoned") = ratings.clone();
+	}
 }
 
 impl<T: RatingDb + ?Sized> RatingDb for &T {

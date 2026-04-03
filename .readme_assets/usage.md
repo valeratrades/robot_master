@@ -2,7 +2,7 @@
 
 The main binary is `robot_master`. It takes two players (`-a`, `-b`), an optional board size (`-s`), and a subcommand for the interface.
 
-Players: `manual` (`m`), `random` (`r`), `greedy` (`g`), `sadist` (`s`). Unrecognized names prompt registration as a named manual player (with Elo tracking), or fall back to `fzf` selection.
+Players: `manual`, `random`, `greedy`, `sadist`, `rollout`. Search wrapping: append `|v<N>` (vanilla UCT-MCTS) or `|g<N>` (Gumbel) sims — `rollout|v800`, `rollout|g800`, `sadist|v200`. Unrecognized names prompt registration as a named manual player (with Elo tracking), or fall back to `fzf` selection.
 
 Board sizes: `5` (default), `7`, `9`, `11`.
 
@@ -21,15 +21,35 @@ robot_master gui -a manual -b greedy
 ```
 Bevy app with a main menu where you can pick players and board size from dropdowns before starting. Elo ratings are shown next to player names.
 
-### Python
-For running the project as pure Python (e.g. for grading), the Rust binary must be compiled first (`cargo b -p robot_master`). The Python modules in `py_src/` shell out to it.
+### Arena
+Run tournaments between AI players. Ratings use Glicko-2.
 
 ```sh
-python -m py_src guided -m   # partie guidée, manual (both players)
-python -m py_src guided -r   # partie guidée, random (both players)
-python -m py_src naive -g    # IA mode, greedy vs greedy
-python -m py_src naive -a    # IA mode, sadist vs sadist
+robot_master arena tourney swiss 10             # all registered players, 10 Swiss brackets
+robot_master arena tourney rating 200           # rating-based pairing, 200 rounds
+robot_master arena tourney elimination 5        # single-elimination, 5 cycles
+robot_master arena -s 'rollout,sadist' tourney swiss 10   # filter by regex
 ```
 
-### Elo
-Player ratings persist across games in `$XDG_DATA_HOME/robot_master/ratings.json`. Every named player (manual or AI) accumulates an Elo score. End-of-game output shows rating changes.
+**Managing players:**
+```sh
+robot_master arena players list                 # show all players and ratings
+robot_master arena players new                  # register all default variants
+robot_master arena players new rollout|800      # register a specific variant
+robot_master arena players reset-ratings        # reset all ratings to default
+robot_master arena players nuke                 # remove players from DB entirely
+```
+
+**ONNX models in the arena** — after training, register a model then include it in tourneys:
+```sh
+# bare: runs policy head directly (greedy argmax, no search)
+robot_master arena players new 'onnx:model_v15'
+
+# with Gumbel: wraps the policy+value head in N-sim Gumbel search
+robot_master arena players new 'onnx:model_v15|200'
+
+# then run against other players
+robot_master arena -s 'onnx:model_v15|200,rollout$,sadist' tourney swiss 20
+```
+
+Models are looked up in `./models` by default. Override with `--models-dir`.

@@ -51,7 +51,13 @@ or simply
 nix build
 ```
 
-#### Without Nix
+For AlphaZero training, also install the training deps:
+```sh
+uv_sync  # alias for: uv sync --prerelease=allow --no-install-project --dev
+uv sync --group train
+```
+
+#### Without Nix (but mb don't)
 NB: not actually tested, - you're on your own here
 
 ##### Requirements
@@ -66,9 +72,12 @@ NB: not actually tested, - you're on your own here
 # build the main binary
 cargo b -p robot_master
 
-# install python dependencies
+# install python dependencies (core)
 pip install typeguard icecream
 # (dev: pip install pytest ruff inline-snapshot)
+
+# training dependencies (torch, onnx, tensorboard)
+pip install torch numpy onnx onnxruntime tensorboard
 
 # build python bindings (required for `python -m py_src` to work)
 maturin develop --features python
@@ -82,7 +91,7 @@ maturin develop --features python
 
 The main binary is `robot_master`. It takes two players (`-a`, `-b`), an optional board size (`-s`), and a subcommand for the interface.
 
-Players: `manual` (`m`), `random` (`r`), `greedy` (`g`), `sadist` (`s`). Unrecognized names prompt registration as a named manual player (with Elo tracking), or fall back to `fzf` selection.
+Players: `manual`, `random`, `greedy`, `sadist`, `rollout`. Search wrapping: append `|v<N>` (vanilla UCT-MCTS) or `|g<N>` (Gumbel) sims — `rollout|v800`, `rollout|g800`, `sadist|v200`. Unrecognized names prompt registration as a named manual player (with Elo tracking), or fall back to `fzf` selection.
 
 Board sizes: `5` (default), `7`, `9`, `11`.
 
@@ -101,19 +110,76 @@ robot_master gui -a manual -b greedy
 ```
 Bevy app with a main menu where you can pick players and board size from dropdowns before starting. Elo ratings are shown next to player names.
 
-#### Python
-For running the project as pure Python (e.g. for grading), the Rust binary must be compiled first (`cargo b -p robot_master`). The Python modules in `py_src/` shell out to it.
+#### Arena
+Run tournaments between AI players. Ratings use Glicko-2.
 
 ```sh
-python -m py_src guided -m   # partie guidée, manual (both players)
-python -m py_src guided -r   # partie guidée, random (both players)
-python -m py_src naive -g    # IA mode, greedy vs greedy
-python -m py_src naive -a    # IA mode, sadist vs sadist
+robot_master arena tourney swiss 10             # all registered players, 10 Swiss brackets
+robot_master arena tourney rating 200           # rating-based pairing, 200 rounds
+robot_master arena tourney elimination 5        # single-elimination, 5 cycles
+robot_master arena -s 'rollout,sadist' tourney swiss 10   # filter by regex
 ```
 
-#### Elo
-Player ratings persist across games in `$XDG_DATA_HOME/robot_master/ratings.json`. Every named player (manual or AI) accumulates an Elo score. End-of-game output shows rating changes.
+**Managing players:**
+```sh
+robot_master arena players list                 # show all players and ratings
+robot_master arena players new                  # register all default variants
+robot_master arena players new rollout|800      # register a specific variant
+robot_master arena players reset-ratings        # reset all ratings to default
+robot_master arena players nuke                 # remove players from DB entirely
+```
 
+**ONNX models in the arena** — after training, register a model then include it in tourneys:
+```sh
+# bare: runs policy head directly (greedy argmax, no search)
+robot_master arena players new 'onnx:model_v15'
+
+# with Gumbel: wraps the policy+value head in N-sim Gumbel search
+robot_master arena players new 'onnx:model_v15|200'
+
+# then run against other players
+robot_master arena -s 'onnx:model_v15|200,rollout$,sadist' tourney swiss 20
+```
+
+Models are looked up in `./models` by default. Override with `--models-dir`.
+
+## Training (AlphaZero CNN)
+
+One iteration of the training loop:
+1. **Self-play** (Rust, parallel via rayon) — Gumbel AlphaZero games write `(state, policy, value)` samples to `$XDG_CACHE_HOME/robot_master_train/<generation>/training_data/`
+2. **Train** (Python) — SE-ResNet fits on the replay buffer, saves checkpoint to `$XDG_CACHE_HOME/robot_master_train/<generation>/models/`. Optimizer state is carried forward across iterations (SGD momentum preserved).
+3. **Export** (Python) — latest checkpoint → `models/model_vN.onnx` for the next self-play iteration
+
+Run the full loop:
+
+```sh
+# quick smoke-test (few minutes on CPU)
+./scripts/train_cnn.rs v1
+
+# recommended first real run
+./scripts/train_cnn.rs v1 --iterations 100 --games 200 --sims 16
+
+# longer run
+./scripts/train_cnn.rs v1 --iterations 300 --games 200 --sims 16
+```
+
+**Options:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `generation` | *(required)* | Label scoping all data/checkpoints/models (e.g. `v1`, `cnn_big`) |
+| `--iterations` | `20` | Number of selfplay → train → export cycles |
+| `--games` | `200` | Self-play games per iteration |
+| `--sims` | `25` | Gumbel simulations per move (MiniZero benchmarks n=2 and n=16) |
+| `--epochs` | `5` | Training epochs per iteration |
+
+Data lives under `$XDG_CACHE_HOME/robot_master_train/<generation>/`. Different generations are fully isolated — safe to run in parallel.
+
+**Replay buffer:** automatically set to the most recent `3 * ceil(ln(iterations))` iteration files (~9 for 20 iters, ~15 for 100, ~18 for 300). See `docs/references/replay_buffer_sizing.md` for rationale.
+
+**Algorithm:** Gumbel AlphaZero (Danihelka et al., ICLR 2022) with estimated Q for unvisited nodes in UCT (MiniZero §III-B, arxiv 2310.11305). No Dirichlet noise — exploration comes from Gumbel sampling.
+
+**Resuming after interruption:** safe to kill and restart at any time. The current iteration is lost, but all prior `.onnx` models, training data, and optimizer state survive. The next run resumes from the latest model and checkpoint automatically.
 
 
 <br>

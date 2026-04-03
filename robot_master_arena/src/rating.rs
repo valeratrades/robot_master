@@ -55,6 +55,54 @@ pub enum Outcome {
 	Draw,
 }
 
+/// Glicko-2 batch update for a rating period (multiple games against one or more opponents).
+///
+/// `games` is a list of `(opponent, score)` where score is 1.0 for win, 0.0 for loss, 0.5 for draw.
+/// This is the canonical Glicko-2 usage: collect all games in a period, compute one update.
+/// If `games` is empty, only the deviation widens (time passed without play).
+pub fn glicko_update_batch(player: &Rating, games: &[(&Rating, f64)]) -> Rating {
+	if games.is_empty() {
+		let (mu, phi) = player.to_glicko2();
+		let sigma = player.volatility;
+		let phi_star = (phi * phi + sigma * sigma).sqrt();
+		return Rating::from_glicko2(mu, phi_star, sigma);
+	}
+
+	let (mu, phi) = player.to_glicko2();
+	let sigma = player.volatility;
+
+	// Step 3+4: estimated variance v
+	let v_inv: f64 = games
+		.iter()
+		.map(|(opp, _)| {
+			let (mu_j, phi_j) = opp.to_glicko2();
+			let g_j = g(phi_j);
+			let e_j = e(mu, g_j, mu_j);
+			g_j * g_j * e_j * (1.0 - e_j)
+		})
+		.sum();
+	let v = 1.0 / v_inv;
+
+	// Step 5: sum term (called delta/v in the paper, we keep it as delta_num for reuse)
+	let delta_num: f64 = games
+		.iter()
+		.map(|(opp, score)| {
+			let (mu_j, phi_j) = opp.to_glicko2();
+			let g_j = g(phi_j);
+			let e_j = e(mu, g_j, mu_j);
+			g_j * (score - e_j)
+		})
+		.sum();
+	let delta = v * delta_num;
+
+	let new_sigma = new_volatility(sigma, phi, v, delta);
+	let phi_star = (phi * phi + new_sigma * new_sigma).sqrt();
+	let new_phi = 1.0 / (1.0 / (phi_star * phi_star) + 1.0 / v).sqrt();
+	let new_mu = mu + new_phi * new_phi * delta_num;
+
+	Rating::from_glicko2(new_mu, new_phi, new_sigma)
+}
+
 /// Glicko-2 update for a single game. Returns new ratings for both players.
 ///
 /// Implements Glickman's algorithm (http://www.glicko.net/glicko/glicko2.pdf),

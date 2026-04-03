@@ -1,32 +1,49 @@
+use std::str::FromStr;
+
 use rand::{rngs::SmallRng, seq::IteratorRandom};
 use robot_master_core::game::{GameState, Move};
 use v_utils::macros::CompactFormatNamed;
 
 use crate::player::Bot;
 
-/// Separate from `RandomPlayer` because `SmallRng` doesn't impl `FromStr`/`Display`,
-/// so it can't be a field on a `CompactFormatNamed` struct.
-#[derive(Clone, CompactFormatNamed, Debug)]
+#[derive(Clone, CompactFormatNamed, Debug, Default, Eq, PartialEq)]
 pub struct Random {}
 
+#[derive(Clone, Debug, derive_more::Display)]
+#[display("{params}")]
 pub struct RandomPlayer {
+	params: Random,
 	rng: SmallRng,
-}
-impl RandomPlayer {
-	pub fn new() -> Self {
-		Self::default()
-	}
 }
 
 impl Default for RandomPlayer {
 	fn default() -> Self {
-		Self { rng: rand::make_rng() }
+		Self {
+			params: Random {},
+			rng: rand::make_rng(),
+		}
+	}
+}
+
+impl PartialEq for RandomPlayer {
+	fn eq(&self, other: &Self) -> bool {
+		self.params == other.params
+	}
+}
+impl Eq for RandomPlayer {}
+
+impl FromStr for RandomPlayer {
+	type Err = <Random as FromStr>::Err;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		s.parse::<Random>().map(|params| Self { params, rng: rand::make_rng() })
 	}
 }
 
 impl<const N: usize> Bot<N> for RandomPlayer
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		game.valid_moves().choose(&mut self.rng).expect("no valid moves")

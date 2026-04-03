@@ -1,0 +1,577 @@
+\begin{abstract}
+This paper presents \textit{MiniZero}, a zero-knowledge learning framework that supports four state-of-the-art algorithms, including AlphaZero, MuZero, Gumbel AlphaZero, and Gumbel MuZero.
+While these algorithms have demonstrated super-human performance in many games, it remains unclear which among them is most suitable or efficient for specific tasks. 
+Through \textit{MiniZero}, we systematically evaluate the performance of each algorithm in the two board games, 9x9 Go and 8x8 Othello, as well as 57 Atari games. 
+For the two board games, using more simulations generally results in higher performance.
+However, the choice between AlphaZero and MuZero may differ based on game properties.
+For Atari games, both MuZero and Gumbel MuZero are worth considering.
+Since each game has unique characteristics, different algorithms and simulations yield varying results. 
+In addition, we introduce an approach, called progressive simulation, which progressively increases the simulation budget during training to allocate computation more efficiently.
+Our empirical results demonstrate that progressive simulation achieves significantly superior performance in the two board games. 
+By making our framework and trained models publicly available, this paper contributes a benchmark for future research on zero-knowledge learning algorithms, assisting researchers in algorithm selection and comparison against these zero-knowledge learning baselines.
+Our code and data are available at https://rlg.iis.sinica.edu.tw/papers/minizero.
+\end{abstract}
+
+\begin{IEEEkeywords}
+AlphaZero, Atari games, deep reinforcement learning, Go, Gumbel AlphaZero, Gumbel MuZero, MuZero
+\end{IEEEkeywords}
+
+\section{Introduction}
+\IEEEPARstart{A}{lphaGo}, AlphaGo Zero, AlphaZero, and MuZero are a family of algorithms that have each made groundbreaking strides in model-based deep reinforcement learning. 
+%\IEEEPARstart{D}{eep} reinforcement learning algorithms have made significant achievements in various fields recently, most notably in game fields.
+AlphaGo \cite{silver_mastering_2016} was the first program to achieve super-human performance in the game of Go, demonstrated by its victory over world champion Lee Sedol in 2016.
+Building on this triumph, AlphaGo Zero \cite{silver_mastering_2017} introduced the concept of \textit{zero-knowledge learning} by removing the need for external human knowledge. More specifically, it does not use expert game records for move prediction. Instead, AlphaGo Zero is trained solely with self-play from scratch. Experiments at the time indicate that this approach resulted in stronger play, with AlphaGo Zero beating AlphaGo 100-0.
+Additionally, without the need for domain-specific knowledge, self-play training could be conducted across a much wider class of games.
+AlphaZero \cite{silver_general_2018} demonstrated that zero-knowledge learning can be extended to chess, shogi, and Go, beating state-of-the-art programs in each game. 
+Lastly, MuZero \cite{schrittwieser_mastering_2020} improves upon its predecessors by removing knowledge of the task environment. This includes knowledge of game rules and state transitions. By learning additional representation and dynamics models, MuZero does not have to interact with environments as it is planning ahead. This allows it to master both board games and Atari games, opening up the potential for extension to complex real-world scenarios.
+
+While the zero-knowledge learning algorithms, AlphaZero and MuZero, have achieved super-human performance in many games, recent research highlighted that neither AlphaZero nor MuZero ensures policy improvement unless all actions are evaluated at the root of the Monte Carlo search tree \cite{danihelka_policy_2022}. This implies the potential for failure when training with limited simulations.
+Indeed, common settings for both algorithms use 800 Monte Carlo tree search (MCTS) \cite{browne_survey_2012, coulom_efficient_2007, kocsis_bandit_2006} simulations for each move when playing board games, which can be computationally costly.
+Gumbel Zero algorithms, \textit{Gumbel AlphaZero} and \textit{Gumbel MuZero}, incorporate Gumbel noise into the original algorithms to guarantee policy improvement \cite{danihelka_policy_2022}, even with fewer simulations.
+The two algorithms match the performance of AlphaZero and MuZero for both board games and Atari games.
+Moreover, Gumbel Zero demonstrates significant performance with as low as only two simulations.
+
+Since AlphaGo's publication, many open-source projects have emerged to reproduce these algorithms for different purposes.
+Several projects are particularly dedicated to reproducing either the AlphaZero or MuZero algorithms for specific games.
+For instance, KataGo \cite{wu_accelerating_2020a}, LeelaZero \cite{pascutto_leela_2023}, ELF OpenGo \cite{tian_elf_2019}, and CGI \cite{wu_accelerating_2020} primarily apply the AlphaZero algorithm to the game of Go, while Leela Chess Zero \cite{gary_leela_2023} is designed for chess.
+Moreover, EfficientZero \cite{ye_mastering_2021} introduces enhancements and implements the MuZero algorithm for Atari games.
+
+Meanwhile, other projects aim to provide a general framework that accommodates a wide range of games.
+OpenSpiel \cite{lanctot_openspiel_2020}, Polygames \cite{cazenave_polygames_2020}, and AlphaZero General \cite{thakoor_learning_2016} all offer frameworks based on the AlphaZero algorithm, supporting various board games.
+In contrast, MuZero General \cite{wernerduvaud_muzero_2019} provides training across both board and Atari games based on the MuZero algorithm.
+% rockmanray: fix citation
+The recently introduced LightZero \cite{niu2023lightzero} framework supports extensive zero-knowledge learning algorithms, such as AlphaZero, MuZero, and two Gumbel Zero algorithms for various environments.
+
+% contribution?
+Despite the variety of open-source zero-knowledge learning projects available, there is no available analysis on which algorithm -- AlphaZero, MuZero, Gumbel AlphaZero, or Gumbel MuZero -- is most suitable or efficient for specific tasks.
+To answer this question, this paper introduces \textit{MiniZero}, a zero-knowledge learning framework that supports all four algorithms.
+Based on this framework, we conduct comprehensive experiments and offer detailed analyses of performances across algorithms and tasks.
+The evaluated games include the two board games, 9x9 Go and 8x8 Othello, as well as 57 Atari games.
+Furthermore, we propose a novel approach, named \textit{progressive simulation}, which gradually increases the simulation budget during Gumbel Zero training to allocate computation more efficiently.
+Notably, with progressive simulation, both Go and Othello achieve higher performance compared to the original Gumbel Zero with a fixed simulation budget.
+We have also made our framework and all trained models publicly accessible\footnote{Available at: https://github.com/rlglab/minizero/tree/d29ef42}, in the hopes that our empirical findings can serve as benchmarks for the community, and assist future researchers in comparing novel algorithms against these zero-knowledge learning baselines.
+
+\section{Background}
+This section reviews four popular zero-knowledge learning algorithms, including the AlphaZero algorithm in Section \ref{bg:az}, the MuZero algorithm in Section \ref{bg:mz}, and both the Gumbel AlphaZero and Gumbel MuZero algorithms in Section \ref{bg:gz}.
+The comparison between these algorithms is summarized in Table \ref{tab:alg-compare}.
+
+
+\subsection{AlphaZero}\label{bg:az}
+AlphaZero \cite{silver_general_2018} is a zero-knowledge learning algorithm that masters a variety of board games without using human knowledge.
+The network architecture consists of several residual blocks \cite{he_deep_2016} and two heads, including a policy head and a value head.
+Given a board position, the policy head outputs a policy distribution $p$ for possible actions, while the value head predicts an estimated outcome $v$.
+The training process comprises two components: self-play and optimization.
+
+Self-play performs MCTS \cite{browne_survey_2012, coulom_efficient_2007, kocsis_bandit_2006} for all players and every move, starting from an initial board position until the end of the game.
+MCTS contains three phases: selection, expansion, and backpropagation.
+In the selection phase, an action $a$ is chosen for a given state $s$ using the PUCT \cite{rosin_multiarmed_2011, silver_mastering_2017} formula:
+% guei: an action $a$ is chosen ... but $a^{*}$ in the formula
+\begin{equation}\label{eq:az_puct}
+a^{*} = \argmax_a \{ Q(s,a)+c_{puct} P(s,a)\frac{\sqrt{\Sigma_bN(s,b)}}{1+N(s,a)}\},
+\end{equation}
+where $Q(s,a)$, $P(s,a)$, and $N(s,a)$ denote the estimated value, prior probability, and visit count of $a$ at node $s$, and $c_{puct}$ is an exploration hyperparameter.
+State $s$ is initialized to the root of the search tree. The chosen action $a$ is performed, upon which $s$ is set to the resulting state. This process is repeated until $s$ is a leaf node.
+Next, the leaf node is evaluated by the network during the expansion phase. All children are expanded with $Q(s,a)=N(s,a)=0, P(s,a)=p_a$.
+Finally, during backpropagation, the estimated outcome $v$ obtained from the value network is updated along the selection path, upwards towards the root.
+Complete self-play game records are stored in a replay buffer for optimization.
+
+Data is sampled randomly from the replay buffer to optimize the network.
+Specifically, the policy network aims to learn $p$ such that it matches MCTS search policy distribution $\pi$.
+Simultaneously, the value network is updated to minimize the error between $v$ and the game outcome $z$.
+The optimization loss is shown in equation \eqref{eq:az_loss}:
+\begin{equation}\label{eq:az_loss}
+L=(z-v)^{2}-\pi^{\mathsf{T}} \log p+c||\theta||^{2},
+\end{equation}
+where the last term is for regularization, in which $||\theta||^{2}$ denotes the L2 normalization of the model parameters $\theta$, and $c$ is a hyperparameter.
+
+Since AlphaZero can achieve superhuman performance without the need for human knowledge, it has been widely extended to other games \cite{cazenave_polygames_2020, lanctot_openspiel_2020} as well as non-game applications, such as optimization problems
+like matrix multiplication discovery \cite{fawzi_discovering_2022} and sorting algorithm improvement \cite{mankowitz_faster_2023}.
+
+\subsection{MuZero}\label{bg:mz}
+MuZero \cite{schrittwieser_mastering_2020} builds upon the AlphaZero algorithm but incorporates neural network-based learned models to learn the environment.
+These models allow MuZero to plan ahead without requiring additional environment interactions, as summarized in Table \ref{tab:alg-compare}. 
+This is especially useful when environment simulators are not easily accessible or costly.
+MuZero not only matches the super-human performance of AlphaZero in board games such as chess, shogi, and Go, it also achieves new state-of-the-art performance in Atari games.
+
+\input{table/table1_alg_compare}
+
+MuZero employs three networks: \textit{representation}, \textit{dynamics}, and \textit{prediction}.
+The prediction network, denoted by $f(s)=(p,v)$, is similar to the two-headed network used in AlphaZero.
+The representation and dynamics networks play an important role in learning abstract hidden states that represent the real environment.
+First, the representation network, denoted by $h(o)=s$, converts environment observations $o$ into a hidden state $s$.
+Next, the dynamics network, denoted by $g(s,a)=(r,s')$, learns environment transitions. For a given hidden state $s$ and action $a$, it generates the next hidden state $s'$ and the state-action pair's associated reward $r$. 
+Essentially, the dynamics network serves as a surrogate environment simulator, allowing MuZero to simulate trajectories during planning without having to sample actions.
+
+The training process for MuZero is the same as AlphaZero, which includes both self-play and optimization.
+In self-play, MCTS is executed for each move, and the completed games are stored in a replay buffer.
+However, different from AlphaZero, the MCTS in MuZero first converts the environment observation into a hidden state, then conducts planning through the dynamics network.
+During optimization, MuZero unrolls $K$ steps, ensuring that the model is in alignment with sequences sampled from the replay buffer.
+In addition, the loss function is modified:
+\begin{equation}\label{eq:mz_loss}
+l=\sum_{k=0}^{K}l^{p}(\pi_k,p_k)+\sum_{k=0}^{K}l^{v}(z_k,v_k)+\sum_{k=0}^{K}l^{r}(u_k,r_k)+c||\theta||^{2},
+\end{equation}
+where $l^p$, $l^v$, and $l^r$ denote the policy, value, and reward losses respectively.
+The policy and value losses are similar to AlphaZero.
+Note that $z$ is calculated based on the n-step return in Atari games.
+The reward loss minimizes the error between the predicted immediate reward $r$ and the observed immediate reward obtained from the environment $u$.
+
+There are several enhancements for MuZero.
+Sampled MuZero \cite{hubert_learning_2021} adapts MuZero for environments with continuous actions, while Stochastic MuZero \cite{antonoglou_planning_2021} modifies MuZero to support stochastic environments.
+Additionally, both EfficientZero \cite{ye_mastering_2021} and Gumbel MuZero \cite{danihelka_policy_2022} introduce different methods to improve the learning efficiency.
+
+\subsection{Gumbel AlphaZero and Gumbel MuZero}\label{bg:gz}
+The Gumbel Zero algorithms \cite{danihelka_policy_2022} were proposed to guarantee policy improvement, as summarized in Table \ref{tab:alg-compare}.
+This improves training performance with smaller simulation budgets.
+The modifications include MCTS root node action selection, environment action selection, and policy network update.
+
+For MCTS root node action selection, Gumbel Zero algorithms employ the Gumbel-Top-k trick \cite{kool_stochastic_2019} and the sequential halving algorithm \cite{karnin_almost_2013} to select actions at the root node.
+The Gumbel-Top-k trick samples the top $k$ actions with higher $G(a)+logits(a)$, where $G(a)$ is the sampled Gumbel variable and $logits(a)$ is the unnormalized prediction generated by the policy network.
+If the simulation count for the MCTS, $n$, is set to $k$, $k$ actions are sampled, using up the simulation budget. The final chosen action is the one with the highest $G(a)+logits(a)+\sigma(q(a))$, where $q(a)$ is the $Q$ value of $a$ and $\sigma$ is a monotonically increasing transformation.
+On the other hand, if $n$ is set to larger than $k$, sequential halving is applied to divide the search budget into several phases. This allocates more simulations to better actions. 
+In the first phase, the search starts with $k$ sampled actions. 
+After each phase, the actions are sorted according to $G(a)+logits(a)+\sigma(q(a))$, where the actions in the bottom half are discarded from consideration. 
+In the last phase, only one action is retained. This remaining action is the most visited action and the one that is chosen.
+
+For the environment action selection, we explicitly select the best action from the root node utilizing the aforementioned method. 
+This is in contrast to the non-Gumbel algorithms, where the action is sampled according to the search policy -- a distribution that is formed by the visit counts of the root actions.
+
+For policy network updates, due to the very few actions sampled, we cannot use the search visit count distribution as the policy network training target.
+The Gumbel trick uses Q values to derive a policy training target.
+For visited children, we use the sampled Q value.
+For those that have not been visited, we use the value network instead.
+
+% Table \ref{tab:alg-compare} highlights the major differences between AlphaZero, MuZero, Gumbel AlphaZero, and Gumbel MuZero.
+% MuZero and Gumbel MuZero do not require environment simulators during planning, making them suitable for Atari games.
+% Besides, Gumbel AlphaZero and Gumbel MuZero guarantee policy improvement, allowing them to work with smaller simulation budgets.
+
+\section{MiniZero}
+This section first presents the \textit{MiniZero} framework in Section \ref{minizero:design}. Then, section \ref{minizero:estimated_q} introduces an estimated Q value method for non-visited actions. Finally, section \ref{minizero:progressive_simulation} proposes a new training approach for Gumbel Zero algorithms.
+
+\subsection{Framework Design}\label{minizero:design}
+
+\begin{figure*}[!t]
+    \centering
+    \includegraphics[width=\linewidth]{figures/fig1_minizero_architecture.pdf}
+    \captionsetup[subfigure]{justification=centering}
+    \caption{The MiniZero architecture, includes four components: a server, self-play workers, an optimization worker, and data storage.}
+    \label{fig:architecture}
+\end{figure*}
+
+The architecture of \textit{MiniZero} shown in Fig. \ref{fig:architecture} comprises four components, including a \textit{server}, one or more \textit{self-play workers}, an \textit{optimization worker}, and \textit{data storage}. We describe each component in the next paragraph.
+
+The server is the core component in \textit{MiniZero}, controlling the training process and managing both the self-play and optimization workers.
+The training process contains several iterations.
+For each iteration, the server first instructs all self-play workers to generate self-play games simultaneously by using the latest network.
+Each self-play worker maintains multiple MCTS instances to play multiple games simultaneously with batch GPU inferencing to improve efficiency.
+Specifically, the self-play worker runs the selection for each MCTS to collect a batch of leaf nodes and then evaluates them through batch GPU inferencing.
+Finished self-play games are sent to the server and forwarded to the data storage by the server.
+Once the server accumulates the necessary self-play games, it then stops the self-play workers and instructs the optimization worker to start network updates.
+The optimization worker updates the network over steps using data sampled from the replay buffer.
+Generally, the number of optimized steps is proportional to the number of collected self-play games to prevent overfitting.
+The optimization worker stores updated networks into the data storage.
+The server then starts the next iteration. This process continues until the training reaches a predetermined iteration $I$.
+% Note that using smaller $N$ and $n$ will result in more frequent network updates.
+% This can benefit self-play workers by allowing them to use a fresher network, but it might also increase the communication overhead.
+
+The server and workers communicate using TCP connections for message exchange.
+The data storage uses the Network File System (NFS) for sharing data across different machines.
+This is an implementation choice; a simpler file system can suffice if distributed computing is not employed.
+
+MiniZero supports various zero-knowledge learning algorithms, including AlphaZero, MuZero, Gumbel AlphaZero, and Gumbel MuZero. 
+To ensure execution efficiency, our implementation utilizes C++ and PyTorch \cite{paszke_pytorch_2019}. To support experiments on Atari games, it also utilizes the Arcade Learning Environment (ALE) \cite{bellemare_arcade_2013}, \cite{machado_revisiting_2018}.
+
+\subsection{MCTS Estimated Q Value for Non-Visited Actions}\label{minizero:estimated_q}
+While our implementation mainly follows the original design, we introduce a modification to enhance exploration.
+The method is similar to that used in ELF OpenGo \cite{tian_elf_2019} and EfficientZero \cite{ye_mastering_2021}, in which all non-visited nodes are initialized to an estimated Q value instead of $0$ during MCTS.
+
+To elaborate, $\hat{Q}(s)$ is introduced as an estimated Q value when $N(s,a)=0$:
+\begin{equation}
+\begin{aligned}
+Q(s,a) &= 
+\begin{cases}
+Q(s,a) &  N(s,a) > 0 \\
+\hat{Q}(s) &  N(s,a) = 0.
+\end{cases}
+\end{aligned}
+\end{equation}
+The value of $\hat{Q}(s)$ is determined by two statistics $N_{\Sigma}(s)$ and $Q_{\Sigma}$ from MCTS:
+\begin{equation}
+\begin{aligned}
+N_{\Sigma}(s) &= \sum_{b} \bold{1}_{N(s,b)>0} \\
+Q_{\Sigma}(s) &= \sum_{b} \bold{1}_{N(s,b)>0}Q(s,b),
+\end{aligned}
+\end{equation}
+where $\bold{1}_{N(s,b)>0}$ is the characteristic function that filters the visited actions $b$ at $s$, $N_{\Sigma}(s)$ represents the number of children that have been visited, and $Q_{\Sigma}$ denotes the value sum of these visited children. 
+We use different calculations for $\hat{Q}(s)$ in board games than Atari games. To avoid performing forced exploration (as in breadth-first search), we bias the estimated Q to a smaller value by virtually sampling the action once with a losing outcome:
+\begin{equation}
+\hat{Q}(s) = \frac{Q_{\Sigma}(s)}{N_{\Sigma}(s)+1}.
+\end{equation}
+In contrast, we encourage enhanced exploration in Atari games:
+\begin{equation}
+\hat{Q}(s) = 
+\begin{cases}
+\frac{Q_{\Sigma}(s)}{N_{\Sigma}(s)} & N_{\Sigma}(s)>0\\
+1 & N_{\Sigma}(s)=0.
+\end{cases} \\
+\end{equation}
+% 5d: why should we care about N=0?
+% ting: Q being set to 1 is quite extreme, no? In terms of win rates it is 100%. Maybe this has more to do with normalization of Q values? In Atari the return depends on the problem, right? So sometimes it can be total accumulated score, whereas Q is bounded between -1 - 1 or 0 - 1 in board games.
+
+\subsection{Progressive Simulation for Gumbel Zero}\label{minizero:progressive_simulation}
+Gumbel Zero algorithms can guarantee policy improvement and achieve comparable performance using only a few simulations.
+However, more simulations can still improve performance when planning with Gumbel, especially if the lookahead depth is relatively deeper.
+To take advantage of this effect, we propose a method called \textit{progressive simulation}.
+We wish to weight the number of simulations so that it gradually increases during Gumbel Zero training, all while ensuring no additional computing resources are consumed.
+
+Given a total number of iterations $I$ and the simulation budget $B$, the simulation count $n_i$ for each iteration is computed as $\frac{B}{I}$ in the unaltered Gumbel Zero training process.
+Namely, the simulation count remains consistent throughout training.
+With progressive simulation, we introduce two hyperparameters, $N_{min}$ and $N_{max}$.
+The training uses the same simulation budget $B$ by adjusting the simulation count $n_i$ dynamically during different iterations, where $n_i\in[N_{min}, N_{max}]$.
+
+\begin{algorithm}[t]
+\caption{Progressive Simulation Budget Allocation}\label{alg:sim-budget-allocation}
+\begin{algorithmic}[1]
+\REQUIRE total iterations $I$
+\REQUIRE simulation budget $B$
+\REQUIRE simulation boundary ($N_{min}$, $N_{max}$)
+\STATE $N \gets []$  \hfill$\vartriangleright$ simulation budget list for $I$ iterations
+\STATE \label{alg:sim-budget-allocation-step1} $B \gets B - I \times N_{min}$  \hfill$\vartriangleright$ allocate $N_{min}$ to each iteration
+\STATE \label{alg:sim-budget-allocation-step2-begin} $n \gets N_{max}$
+\WHILE{$B > 0$ \AND $n > N_{min}$ \AND $I - |N| > 0$}
+  \STATE $i \gets $ min($\lfloor \frac{B \times 0.5}{n - N_{min}} \rfloor$, $I - |N|$)
+  \STATE insert $i$ elements of $n$ at the front of $N$
+  \STATE $B \gets B - i \times (n - N_{min})$
+  \STATE $n \gets \lfloor \frac{n}{2} \rfloor$
+\ENDWHILE
+\STATE \label{alg:sim-budget-allocation-step2-end} insert $(I-|N|)$ elements of $N_{min}$ at the front of $N$
+\WHILE{$B > 0$} \label{alg:sim-budget-allocation-step3-begin}
+  \STATE $k \gets$ count the number of occurrences of min($N$) in $N$
+  \STATE $i \gets$ min($B$, $k$) 
+  \STATE add 1 to each of $N$ from $(k-i+1)$th through $k$th
+  \STATE $B\gets B - i$
+\ENDWHILE \label{alg:sim-budget-allocation-step3-end}
+\RETURN $N$  \hfill$\vartriangleright$ allocation results s.t. sum($N$) = $B$
+\end{algorithmic}
+\end{algorithm}
+
+Algorithm \ref{alg:sim-budget-allocation} allocates the number of simulations $n_i$ for each iteration such that it satisfies $B = \Sigma n_i$ as follows. 
+First, all $n_i$ are initialized to $N_{min}$ at the beginning, as in line \ref{alg:sim-budget-allocation-step1}.
+Then, we progressively set a target simulation of $N_{max}$, $\frac{N_{max}}{2}$, $\frac{N_{max}}{4}$, and so on to remaining unallocated iterations, as in lines \ref{alg:sim-budget-allocation-step2-begin}-\ref{alg:sim-budget-allocation-step2-end}.
+For each target simulation, up to half of the remaining budget is allocated.
+Finally, when the remaining budget is not enough for a target or all $n_i$ have been allocated once, the remaining budget is allocated to $n_i$ with the lowest simulations, as in lines \ref{alg:sim-budget-allocation-step3-begin}-\ref{alg:sim-budget-allocation-step3-end}.
+
+\input{figures/fig2_sim_allocation_example}
+
+Take $I=300$, $B=4,800$, and $(N_{min}, N_{max})=(2, 200)$ as an example.
+First, $n_{1}$ to $n_{300}$ are initialized to $N_{min}=2$ simulations, with a remaining budget of 4,200 simulations. 
+Next, we progressively allocate the target number of simulations, starting from 200.
+For the target of 200 simulations, we need to allocate an additional $198$ simulations per iteration (two simulations are already allocated, so $200-2=198$).
+Half of the remaining budget, 2,100 simulations, is split among $\lfloor \frac{2,100}{198} \rfloor = 10$ iterations.
+Therefore, $n_{291}$ to $n_{300}$ are allocated an additional $198 \times 10$ simulations. 
+Next, for the target of 100 simulations (with a remaining budget of $4,200 - 1,980 = 2,220$), $n_{280}$ to $n_{290}$ are allocated. 
+The procedure repeats until the target of 3 simulations is allocated to $n_{179}$ to $n_{220}$. The number of simulations $n_{1}$ to $n_{178}$ remain at $N_{min} = 2$ simulations, the same as its initialized value.
+Finally, the remaining 43 simulations are assigned to $n_{136}$ to $n_{178}$, resulting in the allocation as shown in Fig. \ref{fig:sim-allocation-example}.
+
+
+\section{Experiments}
+We evaluate the performance of four zero-knowledge learning algorithms, AlphaZero, MuZero, Gumbel AlphaZero, and Gumbel MuZero.
+For simplicity, the four algorithms are denoted as $\alpha_0$, $\mu_0$, g-$\alpha_0$, and g-$\mu_0$, respectively.
+This section is organized as follows.
+First, Section \ref{exp:setup} introduces the training procedure and settings.
+Second, sections \ref{exp:board}, \ref{exp:board_same_time}, and \ref{exp:atari} compare the performance differences when using different algorithms on the two board games and Atari games, respectively.
+Third, section \ref{exp:estimated_q} conducts an ablation study to compare the performance of the estimated Q value.
+Finally, section \ref{exp:psg} analyzes the proposed progressive simulation method.
+
+\input{table/table2_hyperparameters}
+
+\subsection{Setup}\label{exp:setup}
+All experiments are conducted on one machine equipped with two Intel Xeon E5-2678 v3 CPUs, and four GTX 1080Ti GPUs.
+We apply $\alpha_0$ and g-$\alpha_0$ to the two board games, 9x9 Go and 8x8 Othello, and use $\mu_0$ and g-$\mu_0$ for both board games and 57 Atari games.
+Table \ref{tab:hyper-parameters} lists the hyperparameters.
+Generally, we follow the same hyperparameters and network architectures as the original AlphaZero, MuZero, and Gumbel Zero paper but with some differences described as follows.
+
+For board games, we train two models for $\alpha_0$ and $\mu_0$ with 200 MCTS simulations.
+For g-${\alpha_0}$ and g-${\mu_0}$, each algorithm is trained with two models with 2 and 16 MCTS simulations.
+The numbers of simulations are chosen to follow the settings proposed in \cite{danihelka_policy_2022}.
+We omit training both g-${\alpha_0}$ and g-${\mu_0}$ with 200 simulations, as the experiments in \cite{danihelka_policy_2022} demonstrate that Gumbel Zero matches the performance of both AlphaZero and MuZero when training with the same number of simulations.
+All six models use the same network architecture containing 3 residual blocks.
+Note that in our MuZero network design, both the representation and dynamics networks contain 3 residual blocks.
+During training, for each iteration, self-play workers generate 2,000 games and the optimization worker updates the network with 200 steps by using randomly sampled data from the most recent 40,000 games in the replay buffer.
+For example, with a total of 300 iterations, each model is trained with a total of 600,000 self-play games and optimized for 60,000 training steps with a batch size of 1,024.
+
+For Atari games, we train one $\mu_0$ model with 50 MCTS simulations, and two g-${\mu_0}$ models, one with 2 and the other with 18 simulations.
+The choices of simulations follow the original setup in \cite{danihelka_policy_2022}.
+The network block size is reduced to 2 residual blocks.
+For each iteration, the self-play workers generate 250 intermediate sequences, where each contain 200 moves.
+The optimization worker updates the network with 200 steps by using data randomly sampled from the most recent 1 million frames.
+We calculate the n-step return by bootstrapping with five steps.
+Overall, each model is trained for a total of 600,000 intermediate sequences and optimized for 60,000 training steps with a batch size of 512.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.8\columnwidth]{figures/fig3_go9x9.pdf}
+\caption{Evaluation of different zero-knowledge learning settings in 9x9 Go. The x-axis represents the number of neural network training steps, while the y-axis represents Elo ratings. The shaded area is the error bar with 95\% confidence interval.}
+\label{fig:9x9_go_evaluation}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.8\columnwidth]{figures/fig4_othello8x8.pdf}
+\caption{Evaluation of different zero-knowledge learning settings in 8x8 Othello. The x-axis represents the number of neural network training steps, while the y-axis represents Elo ratings. The shaded area is the error bar with 95\% confidence interval.}
+\label{fig:8x8_othello_evaluation}
+\end{figure}
+
+\subsection{Comparison of Different Algorithms on Board Games}\label{exp:board}
+We compare the performance of six different zero-knowledge learning models, including $\alpha_0$ $n=200$, $\mu_0$ $n=200$, g-$\alpha_0$ $n=2$, g-$\alpha_0$ $n=16$, g-$\mu_0$ $n=2$, and g-$\mu_0$ $n=16$, on 9x9 Go and 8x8 Othello.
+Each model is evaluated against a specific baseline model with Elo ratings \cite{silver_general_2018}, which is chosen to be neither excessively strong nor overly weak, for better discrimination.
+Specifically, we choose $\mu_0$ $n=200$ trained for 15,000 training steps (75 iterations) for 9x9 Go and 10,000 training steps (50 iterations) for 8x8 Othello as the baselines.
+Fig. \ref{fig:9x9_go_evaluation} and Fig. \ref{fig:8x8_othello_evaluation} show the strength comparison between models for the two games.
+For each curve, we sample the networks every 3,000 training steps (15 iterations) and evaluate 200 games against the baseline model.
+Namely, a total of 21 network checkpoints (including the initial network) are evaluated for each model.
+All models use 400 simulations per turn during evaluation, regardless of the simulation count used during training.
+
+In 9x9 Go, training with more simulations generally yields stronger results than training with fewer simulations.
+For $n=200$, both $\alpha_0$ and $\mu_0$ perform similarly, surpassing the performance of the four other Gumbel Zero settings.
+Next, for $n=16$, g-$\mu_0$ outperforms g-$\alpha_0$, indicating that the MuZero algorithm might be more suitable for the game of Go.
+For $n=2$, the learning curve of g-$\alpha_0$ grows slowly but eventually reaches a similar performance to g-$\alpha_0$ $n=16$.
+However, g-$\mu_0$ $n=2$ demonstrates the poorest performance among the six models.
+The reason could be that only two simulations are not sufficient to learn the environment representation and dynamics in 9x9 Go for g-$\mu_0$.
+In conclusion, for 9x9 Go, both AlphaZero and MuZero are appropriate.
+However, without a sufficient number of simulations, MuZero might not perform well.
+
+Next, in 8x8 Othello, $\alpha_0$ and $\mu_0$ still outperform g-$\alpha_0$ and g-$\mu_0$, demonstrating that using more simulations directly affects the performance.
+Different from 9x9 Go, $\alpha_0$ performs better than $\mu_0$ with a significant Elo rating difference.
+This phenomenon also exists in Gumbel Zero where g-$\alpha_0$ is generally better than g-$\mu_0$.
+A possible explanation is that Othello has a more dramatic change on the board with each turn due to the frequent piece flipping across the board.
+The dynamics network might therefore find it more difficult to learn state transitions.
+Interestingly, in Gumbel Zero, we observe that the performance of $n=2$ is equal to or might even be slightly better than $n=16$ for both g-$\alpha_0$ and g-$\mu_0$.
+This contradicts the results in Go, where more simulations usually yield higher Elo ratings.
+This discrepancy might be attributed to the fact that Othello often has fewer legal moves relative to Go, so that fewer simulations might be sufficient in exploring optimal moves and avoiding bad ones.
+
+In summary, given sufficient computing resources, the choice of $\alpha_0$ or $\mu_0$ with more simulations, such as $n=200$, is suitable.
+However, with limited computing resources, we can consider using g-$\alpha_0$ or g-$\mu_0$ with fewer simulations.
+The choice of g-$\alpha_0$ and g-$\mu_0$ with different simulation settings might depend on the property of the game.
+For games with more dramatic environment changes like 8x8 Othello, g-$\alpha_0$ is a better choice than g-$\mu_0$ because it can interact with the actual environment during planning, without relying on learned environments.
+In terms of the choice of simulation count in Gumbel Zero, for games that generally have many large branching factors like 9x9 Go, a higher number of simulations is essential for both g-$\alpha_0$ and g-$\mu_0$.
+
+
+\subsection{Comparison of Different Algorithms on Board Games under the Same Training Time}\label{exp:board_same_time}
+The previous subsection mainly compares the performance of algorithms with the same number of training steps (iterations).
+However, it is an interesting question whether using $n=2$ and $n=16$ can attain similar performance to $n=200$ under the same training time.
+To investigate this issue, we select the game of 8x8 Othello and train g-$\alpha_0$ $n=2$ and g-$\alpha_0$ $n=16$ using the same amount of time as $\alpha_0$ $n=200$.
+Ordinarily, for every 200 training steps (one iteration of training), $\alpha_0$ $n=200$, g-$\alpha_0$ $n=16$, and g-$\alpha_0$ $n=2$, take around 378.51 seconds, 40.62 seconds, and 23.34 seconds.
+We set the training process for all three models to roughly the same amount of time, for a total of 60,000, 560,000, and 972,000 training steps, i.e. 300, 2,800, and 4,860 iterations, respectively.
+The result is shown in Fig. \ref{fig:8x8_othello_az_gaz_same_time}.
+During the initial five hours of training, both g-$\alpha_0$ $n=2$ and $n=16$ perform slightly better than $\alpha_0$ $n=200$. 
+After training for the same amount of time, g-$\alpha_0$ $n=2$ and $\alpha_0$ $n=200$ achieve similar playing strength.
+However, g-$\alpha_0$ $n=16$ performs slightly worse than others, consistent with previous experiments described in section \ref{exp:board}.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.8\columnwidth]{figures/fig5_othello_az_gaz_same_time.pdf}
+\caption{Comparing the playing performance of $\alpha_0$ and g-$\alpha_0$ on different simulations under the same amount of training time in 8x8 Othello.}
+\label{fig:8x8_othello_az_gaz_same_time}
+\end{figure}
+
+\subsection{Comparison of Different Algorithms on Atari Games}\label{exp:atari}
+For Atari games, we use a similar evaluation approach as Muesli \cite{hessel_muesli_2021}, where the average returns are calculated based on the last 100 finished training episodes from self-play games.
+Table \ref{tab:Atari57-score} lists the average returns of 57 Atari games, while Fig. \ref{fig:Atari57-score} depicts the learning curves for each game.
+Among 57 Atari games, we observed that $\mu_0$ $n=50$, g-$\mu_0$ $n=18$, and g-$\mu_0$ $n=2$ perform the best in 40, 10, and 13 games, respectively.
+Generally, $\mu_0$ $n=50$ consistently outperforms g-$\mu_0$ $n=18$, and g-$\mu_0$ $n=18$ outperforms g-$\mu_0$ $n=2$.
+
+There are three cases worth discussing the performance of g-$\mu_0$ versus $\mu_0$.
+First, we find that $\mu_0$ $n=50$ achieves noticeably higher average returns than g-$\mu_0$ $n=18$ and g-$\mu_0$ $n=2$ in some games\footnote{\textit{breakout}, \textit{centipede}, \textit{crazy\_climber}, \textit{enduro}, \textit{fishing\_derby}, \textit{kangaroo}, \textit{kung\_fu\_master}, \textit{private\_eye}, \textit{up\_n\_down}.}.
+For example, in \textit{centipede}, the average returns of $\mu_0$ $n=50$ achieves 49,823.07, while the g-$\mu_0$ $n=18$ and g-$\mu_0$ $n=2$ only reach 30,749.87 and 9,946.83, respectively.
+We suspect that these games require meticulous planning and precise action sequences.
+Therefore, having more simulations can be critical for achieving higher returns.
+In g-$\mu_0$ $n=2$, only two actions are evaluated, which makes exploring better actions more challenging without deeper planning.
+
+\begin{figure*}[!t]
+\centering
+\subfloat{
+    \includegraphics[width=0.32\textwidth]{figures/fig6_atari_gmz_n50_compare/gravitar.pdf}}
+\subfloat{
+    \includegraphics[width=0.32\textwidth]{figures/fig6_atari_gmz_n50_compare/phoenix.pdf}}
+\subfloat{
+    \includegraphics[width=0.32\textwidth]{figures/fig6_atari_gmz_n50_compare/video_pinball.pdf}}
+\caption{The g-${\mu_0}$ $n=50$ experiment on three Atari games, including \textit{gravitar}, \textit{phoenix}, and \textit{video\_pinball}.}
+\label{fig:atari-gmz-n50-compare}
+%\caption{Training curves on 57 Atari games of different zero-learning algorithms}
+\end{figure*}
+
+\begin{figure}[!t]
+\centering
+\subfloat[$\mu_0\ n=50$]{
+    \includegraphics[width=0.45\columnwidth]{figures/fig7_atari_phoenix/phoenix_mz_n50.pdf}
+    \label{fig:phoenix-mz-n50}
+    }
+\subfloat[g-$\mu_0\ n=2$]{
+    \includegraphics[width=0.45\columnwidth]{figures/fig7_atari_phoenix/phoenix_gmz_n2.pdf}
+    \label{fig:phoenix-gmz-n2}
+    }
+\label{fig:phoenix}
+\caption{A screenshot from the final iteration of self-play games in \textit{phoenix}: (a) $\mu_0$ $n=50$ tends to stay at the leftmost position to avoid fire from the boss (alien pilot), and (b) g-$\mu_0$ $n=2$ tries to move to the center and target the boss.}
+\end{figure}
+
+Second, we discuss the case for g-$\mu_0$ outperforming $\mu_0$.
+Specifically, for the three games, \textit{gravitar}, \textit{phoenix}, and \textit{video\_pinball}, g-$\mu_0$ $n=2$ outperformed significantly better than $\mu_0$ $n=50$.
+To investigate which of the two settings, the Gumbel trick or the number of simulations, contribute more to this phenomenon, we additionally trained g-$\mu_0$ $n=50$ for these three games, as shown in Fig. \ref{fig:atari-gmz-n50-compare}.
+For the two games, \textit{gravitar} and \textit{phoenix}, performance does not improve even with 50 simulations, regardless of whether the Gumbel trick is used.
+We observe that \textit{gravitar}\footnote{\textit{gravitar} is a game that controls a spaceship with various missions on different planets. The mission complexity will become progressively more difficult and the environment will change significantly when the mission is completed.} has highly unpredictable environment changes that are hard to learn, making it difficult to learn an accurate dynamics network.
+As the tree digs deeper, the simulated environment diverges more from the real environment, leading to increasingly inaccurate policy and value estimates.
+Next, we investigate the game of \textit{phoenix}, which is a shooting game.
+We notice that the boss (an alien pilot) constantly fires bullets towards the center of the game, making it more challenging for the player to survive when close to the boss.
+Surprisingly, $\mu_0$ $n=50$ tends to stay at the leftmost place, which is outside the firing range of the boss, to avoid death, as shown in Fig. \ref{fig:phoenix-mz-n50}.
+With deep planning using 50 simulations, $\mu_0$ $n=50$ sufficiently explores to understand that approaching the boss too closely results in death easily.
+This results in a longer survival time, but the returns do not increase without beating the boss, leading to lower average returns.
+In contrast, due to a smaller number of two simulations and the Gumbel noise, g-$\mu_0$ $n=2$ inevitably chooses actions that bring it closer to the boss, as shown in Fig. \ref{fig:phoenix-gmz-n2}.
+Although this results in a shorter survival time for g-$\mu_0$ $n=2$, it allows the agent to explore another strategy to defeat the boss and obtain higher returns.
+For the game of \textit{video\_pinball}, g-$\mu_0$ $n=50$ has nearly the same performance as g-$\mu_0$ $n=2$, suggesting that the Gumbel trick has a positive impact on its performance.
+
+Finally, although g-$\mu_0$ uses fewer simulations than $\mu_0$, there are some games where g-$\mu_0$ $n=2$ and g-$\mu_0$ $n=18$ achieve similar returns to those of $\mu_0$ $n=50$.
+For example, in \textit{boxing} and \textit{qbert}, the game environment does not have extensive changes and offers straightforward scoring opportunities.
+Hence, the agent can learn the environment transitions easily while also not requiring intricate planning.
+Consequently, using the Gumbel approach allows g-$\mu_0$ to attain almost identical training curves as $\mu_0$.
+
+It is also worth mentioning that several games\footnote{\textit{boxing}, \textit{freeway}, \textit{hero}, \textit{pong}, \textit{private\_eye}, \textit{enduro}, and \textit{solaris}.} achieve nearly the same performance as the original MuZero paper even if the models are trained with a smaller network architecture (2 blocks compared to 16 blocks) and fewer environment frames (15 million frames compared to 20 billion frames).
+
+Therefore, these games might serve as exemplary benchmarks to verify the zero-knowledge learning algorithms without requiring a large amount of computational resources.
+
+In summary, our experiments show that the performance of $\mu_0$ and g-$\mu_0$ varies across different Atari games.
+This indicates that each Atari game has unique characteristics, and using different zero-knowledge learning algorithms and simulations can yield varying results. 
+We present three cases to illustrate that the choice between g-$\mu_0$ and $\mu_0$, and the number of simulations might depend on the complexity of the game, the predictability of the environment, and the benefits of planning for the game.
+These results contribute to a deeper understanding of zero-knowledge learning algorithms. We expect that our findings will provide valuable insights for future research studying Atari games with these zero-knowledge learning algorithms.
+
+\begin{figure}[!t]
+\centering
+\subfloat{
+    \includegraphics[width=0.48\columnwidth]{figures/fig8_go_az_initq.pdf}}
+\subfloat{
+    \includegraphics[width=0.48\columnwidth]{figures/fig8_othello_az_initq.pdf}}
+\caption{Ablation study of whether using estimated Q value for non-visited actions for $\alpha_0$ $n=200$ on board games.}
+\label{fig:estimated_q_board_games}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\subfloat{
+    \includegraphics[width=0.48\columnwidth]{figures/fig9_atari_selection/enduro.pdf}}
+\subfloat{
+    \includegraphics[width=0.48\columnwidth]{figures/fig9_atari_selection/gopher.pdf}}
+\\
+\vspace{-0.5em}
+\subfloat{
+    \includegraphics[width=0.48\columnwidth]{figures/fig9_atari_selection/kangaroo.pdf}}
+\subfloat{
+    \includegraphics[width=0.48\columnwidth]{figures/fig9_atari_selection/ms_pacman.pdf}}
+% \vspace{-1em}
+\caption{Ablation study of whether using estimated Q value for non-visited actions for $\mu_0$ $n=50$ on four Atari games: \textit{enduro}, \textit{gopher}, \textit{kangaroo}, and \textit{ms\_pacman}.}
+\label{fig:estimated_q_atari_games}
+\end{figure}
+
+\subsection{Ablation Study on Estimated Q value}\label{exp:estimated_q}
+We conduct an ablation study to determine the impact of using the estimated Q value in MCTS, as described in section \ref{minizero:estimated_q}.
+Specifically, we compare the performance using estimated Q value with $\alpha_0$ for 9x9 Go and 8x8 Othello, and with $\mu_0$ for four Atari games: \textit{enduro}, \textit{gopher}, \textit{kangaroo}, and \textit{ms\_pacman}.
+The training settings follow those introduced above.
+
+Fig. \ref{fig:estimated_q_board_games} and Fig. \ref{fig:estimated_q_atari_games} illustrate the training results in either Elo ratings for board games or average returns for Atari games.
+As shown in these figures, using the estimated Q value significantly outperforms the method without the estimated Q value, with the exception of 8x8 Othello.
+Furthermore, the learning curves using the estimated Q value consistently outperform those without throughout the training.
+This indicates that for planning problems with sufficiently large action spaces, more exploration can be more beneficial.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.8\columnwidth]{figures/fig10_go_gumble_schedule.pdf}
+\caption{Progressive simulation for Gumbel Zero in 9x9 Go games.}
+\label{fig:9x9_go_scheduling}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.8\columnwidth]{figures/fig11_othello_gumbel_schedule.pdf}
+\caption{Progressive simulation for Gumbel Zero in 8x8 Othello games.}
+\label{fig:8x8_othello_scheduling}
+\end{figure}
+
+\subsection{Progressive Simulation in Gumbel Zero}\label{exp:psg}
+We examine the performance of Gumbel Zero trained with \textit{progressive simulation}, as introduced in section \ref{minizero:progressive_simulation}.
+For board games, we train g-$\alpha_0$ and g-$\mu_0$ with the simulation boundary $(N_{min}, N_{max})=(2, 200)$, where the simulation budget is the same as $n=16$.
+Note that under this setting, the simulation budget allocation of each iteration is the same as in Fig. \ref{fig:sim-allocation-example}.
+The evaluation results for both 9x9 Go and 8x8 Othello are shown in Fig. \ref{fig:9x9_go_scheduling} and Fig. \ref{fig:8x8_othello_scheduling}.
+% Fig. \ref{fig:9x9_go_scheduling} and Fig. \ref{fig:8x8_othello_scheduling} show the evaluation results for both 9x9 Go and 8x8 Othello.
+In general, the models trained with progressive simulation outperform those trained without by the end of training.
+However, we observe that both g-$\alpha_0$ and g-$\mu_0$ with progressive simulation are weaker than those without before 54,000 training steps (270 iterations) for both games.
+Most notably, in the case of 8x8 Othello, g-$\alpha_0$ $n\in [2, 200]$ jumps significantly in Elo rating -- by 276 -- between 50,000 to 60,000 training steps.
+More specifically, the simulation count is increased to over $n=16$ after 51,000 training steps, as shown in Fig. \ref{fig:sim-allocation-example}.
+
+These observations corroborate existing findings on combining machine learning with planning.
+It has been shown that when evaluations -- both value and policy -- are inaccurate, planning can actually lead to worse decisions \cite{haque_road_2022}. 
+In the early training stages of AlphaZero and MuZero, the agent's evaluations are certainly very inaccurate. 
+The progressive simulation method addresses this by conserving the simulation budget for later stages of training, where the agent may benefit the most from planning with much more accurate evaluations.
+
+Next, we evaluate the progressive simulation method on 57 Atari games by training g-$\mu_0$ with a simulation boundary $(N_{min}, N_{max})=(2, 50)$, where the simulation budget is the same as $n=18$.
+The results are shown in Table \ref{tab:Atari57-score} and Fig. \ref{fig:Atari57-score}.
+From the table, we find that progressive simulation achieves lower human normalized mean returns (359.97\%) compared to the baseline model g-$\mu_0$ $n=18$ (395.87\%), which uses the same simulation budget.
+Overall, progressive simulation only outperforms g-$\mu_0$ $n=18$ in 25 games among 57 games.
+
+For cases that use progressive simulation significantly outperforms g-$\mu_0$ $n=18$, such as \textit{battle\_zone}, \textit{kangaroo}, and \textit{jamesbond}.
+The average returns of these three games gradually increase during training.
+This situation is similar to that of board games, where fewer simulations are allocated during the early stages of training.
+Then, simulations are gradually increased to perform meticulous planning with higher simulation counts, obtaining better scores.
+
+However, not all Atari games exhibit the same characteristics as board games in terms of increasing simulations.
+For games such as \textit{gravitar}, training with fewer simulations outperforms training with more simulations.
+Thus, using progressive simulation causes training to become less efficient as it progresses.
+Specifically, it performs well in the early training stages but converges when the number of simulations becomes excessive.
+For games such as \textit{asterix}, \textit{private\_eye}, and \textit{surround}, the opposite is that training requires sufficient simulations.
+Namely, the use of progressive simulation results in wasted early stages of training.
+
+Furthermore, we observe that several games\footnote{\textit{amidar}, \textit{berzerk}, \textit{breakout}, \textit{centipede}, \textit{crazy\_climber}, \textit{qbert}, and \textit{robotank}.} experience a significant decline in score when the simulation counts are changed.
+Despite this decline, it usually recovers after several training steps.
+We hypothesize that the agent might settle into a sub-optimal strategy when training with a fixed simulation.
+As the number of simulations increases, the strategy shifts into different playing styles, which may impact the performance both positively and negatively, before long-term improvements.
+Therefore, the model may require a significantly larger number of training steps to accommodate these shifts and subsequent adjustments.
+
+In conclusion, the ablation study on the progressive simulation method suggests that adjusting the simulation count during training does not necessarily lead to improvement in Atari games.
+Since each Atari game has distinct characteristics, the results vary, as demonstrated in section \ref{exp:atari}.
+A universally beneficial method for training Atari games is yet to be discovered.
+
+
+\section{Conclusion}
+This paper introduces \textit{MiniZero}, a zero-knowledge learning framework that supports four algorithms, including AlphaZero, MuZero, Gumbel AlphaZero, and Gumbel MuZero.
+We compare the performance of these algorithms with different simulations on 9x9 Go, 8x8 Othello, and 57 Atari games.
+
+For board games, given the same amount of training data, using more simulations generally results in higher performance for both AlphaZero and MuZero algorithms.
+Nevertheless, when trained for an equivalent amount of time (computing resources), Gumbel Zero with fewer simulations can achieve performance nearly on par with AlphaZero/MuZero using more simulations.
+We also propose an efficient approach, named \textit{progressive simulation}, to reallocate the simulation budget under limited computing resources.
+This approach begins with fewer simulations, which is gradually increased throughout training.
+Our experiments demonstrate that models trained with progressive simulation outperform those trained without it.
+Furthermore, the choice between AlphaZero and MuZero may differ according to specific game properties.
+Our experiments indicate that MuZero excels in 9x9 Go, whereas AlphaZero is superior in 8x8 Othello.
+
+The results for Atari games are different from board games.
+While training with 50 simulations generally yields better results than 18 and 2 simulations in terms of human normalized mean returns, it is noteworthy that using 50 simulations does not consistently outperform 18 and 2 simulations in every game.
+% gmz 18 gmz n2 instead of 18 2
+Our experiments suggest that the performance of different simulation settings is highly correlated to distinct game characteristics.
+Therefore, the progressive simulation method may not be necessarily optimal for all cases.
+
+
+Currently, our framework only supports four fundamental zero-knowledge learning algorithms.
+The framework can still be improved with several extensions, such as incorporating Reanalyze techniques \cite{schrittwieser_mastering_2020}, providing continuous action spaces \cite{antonoglou_planning_2021}, supporting stochastic environments \cite{hubert_learning_2021}, and including more games. 
+Besides, we can design different progressive simulation strategies, such as adjusting simulations during training without a pre-determined total budget.
+% We plan to address these limitations in future work.
+% For more in-depth analyses that cover more algorithms on more games, we will incorporate other MuZero extensions, and implement more game environments into the \textit{MiniZero} framework.
+% We will also investigate more methods to improve training, such as designing a more robust progressive simulation method.
+%that does not require a pre-determined total budget.
+In conclusion, our framework, along with all trained models, is publicly available online.
+We expect that these trained models can serve as benchmarks for the game community in the future.
+
+\bibliography{references}
+\input{biography/biography}
+
+\clearpage
+\input{figures/fig12_atari_57games}
+\clearpage
+\input{table/table3_atari_57_table}
+
+

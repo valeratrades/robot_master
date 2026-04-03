@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use pyo3::{exceptions::PyValueError, prelude::*};
+use pyo3::{exceptions::PyValueError, prelude::*, types::PyAny};
 use rand::{rngs::SmallRng, seq::IteratorRandom};
 
 use crate::{
 	board::{Board, Pos},
-	cards::{CardValue, Hand, MAX_CARD_VALUE},
+	cards::{CardValue, Hand},
 	game::{GameConfig, Move},
 };
 
@@ -13,11 +13,14 @@ use crate::{
 // Conversion helpers (standard trait impls, no helper fns)
 // ---------------------------------------------------------------------------
 
-impl From<&HashMap<u8, u8>> for Hand {
+impl<const N: usize> From<&HashMap<u8, u8>> for Hand<N>
+where
+	[(); N + 1]:,
+{
 	fn from(m: &HashMap<u8, u8>) -> Self {
 		let mut hand = Hand::default();
 		for (&v, &c) in m {
-			if v as usize <= MAX_CARD_VALUE {
+			if v as usize <= N {
 				for _ in 0..c {
 					hand.put(CardValue(v));
 				}
@@ -119,27 +122,32 @@ pub fn place_carte(mut plateau: Vec<Vec<Option<u8>>>, pos_l: i64, pos_c: i64, ca
 	}
 	plateau
 }
-/// Create a shuffled deck: values 0..=maxC, nbC copies each.
+/// Create a shuffled deck for an N×N board: values 0..=(N-1), N copies each.
+/// `taille` (board side length, default 5) determines the deck.
 #[pyfunction]
 #[pyo3(signature = (dico_options = None))]
 pub fn new_pile_cartes(dico_options: Option<HashMap<String, i64>>) -> Vec<u8> {
 	let opts = dico_options.unwrap_or_default();
-	let max_c = opts.get("maxC").copied().unwrap_or(5) as u8;
-	let nb_c = opts.get("nbC").copied().unwrap_or(6) as u8;
+	let n = opts.get("taille").copied().unwrap_or(5) as usize;
 	let mut rng: SmallRng = rand::make_rng();
-	crate::cards::new_deck(max_c, nb_c, &mut rng).into_iter().map(|c| c.0).collect()
+	crate::cards::new_deck(n, &mut rng).into_iter().map(|c| c.0).collect()
 }
 /// Distribute cards: returns [center_card, hand1_list, hand2_list, ...].
 #[pyfunction]
 #[pyo3(signature = (pile_cartes, dico_options = None))]
-pub fn distribution_cartes(pile_cartes: Vec<u8>, dico_options: Option<HashMap<String, i64>>) -> Vec<PyObject> {
-	Python::with_gil(|py| {
+pub fn distribution_cartes(pile_cartes: Vec<u8>, dico_options: Option<HashMap<String, i64>>) -> Vec<Py<PyAny>> {
+	Python::try_attach(|py| {
 		let opts = dico_options.unwrap_or_default();
 		let nb_j = opts.get("nbJ").copied().unwrap_or(2) as usize;
-		let taille = opts.get("taille").copied().unwrap_or(5) as usize;
-		let cartes_distrib = (taille * taille - 1) / 2;
+		//HACK: apparently in IA_test.py they try to force different number of cards. So uhh, gotta support that bullshit
+		let cartes_distrib = if let Some(&cd) = opts.get("cartes_distrib") {
+			cd as usize
+		} else {
+			let taille = opts.get("taille").copied().unwrap_or(5) as usize;
+			(taille * taille - 1) / 2
+		};
 
-		let mut result: Vec<PyObject> = Vec::new();
+		let mut result: Vec<Py<PyAny>> = Vec::new();
 		// first element: center card (scalar int)
 		result.push(pile_cartes[0].into_pyobject(py).unwrap().into_any().unbind());
 		// then one hand list per player (as list[int], not bytes)
@@ -151,6 +159,7 @@ pub fn distribution_cartes(pile_cartes: Vec<u8>, dico_options: Option<HashMap<St
 		}
 		result
 	})
+	.expect("Python interpreter not available")
 }
 /// Convert card list to frequency dict {card_value: count}, all values 0..=maxC present.
 #[pyfunction]
@@ -231,25 +240,28 @@ pub fn victoire_py(plateau: Vec<Vec<Option<u8>>>, dico_options: Option<HashMap<S
 #[pyfunction]
 pub fn random_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: HashMap<u8, u8>, dico_options: HashMap<String, i64>) -> PyResult<(u8, u8, u8)> {
 	let config = config_from_options(&dico_options);
-	let hand = Hand::from(&dico_main);
 
 	let m: Option<Move> = match config.size {
 		5 => {
+			let hand = Hand::<5>::from(&dico_main);
 			let board = board_from_plateau::<5>(&plateau)?;
 			let mut rng: SmallRng = rand::make_rng();
 			board.valid_placements().flat_map(|pos| hand.iter_playable().map(move |card| Move { pos, card })).choose(&mut rng)
 		}
 		7 => {
+			let hand = Hand::<7>::from(&dico_main);
 			let board = board_from_plateau::<7>(&plateau)?;
 			let mut rng: SmallRng = rand::make_rng();
 			board.valid_placements().flat_map(|pos| hand.iter_playable().map(move |card| Move { pos, card })).choose(&mut rng)
 		}
 		9 => {
+			let hand = Hand::<9>::from(&dico_main);
 			let board = board_from_plateau::<9>(&plateau)?;
 			let mut rng: SmallRng = rand::make_rng();
 			board.valid_placements().flat_map(|pos| hand.iter_playable().map(move |card| Move { pos, card })).choose(&mut rng)
 		}
 		11 => {
+			let hand = Hand::<11>::from(&dico_main);
 			let board = board_from_plateau::<11>(&plateau)?;
 			let mut rng: SmallRng = rand::make_rng();
 			board.valid_placements().flat_map(|pos| hand.iter_playable().map(move |card| Move { pos, card })).choose(&mut rng)
@@ -263,8 +275,7 @@ pub fn random_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: HashMap<u8, u8>,
 pub fn config_from_options(opts: &HashMap<String, i64>) -> GameConfig {
 	GameConfig {
 		size: opts.get("taille").copied().unwrap_or(5) as u8,
-		max_card: opts.get("maxC").copied().unwrap_or(5) as u8,
-		nb_c: opts.get("nbC").copied().unwrap_or(6) as u8,
+		hide: false,
 	}
 }
 
@@ -287,6 +298,19 @@ where
 		}
 	}
 	Ok(board)
+}
+
+/// Diff display between two board states. New cells shown as `+v`.
+#[pyfunction]
+pub fn display_diff_py(plateau: Vec<Vec<Option<u8>>>, prev: Vec<Vec<Option<u8>>>) -> PyResult<String> {
+	let n = plateau.len();
+	match n {
+		5 => Ok(board_from_plateau::<5>(&plateau)?.display_diff(&board_from_plateau::<5>(&prev)?)),
+		7 => Ok(board_from_plateau::<7>(&plateau)?.display_diff(&board_from_plateau::<7>(&prev)?)),
+		9 => Ok(board_from_plateau::<9>(&plateau)?.display_diff(&board_from_plateau::<9>(&prev)?)),
+		11 => Ok(board_from_plateau::<11>(&plateau)?.display_diff(&board_from_plateau::<11>(&prev)?)),
+		_ => Err(PyValueError::new_err(format!("unsupported board size {n}"))),
+	}
 }
 
 // ---------------------------------------------------------------------------

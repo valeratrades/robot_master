@@ -13,9 +13,6 @@ pub const BTN_START_HOVER: Color = Color::oklcha(0.70, 0.18, 145.0, 1.0);
 pub const BTN_PLAY_AGAIN: Color = Color::oklcha(0.55, 0.12, 145.0, 0.8);
 pub const BTN_PLAY_AGAIN_HOVER: Color = Color::oklcha(0.65, 0.15, 145.0, 1.0);
 
-// Dropdown
-pub const DROPDOWN_BG: Color = Color::oklcha(0.22, 0.04, 260.0, 0.95);
-
 // Board cells
 pub const CELL_OCCUPIED: Color = Color::oklcha(0.40, 0.06, 260.0, 0.8);
 pub const CELL_EMPTY: Color = Color::oklcha(0.25, 0.03, 260.0, 0.4);

@@ -5,7 +5,7 @@ use crate::game::{Player, scores_rows};
 pub const EMPTY: Cell = u8::MAX;
 pub type Cell = u8;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Pos {
 	pub row: u8,
 	pub col: u8,

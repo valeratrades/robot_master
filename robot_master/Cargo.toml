@@ -12,7 +12,7 @@ default = []
 python = ["dep:pyo3", "robot_master_core/python"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-clap = { version = "4.5", features = ["derive"] }
+clap.workspace = true
 
 [dependencies]
 robot_master_arena = { path = "../robot_master_arena" }
@@ -20,12 +20,14 @@ robot_master_core = { path = "../robot_master_core" }
 robot_master_game = { path = "../robot_master_game" }
 robot_master_train = { path = "../robot_master_train" }
 
-derive-new = "0.7.0"
-pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
-
+derive-new.workspace = true
+miette.workspace = true
+pyo3 = { workspace = true, optional = true }
 rand.workspace = true
+regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 ustr.workspace = true
 v_utils.workspace = true
 

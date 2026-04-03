@@ -1,0 +1,53 @@
+\begin{table}
+    \caption{Hyper-parameters for board games and Atari games}
+    \centering
+    \begin{tabular}{lcc}
+        \toprule
+        Parameter & Board Games & Atari Games\\
+        \midrule
+        Iteration & \multicolumn{2}{c}{300}\\
+        Optimizer & \multicolumn{2}{c}{SGD}\\
+        Optimizer: learning rate & \multicolumn{2}{c}{0.1}\\
+        Optimizer: momentum & \multicolumn{2}{c}{0.9}\\
+        Optimizer: weight decay & \multicolumn{2}{c}{0.0001}\\
+        Training steps & \multicolumn{2}{c}{60K}\\
+        \# Blocks & 3 & 2\\
+        Batch size & 1024 & 512\\
+        Replay buffer size & 40K games & 1M frames\\
+        Max frames per episode & - & 108K\\
+        Discount factor & - & 0.997\\
+        Priority exponent ($\alpha$) & - & 1\\
+        Priority correction ($\beta$) & - & 0.4\\
+        Bootstrap step (n-step return) & - & 5\\
+        \bottomrule
+    \end{tabular}
+    \label{tab:hyper-parameters}
+\end{table}
+
+
+% \begin{table}
+%     \caption{Hyper-parameters}
+%     \centering
+%     \begin{tabular}{lcc}
+%         \toprule
+%         Parameter & Board Games & Atari Games\\
+%         \midrule
+%         Iteration & 300 & 300\\
+%         Blocks & 3 & 2\\
+%         Optimizer & SGD & SGD\\
+%         Optimizer: learning rate & 0.1 & 0.1\\
+%         Optimizer: momentum & 0.9 & 0.9\\
+%         Optimizer: weight decay & 0.0001 & 0.0001\\
+%         Unroll steps & 5 & 5\\
+%         Batch size & 1024 & 512\\
+%         Training steps & 60K & 60K\\
+%         Replay buffer size & 40K games & 1M frames\\
+%         Max frames per episode & - & 108K\\
+%         Discount factor & - & 0.997\\
+%         Priority exponent ($\alpha$) & - & 1\\
+%         Priority correction ($\beta$) & - & 0.4\\
+%         Bootstrap step (n-step return) & - & 5\\
+%         \bottomrule
+%     \end{tabular}
+%     \label{tab:hyper-parameters}
+% \end{table}
