@@ -5,14 +5,17 @@ use std::{
 	env, fs,
 	io::Write,
 	path::PathBuf,
-	sync::atomic::{AtomicU32, Ordering},
+	sync::{
+		Arc, Mutex,
+		atomic::{AtomicU32, Ordering},
+	},
 	time::Instant,
 };
 
 use clap::Parser;
 use rand::{SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
-use robot_master_arena::{algos::{PlayerKind, rollout::Rollout}};
+use robot_master_arena::algos::{PlayerKind, rollout::Rollout};
 use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
 use robot_master_train::{
 	gumbel::GumbelConfig,
@@ -147,12 +150,13 @@ fn run_nn_sequential(args: &Args, config: &GumbelConfig, model_path: &str, times
 			let samples_done = AtomicU32::new(0);
 			let game_start = Instant::now();
 
+			let out_path = args.output.join(format!("selfplay_{timestamp}_00.bin"));
+			let file = Arc::new(Mutex::new(fs::File::create(&out_path).expect("failed to create output file")));
+
 			let threads = args.threads.min(args.games);
 			(0..threads).into_par_iter().for_each(|thread_id| {
 				let evaluator = NnEval::new(model_path, $N, args.force_cpu).expect("failed to load ONNX model");
 				let games_per_thread = (args.games + threads - 1) / threads;
-				let out_path = args.output.join(format!("selfplay_{timestamp}_{thread_id:02}.bin"));
-				let mut file = fs::File::create(&out_path).expect("failed to create output file");
 				let mut rng = SmallRng::seed_from_u64(42 + thread_id as u64);
 				let mut thread_samples = 0u32;
 
@@ -160,8 +164,11 @@ fn run_nn_sequential(args: &Args, config: &GumbelConfig, model_path: &str, times
 				for _ in 0..games_per_thread {
 					let s = GameState::<$N>::new(game_config, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 					let samples = play_game(&s, &evaluator, config, &mut rng);
-					for sample in &samples {
-						file.write_all(&sample.to_bytes()).expect("write failed");
+					{
+						let mut f = file.lock().unwrap();
+						for sample in &samples {
+							f.write_all(&sample.to_bytes()).expect("write failed");
+						}
 					}
 					thread_samples += samples.len() as u32;
 
@@ -195,11 +202,12 @@ fn run_rollout(args: &Args, config: &GumbelConfig, timestamp: u64, start: &Insta
 	let games_done = AtomicU32::new(0);
 	let samples_done = AtomicU32::new(0);
 
+	let out_path = args.output.join(format!("selfplay_{timestamp}_00.bin"));
+	let file = Arc::new(Mutex::new(fs::File::create(&out_path).expect("failed to create output file")));
+
 	let threads = args.threads.min(args.games);
 	(0..threads).into_par_iter().for_each(|thread_id| {
 		let games_per_thread = (args.games + threads - 1) / threads;
-		let out_path = args.output.join(format!("selfplay_{timestamp}_{thread_id:02}.bin"));
-		let mut file = fs::File::create(&out_path).expect("failed to create output file");
 
 		let mut rng = SmallRng::seed_from_u64(42 + thread_id as u64);
 		let mut thread_samples = 0u32;
@@ -229,8 +237,11 @@ fn run_rollout(args: &Args, config: &GumbelConfig, timestamp: u64, start: &Insta
 				_ => panic!("unsupported board size: {}", args.size),
 			};
 
-			for sample in &samples {
-				file.write_all(&sample.to_bytes()).expect("write failed");
+			{
+				let mut f = file.lock().unwrap();
+				for sample in &samples {
+					f.write_all(&sample.to_bytes()).expect("write failed");
+				}
 			}
 			thread_samples += samples.len() as u32;
 
@@ -251,8 +262,7 @@ fn run_rollout(args: &Args, config: &GumbelConfig, timestamp: u64, start: &Insta
 fn make_rollout_evaluator<const N: usize>(spec: &Option<String>) -> Box<dyn Evaluator<N>>
 where
 	[(); N * N]:,
-	[(); N + 1]:,
-{
+	[(); N + 1]:, {
 	match spec {
 		None => Box::new(RolloutEval::new(Rollout {})),
 		Some(s) => {

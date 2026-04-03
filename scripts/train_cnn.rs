@@ -38,8 +38,10 @@ struct Args {
 	/// Hide opponent's hand (information-hidden mode). Determines `_hide` vs `_show` in run path.
 	#[arg(long)]
 	hide: bool,
-	/// Player spec used as eval baseline every 10 versions (e.g. `rollout|v50`).
-	/// If omitted, no eval matches are run.
+	/// Supervised pre-training spec (e.g. `rollout|v50`). Controls both:
+	/// selfplay data generation (uses this bot until NN beats it >68% over 32 games),
+	/// and eval matches run every 10 versions to detect the threshold.
+	/// If omitted, starts NN selfplay immediately with no eval.
 	#[arg(long)]
 	supervise: Option<String>,
 }
@@ -80,7 +82,8 @@ fn main() {
 	};
 	let mut current_model = current_model;
 	// True until the NN beats the supervise-bot >68% in eval; then we switch to NN selfplay.
-	let mut use_supervise_bot = args.supervise.is_some();
+	// On resume, if a model already exists the supervised phase is already past.
+	let mut use_supervise_bot = args.supervise.is_some() && current_model.is_none();
 
 	// Build selfplay binary upfront
 	eprintln!("Building selfplay binary...");
@@ -124,7 +127,7 @@ fn main() {
 		if args.hide {
 			selfplay_cmd.arg("--hide");
 		}
-		if use_supervise_bot {
+		if use_supervise_bot && current_model.is_none() {
 			if let Some(ref spec) = args.supervise {
 				selfplay_cmd.args(["--supervise-bot", spec]);
 			}
@@ -196,7 +199,7 @@ fn main() {
 		// Eval every 10 versions against the supervised baseline
 		if version % 10 == 0 {
 			if let Some(ref spec) = args.supervise {
-				let hide_flag = if args.hide { "v" } else { "s" };
+				let hide_flag = if args.hide { "h" } else { "v" };
 				let model_id = format!("onnx:model_v{}|g{}|s{}|h{}", version, args.sims, args.size, hide_flag);
 				let no_priors_spec = format!("{},{}", spec, model_id);
 
@@ -224,10 +227,7 @@ fn main() {
 						} else {
 							""
 						};
-						eprintln!(
-							"done ({:.1}s)  {wins}/{total} ({pct:.0}%){threshold_note}",
-							eval_start.elapsed().as_secs_f64(),
-						);
+						eprintln!("done ({:.1}s)  {wins}/{total} ({pct:.0}%){threshold_note}", eval_start.elapsed().as_secs_f64(),);
 					} else {
 						eprintln!("done ({:.1}s)  (could not parse result)", eval_start.elapsed().as_secs_f64());
 					}
