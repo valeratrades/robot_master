@@ -12,12 +12,13 @@ use std::{
 use clap::Parser;
 use rand::{SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
-use robot_master_arena::algos::rollout::Rollout;
+use robot_master_arena::{algos::{PlayerKind, rollout::Rollout}};
 use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
 use robot_master_train::{
 	gumbel::GumbelConfig,
 	mcts::{Evaluator, RolloutEval},
 	nn_eval::NnEval,
+	player_kind::kind_into_rollout_evaluator,
 	selfplay::{play_game, play_games_batched},
 };
 
@@ -55,6 +56,11 @@ struct Args {
 	/// Hide opponent's hand (information-hidden mode).
 	#[arg(long)]
 	hide: bool,
+	/// Bot spec to use as the rollout policy instead of the default `Rollout` bot.
+	/// Sims in the spec are ignored — the bot drives `RolloutEval` directly.
+	/// Mutually exclusive with --model.
+	#[arg(long)]
+	supervise_bot: Option<String>,
 }
 
 fn main() {
@@ -66,6 +72,11 @@ fn main() {
 		m_actions: args.sims.min(16),
 		..Default::default()
 	};
+
+	if args.model.is_some() && args.supervise_bot.is_some() {
+		eprintln!("error: --supervise-bot cannot be used with --model");
+		std::process::exit(1);
+	}
 
 	let (total_samples, elapsed, init_elapsed) = match &args.model {
 		Some(model_path) if args.force_cpu => run_nn_sequential(&args, &config, model_path, timestamp),
@@ -197,22 +208,22 @@ fn run_rollout(args: &Args, config: &GumbelConfig, timestamp: u64, start: &Insta
 			let samples = match args.size {
 				5 => {
 					let s = GameState::<5>::new(GameConfig { size: 5, hide: args.hide }, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
-					let ev: Box<dyn Evaluator<5>> = Box::new(RolloutEval::new(Rollout {}));
+					let ev = make_rollout_evaluator::<5>(&args.supervise_bot);
 					play_game(&s, &ev, config, &mut rng)
 				}
 				7 => {
 					let s = GameState::<7>::new(GameConfig { size: 7, hide: args.hide }, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
-					let ev: Box<dyn Evaluator<7>> = Box::new(RolloutEval::new(Rollout {}));
+					let ev = make_rollout_evaluator::<7>(&args.supervise_bot);
 					play_game(&s, &ev, config, &mut rng)
 				}
 				9 => {
 					let s = GameState::<9>::new(GameConfig { size: 9, hide: args.hide }, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
-					let ev: Box<dyn Evaluator<9>> = Box::new(RolloutEval::new(Rollout {}));
+					let ev = make_rollout_evaluator::<9>(&args.supervise_bot);
 					play_game(&s, &ev, config, &mut rng)
 				}
 				11 => {
 					let s = GameState::<11>::new(GameConfig { size: 11, hide: args.hide }, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
-					let ev: Box<dyn Evaluator<11>> = Box::new(RolloutEval::new(Rollout {}));
+					let ev = make_rollout_evaluator::<11>(&args.supervise_bot);
 					play_game(&s, &ev, config, &mut rng)
 				}
 				_ => panic!("unsupported board size: {}", args.size),
@@ -235,6 +246,23 @@ fn run_rollout(args: &Args, config: &GumbelConfig, timestamp: u64, start: &Insta
 	});
 
 	samples_done.load(Ordering::Relaxed)
+}
+
+fn make_rollout_evaluator<const N: usize>(spec: &Option<String>) -> Box<dyn Evaluator<N>>
+where
+	[(); N * N]:,
+	[(); N + 1]:,
+{
+	match spec {
+		None => Box::new(RolloutEval::new(Rollout {})),
+		Some(s) => {
+			let kind: PlayerKind = s.parse().unwrap_or_else(|_| {
+				eprintln!("error: invalid --supervise-bot spec: {s:?}");
+				std::process::exit(1);
+			});
+			kind_into_rollout_evaluator::<N>(&kind)
+		}
+	}
 }
 
 fn xdg_cache_dir(subdir: &str) -> PathBuf {

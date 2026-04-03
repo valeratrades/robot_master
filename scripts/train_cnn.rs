@@ -79,6 +79,8 @@ fn main() {
 		None
 	};
 	let mut current_model = current_model;
+	// True until the NN beats the supervise-bot >68% in eval; then we switch to NN selfplay.
+	let mut use_supervise_bot = args.supervise.is_some();
 
 	// Build selfplay binary upfront
 	eprintln!("Building selfplay binary...");
@@ -121,6 +123,11 @@ fn main() {
 		}
 		if args.hide {
 			selfplay_cmd.arg("--hide");
+		}
+		if use_supervise_bot {
+			if let Some(ref spec) = args.supervise {
+				selfplay_cmd.args(["--supervise-bot", spec]);
+			}
 		}
 		let sp_start = Instant::now();
 		run_or_die(&mut selfplay_cmd, "selfplay");
@@ -207,10 +214,19 @@ fn main() {
 					let json = String::from_utf8_lossy(&output.stdout);
 					if let Some((wins, total)) = parse_eval_json(&json, &model_id) {
 						let pct = wins as f64 / total as f64 * 100.0;
+						let threshold_note = if pct > 68.0 {
+							if use_supervise_bot {
+								use_supervise_bot = false;
+								" ✓ above threshold — switching to NN selfplay"
+							} else {
+								" ✓ above threshold"
+							}
+						} else {
+							""
+						};
 						eprintln!(
-							"done ({:.1}s)  {wins}/{total} ({pct:.0}%){}",
+							"done ({:.1}s)  {wins}/{total} ({pct:.0}%){threshold_note}",
 							eval_start.elapsed().as_secs_f64(),
-							if pct > 68.0 { " ✓ above threshold" } else { "" }
 						);
 					} else {
 						eprintln!("done ({:.1}s)  (could not parse result)", eval_start.elapsed().as_secs_f64());

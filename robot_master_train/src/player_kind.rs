@@ -5,7 +5,7 @@ use robot_master_arena::{
 
 use crate::{
 	gumbel::GumbelMcts,
-	mcts::{RolloutEval, SearchBot, VanillaMcts},
+	mcts::{Evaluator, RolloutEval, SearchBot, VanillaMcts},
 	nn_eval::NnEval,
 };
 
@@ -59,4 +59,23 @@ where
 		});
 	}
 	Ok(kind.clone().into_bot())
+}
+
+/// Wrap a rule-based `PlayerKind`'s inner bot in `RolloutEval`.
+/// Sims in the spec are ignored — the bot is used directly as the rollout policy.
+/// Panics on `OnnxPlayer` or `ManualPlayer`.
+pub fn kind_into_rollout_evaluator<const N: usize>(kind: &PlayerKind) -> Box<dyn Evaluator<N>>
+where
+	[(); N * N]:,
+	[(); N + 1]:,
+{
+	match &kind.inner {
+		InnerKind::OnnxPlayer(_) => panic!("--supervise-bot cannot be an onnx model"),
+		InnerKind::ManualPlayer(_) => panic!("--supervise-bot cannot be a manual player"),
+		InnerKind::RandomPlayer(p) => Box::new(RolloutEval::new(p.clone())),
+		InnerKind::GreedyForNumber(p) => Box::new(RolloutEval::new(p.clone())),
+		InnerKind::GreedyForScocre(p) => Box::new(RolloutEval::new(p.clone())),
+		InnerKind::Sadist(p) => Box::new(RolloutEval::new(p.clone())),
+		InnerKind::Rollout(p) => Box::new(RolloutEval::new(p.clone())),
+	}
 }
