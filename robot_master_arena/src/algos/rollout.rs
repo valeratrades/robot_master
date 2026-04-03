@@ -7,26 +7,27 @@ use robot_master_core::{
 };
 use v_utils::macros::CompactFormatNamed;
 
-use super::greedy::Greedy;
+use super::greedy_max::GreedyForNumber;
 use crate::player::Bot;
 
 /// Three-mode bot:
 /// 1. No finished lines → pure greedy (maximize immediate score_delta across all lines)
 /// 2. Some finished lines, unfinished lines below finished_min → target those weak lines
 /// 3. No improvable lines → averse (harass opponent)
-#[derive(Clone, CompactFormatNamed, Debug)]
+#[derive(Clone, CompactFormatNamed, Debug, Default, Eq, PartialEq)]
 pub struct Rollout {}
 
 impl<const N: usize> Bot<N> for Rollout
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		let analysis = LineAnalysis::new(game);
 
 		match analysis.mode() {
-			Mode::Greedy => Greedy {}.choose_move(game),
-			Mode::TargetWeak => target_weak(game, &analysis),
+			Mode::GreedyMax => GreedyForNumber {}.choose_move(game),
+			Mode::TargetWeak => target_weak(game, &analysis), //Q: might be better to just delegate to `GreedyForScore` here, not sure why I don't
 			Mode::Averse => Averse::builder().fuel(500).build().choose(game),
 		}
 	}
@@ -34,7 +35,7 @@ where
 
 enum Mode {
 	/// No finished lines — play pure greedy.
-	Greedy,
+	GreedyMax,
 	/// At least one finished line, but unfinished lines exist below finished_min — target those.
 	TargetWeak,
 	/// All unfinished lines >= finished_min — can't improve, harass opponent.
@@ -50,7 +51,8 @@ struct LineAnalysis {
 impl LineAnalysis {
 	fn new<const N: usize>(game: &GameState<N>) -> Self
 	where
-		[(); N * N]:, {
+		[(); N * N]:,
+		[(); N + 1]:, {
 		let player = game.turn;
 		let lines: Vec<_> = (0..N)
 			.map(|i| {
@@ -69,7 +71,7 @@ impl LineAnalysis {
 
 	fn mode(&self) -> Mode {
 		let Some(fmin) = self.finished_min else {
-			return Mode::Greedy;
+			return Mode::GreedyMax;
 		};
 		if self.lines.iter().any(|&(_, score, finished)| !finished && score < fmin) {
 			Mode::TargetWeak
@@ -82,10 +84,12 @@ impl LineAnalysis {
 /// Mode 2: maximize score_delta on unfinished lines below finished_min.
 fn target_weak<const N: usize>(game: &GameState<N>, analysis: &LineAnalysis) -> Move
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let fmin = analysis.finished_min.expect("target_weak called without finished lines");
 	let player = game.turn;
-	let hand = &game.hands[player.index() as usize];
+	let hands = game.hands().expect("rollout does not support hidden hands");
+	let hand = hands[player.index() as usize];
 	let board = &game.board;
 
 	let target_lines: Vec<usize> = analysis.lines.iter().filter(|l| !l.2 && l.1 < fmin).map(|l| l.0).collect();
@@ -108,7 +112,7 @@ where
 	}
 
 	// If no target line has a playable position, fall back to greedy.
-	best.map(|b| b.1).unwrap_or_else(|| Greedy {}.choose_move(game))
+	best.map(|b| b.1).unwrap_or_else(|| GreedyForNumber {}.choose_move(game))
 }
 
 /// Bounded sadist: minimizes opponent's max potential, but uses greedy for opponent
@@ -122,7 +126,8 @@ struct Averse {
 impl Averse {
 	fn choose<const N: usize>(&self, game: &GameState<N>) -> Move
 	where
-		[(); N * N]:, {
+		[(); N * N]:,
+		[(); N + 1]:, {
 		let opponent = game.turn.other();
 		let mut best_move: Option<Move> = None;
 		let mut best_opp_score: Option<u16> = None;
@@ -151,9 +156,10 @@ impl Averse {
 /// Simulates until the game ends, then returns opponent's final min-line score.
 fn project_opponent_score<const N: usize>(game: &GameState<N>, opponent: Player) -> u16
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let mut sim = game.clone();
-	let mut greedy = Greedy {};
+	let mut greedy = GreedyForNumber {};
 
 	while sim.outcome().is_none() {
 		let mv = greedy.choose_move(&sim);
@@ -174,48 +180,14 @@ mod tests {
 	use board_game::board::Board as _;
 	use insta::assert_snapshot;
 	use rand::{SeedableRng, rngs::SmallRng};
-	use robot_master_core::{
-		board::{Board, Pos},
-		cards::{CardValue, Hand},
-		game::{GameConfig, GameState},
-	};
+	use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
 
-	use super::*;
-
-	fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand, turn: Player) -> GameState<5> {
-		let mut board = Board::<5>::default();
-		for row in 0..5u8 {
-			for col in 0..5u8 {
-				if let Some(v) = grid[row as usize][col as usize] {
-					board.set(Pos { row, col }, v);
-				}
-			}
-		}
-		GameState {
-			board,
-			hands: match turn {
-				Player::A => [hand, Hand::default()],
-				Player::B => [Hand::default(), hand],
-			},
-			turn,
-			config: GameConfig::default(),
-		}
-	}
-
-	fn hand(pairs: &[(u8, u8)]) -> Hand {
-		let mut h = Hand::default();
-		for &(v, n) in pairs {
-			for _ in 0..n {
-				h.put(CardValue(v));
-			}
-		}
-		h
-	}
+	use super::{super::test_utils::fixtures::*, *};
 
 	#[test]
 	fn rollout_returns_legal_move() {
 		let mut rng = SmallRng::seed_from_u64(42);
-		let state: GameState<5> = GameState::new(GameConfig::default(), &mut rng);
+		let state: GameState<5> = GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let mv = Rollout {}.choose_move(&state);
 		assert!(state.valid_moves().any(|m| m == mv), "illegal move: {mv}");
 	}
@@ -223,7 +195,7 @@ mod tests {
 	#[test]
 	fn rollout_plays_full_game() {
 		let mut rng = SmallRng::seed_from_u64(42);
-		let mut state: GameState<5> = GameState::new(GameConfig::default(), &mut rng);
+		let mut state: GameState<5> = GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let mut bot = Rollout {};
 
 		while state.outcome().is_none() {
@@ -240,78 +212,13 @@ mod tests {
 		grid[2][2] = Some(3);
 		let state = make_state(grid, hand(&[(3, 2), (1, 1), (5, 1)]), Player::A);
 		let analysis = LineAnalysis::new(&state);
-		assert!(matches!(analysis.mode(), Mode::Greedy));
-		assert_eq!(Rollout {}.choose_move(&state), Greedy {}.choose_move(&state));
+		assert!(matches!(analysis.mode(), Mode::GreedyMax));
+		assert_eq!(Rollout {}.choose_move(&state), GreedyForNumber {}.choose_move(&state));
 	}
 
 	#[test]
 	fn game_rollout() {
-		let mut board = Board::<5>::default();
-		for (row, col, v) in [
-			(0u8, 2u8, 1u8),
-			(0, 3, 1),
-			(0, 4, 0),
-			(1, 1, 2),
-			(1, 3, 3),
-			(2, 0, 4),
-			(3, 1, 2),
-			(3, 4, 0),
-			(4, 0, 4),
-			(4, 1, 4),
-			(4, 2, 4),
-			(4, 3, 0),
-			(4, 4, 0),
-		] {
-			board.set(Pos { row, col }, v);
-		}
-
-		let mut hand_counts = [0u8; 6];
-		hand_counts[0] = 2;
-		hand_counts[1] = 2;
-		hand_counts[2] = 1;
-		hand_counts[3] = 1;
-		hand_counts[5] = 2;
-
-		fn make_hand_from_counts(counts: &[u8; 6]) -> Hand {
-			let mut h = Hand::default();
-			for (v, &n) in counts.iter().enumerate() {
-				for _ in 0..n {
-					h.put(CardValue(v as u8));
-				}
-			}
-			h
-		}
-
-		let mut moves: Vec<String> = Vec::new();
-		let turns = [Player::A, Player::B];
-		let mut bot = Rollout {};
-
-		for turn_idx in 0..10usize {
-			let turn = turns[turn_idx % 2];
-			let h = make_hand_from_counts(&hand_counts);
-			if h.is_empty() {
-				break;
-			}
-			let state = GameState {
-				board,
-				hands: match turn {
-					Player::A => [h, Hand::default()],
-					Player::B => [Hand::default(), h],
-				},
-				turn,
-				config: GameConfig::default(),
-			};
-			let m = bot.choose_move(&state);
-			let prev = board;
-			board.set(m.pos, m.card.0);
-			moves.push(format!("turn={turn:?}\n{}", board.display_diff(&prev)));
-			hand_counts[m.card.0 as usize] -= 1;
-			if hand_counts.iter().all(|&c| c == 0) {
-				break;
-			}
-		}
-
-		assert_snapshot!(moves.join("\n---\n"), @"
+		assert_snapshot!(run_midgame_rollout(&mut Rollout {}), @"
 		turn=A
 		-----------------------------
 		          0   1   2   3   4

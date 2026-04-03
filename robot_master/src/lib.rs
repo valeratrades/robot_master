@@ -26,6 +26,7 @@ fn robot_master(m: &Bound<'_, PyModule>) -> PyResult<()> {
 	m.add_function(wrap_pyfunction!(robot_master_core::python::score_joueuse, m)?)?;
 	m.add_function(wrap_pyfunction!(robot_master_core::python::victoire_py, m)?)?;
 	m.add_function(wrap_pyfunction!(robot_master_core::python::random_move_py, m)?)?;
+	m.add_function(wrap_pyfunction!(robot_master_core::python::display_diff_py, m)?)?;
 	m.add_function(wrap_pyfunction!(greedy_move_py, m)?)?;
 	m.add_function(wrap_pyfunction!(sadist_move_py, m)?)?;
 	Ok(())
@@ -40,30 +41,22 @@ macro_rules! algo_move_dispatch {
 		use robot_master_arena::player::Bot;
 		use robot_master_core::{
 			cards::Hand,
-			game::{GameConfig, GameState, Player},
+			game::{GameState, Player},
 			python::board_from_plateau,
 		};
 
 		let n = $plateau.len();
 		let turn = if $joueuse_active % 2 == 0 { Player::A } else { Player::B };
-		let hand = Hand::from(&$dico_main);
-		let config = GameConfig {
-			size: n as u8,
-			..GameConfig::default()
-		};
 
 		macro_rules! go {
 			($N: literal) => {{
+				let hand = Hand::<$N>::from(&$dico_main);
 				let board = board_from_plateau::<$N>(&$plateau)?;
-				let state = GameState {
-					board,
-					hands: match turn {
-						Player::A => [hand, Hand::default()],
-						Player::B => [Hand::default(), hand],
-					},
-					turn,
-					config,
+				let hands = match turn {
+					Player::A => [hand, Hand::default()],
+					Player::B => [Hand::default(), hand],
 				};
+				let state = GameState::from_parts(board, hands, turn);
 				let m = $player.choose_move(&state);
 				Ok((m.card.0, m.pos.row, m.pos.col))
 			}};
@@ -81,7 +74,7 @@ macro_rules! algo_move_dispatch {
 #[cfg(feature = "python")]
 #[pyfunction]
 fn greedy_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: std::collections::HashMap<u8, u8>, joueuse_active: u8) -> PyResult<(u8, u8, u8)> {
-	algo_move_dispatch!(plateau, dico_main, joueuse_active, robot_master_arena::algos::greedy::Greedy {})
+	algo_move_dispatch!(plateau, dico_main, joueuse_active, robot_master_arena::algos::greedy_min::GreedyForScore {})
 }
 
 #[cfg(feature = "python")]

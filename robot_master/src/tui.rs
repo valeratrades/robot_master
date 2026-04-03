@@ -1,24 +1,24 @@
 use std::{
 	io::{self, BufRead, Write},
 	ops::ControlFlow,
+	sync::Arc,
 };
 
 use rand::rngs::SmallRng;
 use robot_master_arena::{
 	BoardSize,
-	algos::{PlayerKind, rollout::Rollout},
+	algos::PlayerKind,
 	db::RatingDb,
 	match_::{Match, MatchResult},
-	player::Bot,
 };
 use robot_master_core::{
 	board::{Board, Pos},
 	cards::{CardValue, Hand},
-	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
+	game::{GameConfig, GameState, Move, Player, PlayerDisplay, PlayerSigned},
 };
-use robot_master_train::mcts::{MctsBot, MctsConfig, RolloutEval};
+use robot_master_train::player_kind::kind_into_bot;
 
-pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Box<dyn RatingDb>) {
+pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Arc<dyn RatingDb>, models_dir: std::path::PathBuf) {
 	let stdout_handle = io::stdout();
 	let mut stdout = stdout_handle.lock();
 	let stdin_handle = io::stdin();
@@ -26,32 +26,17 @@ pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, 
 	let mut rng = rand::make_rng();
 
 	match size {
-		BoardSize::Five => run_sized::<5>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
-		BoardSize::Seven => run_sized::<7>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
-		BoardSize::Nine => run_sized::<9>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
-		BoardSize::Eleven => run_sized::<11>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db),
+		BoardSize::Five => run_sized::<5>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db, &models_dir),
+		BoardSize::Seven => run_sized::<7>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db, &models_dir),
+		BoardSize::Nine => run_sized::<9>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db, &models_dir),
+		BoardSize::Eleven => run_sized::<11>(config, p1, p2, &mut rng, &mut stdout, &mut stdin, rating_db, &models_dir),
 	}
 }
-fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
-where
-	[(); N * N]:, {
-	match kind {
-		PlayerKind::Mcts(params) => {
-			let evaluator = RolloutEval::new(Rollout {});
-			let config = MctsConfig {
-				simulations: params.simulations,
-				c_puct: 1.41,
-			};
-			Box::new(MctsBot::new(evaluator, config))
-		}
-		other => other.into_bot(),
-	}
-}
-
 /// Returns the move and erases all its own output, so the caller can re-display the board uniformly.
-fn read_manual_move<const N: usize>(board: &Board<N>, hand: &Hand, name: &str, stdout: &mut impl Write, stdin: &mut impl BufRead) -> Move
+fn read_manual_move<const N: usize>(board: &Board<N>, hand: &Hand<N>, name: &str, stdout: &mut impl Write, stdin: &mut impl BufRead) -> Move
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let mut lines_to_erase = 0usize;
 	let mut warning: Option<String> = None;
 	//LOOP: bound the loop to 256 // if user made 256 incorrect inputs in a row, sth's wrong
@@ -147,10 +132,12 @@ fn run_sized<const N: usize>(
 	rng: &mut SmallRng,
 	stdout: &mut impl Write,
 	stdin: &mut impl BufRead,
-	rating_db: Box<dyn RatingDb>,
+	rating_db: Arc<dyn RatingDb>,
+	models_dir: &std::path::Path,
 ) where
-	[(); N * N]:, {
-	let game: GameState<N> = GameState::new(config, rng);
+	[(); N * N]:,
+	[(); N + 1]:, {
+	let game: GameState<N> = GameState::new(config, rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 
 	let p1_display = format!("{p1_kind} ({})", PlayerDisplay(Player::A));
 	let p2_display = format!("{p2_kind} ({})", PlayerDisplay(Player::B));
@@ -160,8 +147,8 @@ fn run_sized<const N: usize>(
 
 	let p1_id = p1_kind.id();
 	let p2_id = p2_kind.id();
-	let p1 = kind_into_bot::<N>(p1_kind);
-	let p2 = kind_into_bot::<N>(p2_kind);
+	let p1 = kind_into_bot::<N>(&p1_kind, models_dir).unwrap_or_else(|e| panic!("{e}"));
+	let p2 = kind_into_bot::<N>(&p2_kind, models_dir).unwrap_or_else(|e| panic!("{e}"));
 	let mut m = Match::new(game, p1, p2, p1_id, p2_id).with_rating_db(rating_db);
 
 	// Show initial board
@@ -188,7 +175,8 @@ fn run_sized<const N: usize>(
 		}
 
 		let external_move = if is_manual {
-			let hand = &game.hands[game.turn.index() as usize];
+			let hands = game.hands().expect("tui does not support hidden hands");
+			let hand = &hands[game.turn.index() as usize];
 			Some(read_manual_move(&game.board, hand, current_name, stdout, stdin))
 		} else {
 			None
@@ -217,7 +205,8 @@ fn run_sized<const N: usize>(
 
 fn display_result<const N: usize>(result: &MatchResult, p1_display: &str, p2_display: &str, stdout: &mut impl Write)
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	let verdict = match result.p1_score.cmp(&result.p2_score) {
 		std::cmp::Ordering::Greater => format!("{p1_display} wins."),
 		std::cmp::Ordering::Less => format!("{p2_display} wins."),

@@ -4,11 +4,15 @@
     rust-overlay.url = "github:oxalica/rust-overlay";
     flake-parts.url = "github:hercules-ci/flake-parts";
     devenv.url = "github:cachix/devenv/v1.6.1";
+    devenv-root = {
+      url = "file+file:///dev/null";
+      flake = false;
+    };
     pre-commit-hooks.url = "github:cachix/git-hooks.nix";
     v_flakes.url = "path:/home/v/s/v_flakes";
   };
 
-  outputs = inputs@{ self, nixpkgs, rust-overlay, flake-parts, devenv, pre-commit-hooks, v_flakes }:
+  outputs = inputs@{ self, nixpkgs, rust-overlay, flake-parts, devenv, devenv-root, pre-commit-hooks, v_flakes }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [
         devenv.flakeModule
@@ -156,6 +160,10 @@
             };
 
           devenv.shells.default = {
+            devenv.root =
+              let rootFile = builtins.readFile devenv-root.outPath;
+              in if rootFile == "" then throw "devenv-root not set; run: echo -n $PWD > .devenv/root && nix develop --override-input devenv-root file+file://.devenv/root"
+              else rootFile;
             languages.python = {
               enable = true;
               package = python;

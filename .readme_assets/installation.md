@@ -15,7 +15,13 @@ or simply
 nix build
 ```
 
-### Without Nix
+For AlphaZero training, also install the training deps:
+```sh
+uv_sync  # alias for: uv sync --prerelease=allow --no-install-project --dev
+uv sync --group train
+```
+
+### Without Nix (but mb don't)
 NB: not actually tested, - you're on your own here
 
 #### Requirements
@@ -30,9 +36,12 @@ NB: not actually tested, - you're on your own here
 # build the main binary
 cargo b -p robot_master
 
-# install python dependencies
+# install python dependencies (core)
 pip install typeguard icecream
 # (dev: pip install pytest ruff inline-snapshot)
+
+# training dependencies (torch, onnx, tensorboard)
+pip install torch numpy onnx onnxruntime tensorboard
 
 # build python bindings (required for `python -m py_src` to work)
 maturin develop --features python

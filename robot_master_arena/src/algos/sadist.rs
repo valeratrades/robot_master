@@ -1,7 +1,7 @@
 use board_game::board::Board as _;
 use robot_master_core::{
 	board::{EMPTY, Pos},
-	cards::MAX_CARD_VALUE,
+	cards::{CardValue, MAX_BOARD_SIZE},
 	game::{GameState, Move, Player},
 	scoring::{LineCounts, line_counts, score_line},
 };
@@ -10,12 +10,13 @@ use v_utils::macros::CompactFormatNamed;
 use crate::player::Bot;
 
 /// Sadist player: minimizes the opponent's maximum potential score.
-#[derive(Clone, CompactFormatNamed, Debug)]
+#[derive(Clone, CompactFormatNamed, Debug, Default, Eq, PartialEq)]
 pub struct Sadist {}
 
 impl<const N: usize> Bot<N> for Sadist
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn choose_move(&mut self, game: &GameState<N>) -> Move {
 		let opponent = game.turn.other();
@@ -42,8 +43,9 @@ where
 /// considering all possible completions with remaining cards.
 fn score_max_potential<const N: usize>(game: &GameState<N>, player: Player) -> u16
 where
-	[(); N * N]:, {
-	let remaining = remaining_cards(game);
+	[(); N * N]:,
+	[(); N + 1]:, {
+	let remaining = remaining_cards(game, player);
 	let mut best = 0u16;
 
 	for i in 0..N {
@@ -51,7 +53,7 @@ where
 		let empty_slots = N - counts.iter().map(|&c| c as usize).sum::<usize>();
 
 		let mut scores = Vec::new();
-		complete_and_score(&mut counts.clone(), &mut remaining.clone(), &mut scores, empty_slots, 0, game.config.max_card as usize);
+		complete_and_score(&mut counts.clone(), &mut remaining.clone(), &mut scores, empty_slots, 0, N);
 
 		if let Some(&max) = scores.iter().max() {
 			best = best.max(max);
@@ -93,11 +95,14 @@ fn complete_and_score(counts: &mut LineCounts, remaining: &mut LineCounts, score
 	remaining[card_index] += placed as u8;
 }
 
-/// Count remaining copies of each card value (not yet on the board).
-fn remaining_cards<const N: usize>(game: &GameState<N>) -> LineCounts
+/// Count remaining copies of each card value available to the opponent of `player`.
+/// Subtracts cards already on the board and cards in `player`'s own hand (which
+/// the opponent cannot hold).
+fn remaining_cards<const N: usize>(game: &GameState<N>, player: Player) -> LineCounts
 where
-	[(); N * N]:, {
-	let mut played = [0u8; MAX_CARD_VALUE + 1];
+	[(); N * N]:,
+	[(); N + 1]:, {
+	let mut played = [0u8; MAX_BOARD_SIZE + 1];
 	for row in 0..N {
 		for col in 0..N {
 			let cell = game.board.get(Pos { row: row as u8, col: col as u8 });
@@ -106,9 +111,12 @@ where
 			}
 		}
 	}
-	let mut remaining = [0u8; MAX_CARD_VALUE + 1];
-	for v in 0..=game.config.max_card as usize {
-		remaining[v] = game.config.nb_c - played[v];
+	let hands = game.hands().expect("sadist does not support hidden hands");
+	let own_hand = hands[player.index() as usize];
+	let mut remaining = [0u8; MAX_BOARD_SIZE + 1];
+	for v in 0..=N {
+		let in_hand = own_hand.count(CardValue(v as u8));
+		remaining[v] = (N as u8 + 1) - played[v] - in_hand;
 	}
 	remaining
 }
@@ -116,58 +124,14 @@ where
 #[cfg(test)]
 mod tests {
 	use insta::assert_snapshot;
-	use robot_master_core::{
-		board::Board,
-		cards::{CardValue, Hand},
-		game::GameConfig,
-	};
+	use robot_master_core::game::Player;
 
-	use super::*;
-
-	fn make_state(grid: [[Option<u8>; 5]; 5], hand: Hand, turn: Player) -> GameState<5> {
-		let mut board = Board::<5>::default();
-		for row in 0..5u8 {
-			for col in 0..5u8 {
-				if let Some(v) = grid[row as usize][col as usize] {
-					board.set(Pos { row, col }, v);
-				}
-			}
-		}
-		GameState {
-			board,
-			hands: match turn {
-				Player::A => [hand, Hand::default()],
-				Player::B => [Hand::default(), hand],
-			},
-			turn,
-			config: GameConfig::default(),
-		}
-	}
-
-	fn hand(pairs: &[(u8, u8)]) -> Hand {
-		let mut h = Hand::default();
-		for &(v, n) in pairs {
-			for _ in 0..n {
-				h.put(CardValue(v));
-			}
-		}
-		h
-	}
-
-	fn board_midgame() -> [[Option<u8>; 5]; 5] {
-		[
-			[None, None, Some(1), Some(1), Some(0)],
-			[None, Some(2), None, Some(3), None],
-			[Some(4), None, None, None, None],
-			[None, Some(2), None, None, Some(0)],
-			[Some(4), Some(4), Some(4), Some(0), Some(0)],
-		]
-	}
+	use super::{super::test_utils::fixtures::*, *};
 
 	#[test]
 	fn tous_les_scores_possibles_no_duplicates() {
-		let mut counts = [0u8; MAX_CARD_VALUE + 1];
-		let mut remaining = [0u8; MAX_CARD_VALUE + 1];
+		let mut counts = [0u8; MAX_BOARD_SIZE + 1];
+		let mut remaining = [0u8; MAX_BOARD_SIZE + 1];
 		remaining[1] = 2;
 		remaining[2] = 2;
 		let mut scores = Vec::new();
@@ -179,10 +143,10 @@ mod tests {
 
 	#[test]
 	fn tous_les_scores_possibles_already_complete() {
-		let mut counts = [0u8; MAX_CARD_VALUE + 1];
+		let mut counts = [0u8; MAX_BOARD_SIZE + 1];
 		counts[1] = 2;
 		counts[2] = 3;
-		let mut remaining = [0u8; MAX_CARD_VALUE + 1];
+		let mut remaining = [0u8; MAX_BOARD_SIZE + 1];
 		remaining[0] = 1;
 		remaining[1] = 1;
 		remaining[2] = 1;
@@ -211,71 +175,7 @@ mod tests {
 
 	#[test]
 	fn agressif_game_rollout() {
-		let mut board = Board::<5>::default();
-		for (row, col, v) in [
-			(0u8, 2u8, 1u8),
-			(0, 3, 1),
-			(0, 4, 0),
-			(1, 1, 2),
-			(1, 3, 3),
-			(2, 0, 4),
-			(3, 1, 2),
-			(3, 4, 0),
-			(4, 0, 4),
-			(4, 1, 4),
-			(4, 2, 4),
-			(4, 3, 0),
-			(4, 4, 0),
-		] {
-			board.set(Pos { row, col }, v);
-		}
-
-		let mut hand_counts = [0u8; 6];
-		hand_counts[0] = 2;
-		hand_counts[1] = 2;
-		hand_counts[2] = 1;
-		hand_counts[3] = 1;
-		hand_counts[5] = 2;
-
-		fn make_hand_from_counts(counts: &[u8; 6]) -> Hand {
-			let mut h = Hand::default();
-			for (v, &n) in counts.iter().enumerate() {
-				for _ in 0..n {
-					h.put(CardValue(v as u8));
-				}
-			}
-			h
-		}
-
-		let mut moves: Vec<String> = Vec::new();
-		let turns = [Player::A, Player::B];
-
-		for turn_idx in 0..10usize {
-			let turn = turns[turn_idx % 2];
-			let h = make_hand_from_counts(&hand_counts);
-			if h.is_empty() {
-				break;
-			}
-			let state = GameState {
-				board,
-				hands: match turn {
-					Player::A => [h, Hand::default()],
-					Player::B => [Hand::default(), h],
-				},
-				turn,
-				config: GameConfig::default(),
-			};
-			let m = Sadist {}.choose_move(&state);
-			let prev = board;
-			board.set(m.pos, m.card.0);
-			moves.push(format!("turn={turn:?}\n{}", board.display_diff(&prev)));
-			hand_counts[m.card.0 as usize] -= 1;
-			if hand_counts.iter().all(|&c| c == 0) {
-				break;
-			}
-		}
-
-		assert_snapshot!(moves.join("\n---\n"), @"
+		assert_snapshot!(run_midgame_rollout(&mut Sadist {}), @"
 		turn=A
 		-----------------------------
 		          0   1   2   3   4

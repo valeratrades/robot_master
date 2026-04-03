@@ -1,4 +1,4 @@
-use std::{io::Write, process, str::FromStr, time::Duration};
+use std::{io::Write, process, str::FromStr, sync::Arc, time::Duration};
 
 use clap::Parser;
 use robot_master::config::{Cli, Commands, LiveSettings};
@@ -13,28 +13,35 @@ fn main() {
 	let auto_yes = cli.settings_flags.yes;
 	let settings = LiveSettings::new(cli.settings_flags, Duration::from_secs(5)).expect("failed to load config");
 	let config = settings.config().expect("failed to read config");
-	let rating_db = db::from_config(&config.arena);
+	let rating_db: Arc<dyn robot_master_arena::db::RatingDb> = Arc::from(db::from_config(&config.arena));
 
 	let size = cli.players.size;
+	let hide = cli.players.hide;
+	let models_dir = cli.players.models_dir.clone();
 
 	match cli.command {
 		Commands::Tui => {
 			let p1 = resolve_player(&cli.players.player1, auto_yes);
 			let p2 = resolve_player(&cli.players.player2, auto_yes);
-			let game_config = GameConfig {
-				size: size.into(),
-				..GameConfig::default()
-			};
-			robot_master::tui::run(game_config, size, p1, p2, rating_db);
+			if hide && p1.is_manual() && p2.is_manual() {
+				eprintln!("error: --hide requires at most one manual player (both players cannot be manual in hidden-hand mode)");
+				process::exit(1);
+			}
+			let game_config = GameConfig { size: size.into(), hide };
+			robot_master::tui::run(game_config, size, p1, p2, rating_db, models_dir);
 		}
 		Commands::Gui { sound } => {
 			let p1 = resolve_player(&cli.players.player1, auto_yes);
 			let p2 = resolve_player(&cli.players.player2, auto_yes);
+			if hide && p1.is_manual() && p2.is_manual() {
+				eprintln!("error: --hide requires at most one manual player (both players cannot be manual in hidden-hand mode)");
+				process::exit(1);
+			}
 			let asset_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../robot_master_game/assets");
-			robot_master_game::create_app(asset_dir, size, p1, p2, sound).run();
+			robot_master_game::create_app(asset_dir, size, hide, p1, p2, sound, models_dir).run();
 		}
-		Commands::Arena { select, command } => {
-			robot_master::arena::run(select, command, size, rating_db, auto_yes);
+		Commands::Arena { select, no_priors, command } => {
+			robot_master::arena::run(select, no_priors, models_dir, command, size, hide, rating_db, auto_yes);
 		}
 	}
 }
@@ -55,7 +62,12 @@ fn resolve_player(input: &str, auto_yes: bool) -> PlayerKind {
 	});
 
 	if auto_yes {
-		return PlayerKind::Manual { name: input.to_string() };
+		return PlayerKind {
+			inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: input.to_string() }),
+			sims: None,
+			constrain_sizes: None,
+			constrain_hide: None,
+		};
 	}
 
 	eprint!("Unknown player \"{input}\". Register as manual player? [y/N] ");
@@ -63,11 +75,16 @@ fn resolve_player(input: &str, auto_yes: bool) -> PlayerKind {
 	let mut answer = String::new();
 	std::io::stdin().read_line(&mut answer).unwrap();
 	if answer.trim().eq_ignore_ascii_case("y") {
-		return PlayerKind::Manual { name: input.to_string() };
+		return PlayerKind {
+			inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: input.to_string() }),
+			sims: None,
+			constrain_sizes: None,
+			constrain_hide: None,
+		};
 	}
 
 	// Fall back to fzf selection over algo names
-	let algo_names: Vec<String> = PlayerKind::defaults().map(|k| k.to_string()).collect();
+	let algo_names: Vec<String> = PlayerKind::defaults().into_iter().map(|k| k.to_string()).collect();
 	let all_names: Vec<&str> = std::iter::once("manual").chain(algo_names.iter().map(|s| s.as_str())).collect();
 	let fzf_input = all_names.join("\n");
 

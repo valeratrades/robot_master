@@ -60,8 +60,8 @@ Reference: [Policy Improvement by Planning with Gumbel](https://openreview.net/f
 │              ITERATION CYCLE                 │
 │                                              │
 │  1. Self-Play Generation (Rust)              │
-│     ├─ Current best network plays itself     │
-│     ├─ Gumbel MCTS, 16-64 sims/move         │
+│     ├─ Latest network plays itself           │
+│     ├─ MCTS, 16-64 sims/move                │
 │     ├─ Temperature τ=1 early, τ→0 late       │
 │     └─ Write (state, π, z) to disk           │
 │         π = MCTS visit counts (policy target)│
@@ -75,14 +75,11 @@ Reference: [Policy Improvement by Planning with Gumbel](https://openreview.net/f
 │     ├─ SGD with momentum, ~1000 steps        │
 │     └─ Export model.onnx                     │
 │                                              │
-│  3. Evaluation (Rust)                        │
-│     ├─ New net vs current best: 400 games    │
-│     ├─ If win rate > 55%: promote            │
-│     └─ Else: discard, continue self-play     │
-│                                              │
-│  4. Repeat (~50-100 iterations)              │
+│  3. Repeat (~50-100 iterations)              │
 └─────────────────────────────────────────────┘
 ```
+
+Note: AlphaGo Zero had a separate evaluation step (new net vs current best, 400 games, promote only if win rate > 55%). AlphaZero dropped this entirely — the latest checkpoint is always used for the next self-play iteration. This was found to make no difference in practice and halves iteration overhead. We follow AlphaZero.
 
 Expected training: 4-12 hours on a single modern GPU (RTX 3080/4080) for 5x5.
 
@@ -195,10 +192,33 @@ Rust evaluate  ──reads───>  models/model_v{N}.onnx
 - Establishes search framework and benchmarking
 
 ### Phase 3 — Track A: AlphaZero
-- Small ResNet in PyTorch (`training/model_resnet.py`)
-- Gumbel[^1] AlphaZero self-play loop
-- ONNX export → Rust inference via `ort`
-- Self-play → train → evaluate → promote cycle
+
+#### Done ✅
+- `training/model_resnet.py` — SE-ResNet (5 blocks, 64 filters, ~407K params), dual heads (policy + value), `encode_state`
+- `training/export_onnx.py` — ONNX export with roundtrip validation
+- `training/train.py` — training loop (SGD + cosine LR, TensorBoard logging, checkpointing)
+- `robot_master_train/src/encoding.rs` — `encode_planes` (GameState → 33 CHW planes), `encode_sample` (→ binary)
+- `robot_master_train/src/selfplay.rs` — `play_game` (MCTS self-play, records visit-count policy targets + retroactive value)
+- `robot_master_train/src/bin/selfplay.rs` — CLI binary, rayon-parallel, writes `.bin` files
+
+#### Phase 3a — Data quality (do before real training) ⬅ NEXT
+1. **Temperature sampling in `play_game`** — currently picks most-visited move deterministically.
+   AlphaZero uses τ=1 (sample ∝ visit counts) for first ~10 moves, τ→0 after.
+   Adds diversity, prevents game collapse to a single line.
+2. **Dirichlet noise at root** — add `α·Dir(0.3) + (1-α)·prior` at root during self-play.
+   Prevents MCTS from always exploring the same moves. `α≈0.3`, noise weight `ε≈0.25`.
+
+#### Phase 3b — NN inference in Rust
+3. **`NnEval`** — implement `Evaluator<N>` backed by ONNX Runtime (`ort` crate).
+   Until this exists, selfplay uses `RolloutEval` (random rollouts), which produces garbage policy targets.
+
+#### Phase 3c — Full training cycle ✅
+4. ~~**`bin/evaluate.rs`**~~ — dropped, following AlphaZero (see note above). `bin/evaluate.rs` kept as a diagnostic tool for arena comparisons but not part of the training loop.
+5. **Replay buffer management** — `train.py` currently reads all `.bin` files. Cap to last K iterations to prevent forgetting (K≈20 typically).
+6. **Iteration script** — `scripts/train_cnn.rs`: loops selfplay → train → export, always promotes latest checkpoint.
+
+#### Long-term notes
+- Gumbel AlphaZero replaces standard MCTS for training — works with 8-16 sims instead of 400. Implement after baseline works.
 - Target: demolish all heuristic bots on 5x5
 
 [^1] Gumbel takes knowledge of improvement values in this cycle, then explores the lines with the best ones repeatedly: rolls out ones it has, gets scores, cuts out bottom half, repeats. Basically, select the most promising point, then purposefully penetrate it; instead of sampling around the boundary.

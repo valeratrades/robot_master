@@ -1,9 +1,8 @@
-use std::ops::ControlFlow;
+use std::{ops::ControlFlow, sync::Arc};
 
 use board_game::board::Board as _;
 use robot_master_core::{
 	board::{Cell, Pos},
-	cards::Hand,
 	game::{GameState, Move, Player},
 	scoring::victoire,
 };
@@ -23,7 +22,9 @@ pub trait DynMatch {
 	fn is_playable(&self, pos: Pos) -> bool;
 	fn is_done(&self) -> bool;
 	fn turn(&self) -> Player;
-	fn hands(&self) -> [Hand; 2];
+	fn hide(&self) -> bool;
+	fn hands(&self) -> [Vec<u8>; 2];
+	fn p1_hand(&self) -> Vec<u8>;
 	fn next(&mut self, external_move: Option<Move>) -> ControlFlow<MatchResult>;
 	/// (p1_score, p1_weak_line, p2_score, p2_weak_line)
 	fn scores(&self) -> (u16, usize, u16, usize);
@@ -36,7 +37,7 @@ pub struct RatingUpdate {
 	pub p2_new: Rating,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct MatchResult {
 	pub p1_id: Ustr,
 	pub p2_id: Ustr,
@@ -47,10 +48,44 @@ pub struct MatchResult {
 	pub moves: Vec<SerMove>,
 	#[serde(skip)]
 	pub rating_update: Option<RatingUpdate>,
+	/// If set, `Drop` will automatically persist the Glicko-2 update to this db.
+	#[serde(skip)]
+	rating_db: Option<Arc<dyn RatingDb>>,
 }
 impl MatchResult {
+	pub fn new(p1_id: Ustr, p2_id: Ustr, p1_score: u16, p2_score: u16, p1_weak_line: usize, p2_weak_line: usize, moves: Vec<SerMove>, rating_db: Option<Arc<dyn RatingDb>>) -> Self {
+		Self {
+			p1_id,
+			p2_id,
+			p1_score,
+			p2_score,
+			p1_weak_line,
+			p2_weak_line,
+			moves,
+			rating_update: None,
+			rating_db,
+		}
+	}
+
+	/// Immediately compute and persist the Glicko-2 update, returning it.
+	/// Same rating update and save as happens on Drop, but you get the value back
+	pub fn commit(mut self) -> RatingUpdate {
+		let db = self.rating_db.take().expect("MatchResult::commit called without a rating_db set");
+		self.update_rating(db.as_ref());
+		let update = self.rating_update.take().expect("update_rating must populate rating_update");
+		std::mem::forget(self);
+		update
+	}
+
+	/// Consume `self` without saving ratings. Use inside tournament where ratings are
+	/// managed explicitly in-memory and saved once at the end.
+	// here to explicitly document this as a valid pattern
+	pub fn forget(self) {
+		std::mem::forget(self);
+	}
+
 	/// Perform Glicko-2 rating update against the given db, populating `self.rating_update`.
-	pub fn update_rating(&mut self, rating_db: &dyn RatingDb) {
+	fn update_rating(&mut self, rating_db: &dyn RatingDb) {
 		let mut ratings = rating_db.load_ratings();
 
 		let outcome = match self.p1_score.cmp(&self.p2_score) {
@@ -78,6 +113,29 @@ impl MatchResult {
 	}
 }
 
+impl std::fmt::Debug for MatchResult {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("MatchResult")
+			.field("p1_id", &self.p1_id)
+			.field("p2_id", &self.p2_id)
+			.field("p1_score", &self.p1_score)
+			.field("p2_score", &self.p2_score)
+			.field("p1_weak_line", &self.p1_weak_line)
+			.field("p2_weak_line", &self.p2_weak_line)
+			.field("moves", &self.moves)
+			.field("rating_update", &self.rating_update)
+			.finish_non_exhaustive()
+	}
+}
+
+impl Drop for MatchResult {
+	fn drop(&mut self) {
+		if let Some(ref db) = self.rating_db.take() {
+			self.update_rating(db.as_ref());
+		}
+	}
+}
+
 /// Serializable move (Pos and CardValue are not Serialize in core).
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct SerMove {
@@ -98,19 +156,21 @@ impl From<Move> for SerMove {
 
 pub struct Match<const N: usize, P1: Bot<N>, P2: Bot<N>>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	game: GameState<N>,
 	p1: P1,
 	p2: P2,
 	p1_id: Ustr,
 	p2_id: Ustr,
 	moves: Vec<Move>,
-	rating_db: Option<Box<dyn RatingDb>>,
+	rating_db: Option<Arc<dyn RatingDb>>,
 }
 
 impl<const N: usize, P1: Bot<N>, P2: Bot<N>> Match<N, P1, P2>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	pub fn new(game: GameState<N>, p1: P1, p2: P2, p1_id: Ustr, p2_id: Ustr) -> Self {
 		Self {
@@ -124,7 +184,7 @@ where
 		}
 	}
 
-	pub fn with_rating_db(mut self, db: Box<dyn RatingDb>) -> Self {
+	pub fn with_rating_db(mut self, db: Arc<dyn RatingDb>) -> Self {
 		self.rating_db = Some(db);
 		self
 	}
@@ -154,11 +214,7 @@ where
 		self.moves.push(m);
 
 		if self.game.is_done() {
-			let mut result = self.build_result();
-			if let Some(ref db) = self.rating_db {
-				result.update_rating(db.as_ref());
-			}
-			ControlFlow::Break(result)
+			ControlFlow::Break(self.build_result())
 		} else {
 			ControlFlow::Continue(&self.game)
 		}
@@ -185,6 +241,7 @@ where
 			p2_weak_line: i1,
 			moves: self.moves.iter().map(|&m| m.into()).collect(),
 			rating_update: None,
+			rating_db: self.rating_db.as_ref().map(|db| db.clone()),
 		}
 	}
 }
@@ -192,6 +249,7 @@ where
 impl<const N: usize, P1: Bot<N>, P2: Bot<N>> DynMatch for Match<N, P1, P2>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn size(&self) -> u8 {
 		N as u8
@@ -213,8 +271,17 @@ where
 		self.game.turn
 	}
 
-	fn hands(&self) -> [Hand; 2] {
-		self.game.hands
+	fn hide(&self) -> bool {
+		self.game.is_hidden()
+	}
+
+	fn p1_hand(&self) -> Vec<u8> {
+		self.game.p1_hand().to_counts_vec()
+	}
+
+	fn hands(&self) -> [Vec<u8>; 2] {
+		let hands = self.game.hands().expect("match hands called in hidden game");
+		[hands[0].to_counts_vec(), hands[1].to_counts_vec()]
 	}
 
 	fn next(&mut self, external_move: Option<Move>) -> ControlFlow<MatchResult> {
@@ -232,7 +299,7 @@ where
 #[cfg(test)]
 mod tests {
 	use rand::{SeedableRng, rngs::SmallRng, seq::IteratorRandom};
-	use robot_master_core::game::GameConfig;
+	use robot_master_core::game::{GameConfig, Player, PlayerSigned};
 	use ustr::ustr;
 
 	use super::*;
@@ -247,7 +314,7 @@ mod tests {
 	#[test]
 	fn match_runs_to_completion() {
 		let mut rng = SmallRng::seed_from_u64(42);
-		let game = GameState::new(GameConfig::default(), &mut rng);
+		let game = GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let p1 = DummyRandom(SmallRng::seed_from_u64(1));
 		let p2 = DummyRandom(SmallRng::seed_from_u64(2));
 		let m = Match::new(game, p1, p2, ustr("p1"), ustr("p2"));
@@ -259,7 +326,7 @@ mod tests {
 	#[test]
 	fn match_next_step_by_step() {
 		let mut rng = SmallRng::seed_from_u64(42);
-		let game = GameState::new(GameConfig::default(), &mut rng);
+		let game = GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		let p1 = DummyRandom(SmallRng::seed_from_u64(1));
 		let p2 = DummyRandom(SmallRng::seed_from_u64(2));
 		let mut m = Match::new(game, p1, p2, ustr("p1"), ustr("p2"));

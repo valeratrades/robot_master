@@ -1,0 +1,19 @@
+\begin{table}
+% \color{blue} % TODO
+\caption{Comparison between AlphaZero, MuZero, Gumbel AlphaZero, and Gumbel MuZero}
+    \centering
+    \setlength{\tabcolsep}{5pt}
+    \begin{tabular}{lcccc}
+    \toprule
+     & \multirowcell{2}{AlphaZero} & \multirowcell{2}{MuZero} & \multirowcell{2}{Gumbel\\AlphaZero} & \multirowcell{2}{Gumbel\\MuZero}\\
+     \\
+    \midrule
+    % Perfect simulator  & V &   & V &   \\
+    Planning w/o simulator &   & V &   & V \\
+    Policy improvement     &   &   & V & V \\
+    Apply to board games            & V & V & V & V \\
+    Apply to Atari games            &   & V &   & V \\
+    \bottomrule
+    \end{tabular}
+    \label{tab:alg-compare}
+\end{table}

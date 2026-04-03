@@ -47,12 +47,13 @@ leptos = "0.8"
 leptos_axum = { version = "0.8", optional = true }
 leptos_meta = "0.8"
 leptos_router = "0.8"
-tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 tower-http = { version = "0.6", features = ["fs"], optional = true }
 wasm-bindgen = { version = "0.2.106", optional = true }
 
+tokio = { workspace = true, optional = true }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-clap = { version = "4.5", features = ["derive"] }
+clap.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.108"

@@ -4,6 +4,7 @@ pub use board_game::board::Player;
 use board_game::board::{BoardDone, BoardMoves, BoardSymmetry, PlayError};
 use internal_iterator::InternalIterator;
 use rand::Rng;
+use uuid::Uuid;
 
 use crate::{
 	board::{Board, Pos},
@@ -37,12 +38,23 @@ impl fmt::Debug for PlayerDisplay {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct GameConfig {
+	/// board side size (can't be even)
 	pub size: u8 = 5,
-	pub max_card: u8 = 5,
-	pub nb_c: u8 = 6,
+	/// whether the opponent's cards are hidden
+	pub hide: bool = false,
 }
 
 impl GameConfig {
+	/// Highest card value in play: `size`.
+	pub fn max_card(self) -> u8 {
+		self.size
+	}
+
+	/// Copies of each card value in the deck: `size + 1`.
+	pub fn nb_c(self) -> u8 {
+		self.size + 1
+	}
+
 	/// Number of cards each player receives: `(size² - 1) / 2`.
 	pub fn cards_per_player(self) -> u8 {
 		let n = self.size as u16;
@@ -50,34 +62,79 @@ impl GameConfig {
 	}
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, derive_more::Display, Eq, PartialEq)]
+#[display("{}@({},{})", card.0, pos.row, pos.col)]
 pub struct Move {
 	pub pos: Pos,
 	pub card: CardValue,
 }
 
-impl fmt::Display for Move {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{}@({},{})", self.card.0, self.pos.row, self.pos.col)
+#[derive(Clone, Debug)]
+pub struct GameState<const N: usize>
+where
+	[(); N * N]:,
+	[(); N + 1]:, {
+	pub board: Board<N>,
+	pub turn: Player,
+
+	hands: [Hand<N>; 2],
+	hide: bool,
+	player_secrets: [Uuid; 2],
+}
+
+impl<const N: usize> PartialEq for GameState<N>
+where
+	[(); N * N]:,
+	[(); N + 1]:,
+{
+	fn eq(&self, other: &Self) -> bool {
+		self.board == other.board && self.turn == other.turn && self.hands == other.hands
 	}
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GameState<const N: usize>
+impl<const N: usize> Eq for GameState<N>
 where
-	[(); N * N]:, {
-	pub board: Board<N>,
-	pub hands: [Hand; 2],
-	pub turn: Player,
-	pub config: GameConfig,
+	[(); N * N]:,
+	[(); N + 1]:,
+{
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PlayerSigned {
+	pub player: Player,
+	secret: Uuid,
+}
+
+impl PlayerSigned {
+	pub fn new(player: Player) -> Self {
+		Self { player, secret: Uuid::new_v4() }
+	}
+
+	pub fn check(&self, key: Uuid) -> bool {
+		self.secret == key
+	}
+}
+
+impl std::ops::Deref for PlayerSigned {
+	type Target = Player;
+
+	fn deref(&self) -> &Player {
+		&self.player
+	}
+}
+
+#[derive(Debug, derive_more::Display, thiserror::Error)]
+pub enum GameError {
+	UnauthorizedHandLookup,
 }
 
 impl<const N: usize> GameState<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
-	pub fn new(config: GameConfig, rng: &mut impl Rng) -> Self {
-		let mut deck = new_deck(config.max_card, config.nb_c, rng);
+	pub fn new(config: GameConfig, rng: &mut impl Rng, players: [PlayerSigned; 2]) -> Self {
+		let mut deck = new_deck(N, rng);
 		let mut board = Board::default();
 
 		// Place center card (first off the deck, like Python's distribution_cartes).
@@ -85,15 +142,55 @@ where
 		let center = Pos { row: N as u8 / 2, col: N as u8 / 2 };
 		board.set(center, center_card.0);
 
-		let cards_per_player = config.cards_per_player();
+		let cards_per_player = ((N * N - 1) / 2) as u8;
 		let hand0 = deal(&mut deck, cards_per_player);
 		let hand1 = deal(&mut deck, cards_per_player);
 
 		Self {
 			board,
 			hands: [hand0, hand1],
+			hide: config.hide,
 			turn: Player::A,
-			config,
+			player_secrets: [players[0].secret, players[1].secret],
+		}
+	}
+
+	/// Construct a game with an explicit board + hands for use in tests.
+	/// Sets `hide = false` and fills `player_secrets` with zeroed UUIDs.
+	pub fn from_parts(board: Board<N>, hands: [Hand<N>; 2], turn: Player) -> Self {
+		Self {
+			board,
+			hands,
+			hide: false,
+			turn,
+			player_secrets: [Uuid::nil(), Uuid::nil()],
+		}
+	}
+
+	pub fn is_hidden(&self) -> bool {
+		self.hide
+	}
+
+	/// Returns Player A's hand unconditionally. For use by the local player's own display.
+	pub fn p1_hand(&self) -> Hand<N> {
+		self.hands[0]
+	}
+
+	pub fn hands(&self) -> Result<[Hand<N>; 2], GameError> {
+		match self.hide {
+			true => Err(GameError::UnauthorizedHandLookup),
+			false => Ok(self.hands),
+		}
+	}
+
+	pub fn hand_signed(&self, player: Player, key: Uuid) -> Result<Hand<N>, GameError> {
+		let player_idx = player.index() as usize;
+		if !self.hide {
+			return Ok(self.hands[player_idx]);
+		}
+		match self.player_secrets[player_idx] == key {
+			true => Ok(self.hands[player_idx]),
+			false => Err(GameError::UnauthorizedHandLookup),
 		}
 	}
 
@@ -115,6 +212,7 @@ where
 impl<const N: usize> fmt::Display for GameState<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(
@@ -130,11 +228,10 @@ where
 	}
 }
 
-// --- board_game::Board trait implementation ---
-
 impl<const N: usize> board_game::board::Board for GameState<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	type Move = Move;
 
@@ -183,6 +280,7 @@ where
 impl<'a, const N: usize> BoardMoves<'a, GameState<N>> for GameState<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	type AllMovesIterator = AllMoves<N>;
 	type AvailableMovesIterator = AvailableMoves<'a, N>;
@@ -214,7 +312,7 @@ where
 		F: FnMut(Self::Item) -> std::ops::ControlFlow<T>, {
 		for row in 0..N as u8 {
 			for col in 0..N as u8 {
-				for card in 0..=5u8 {
+				for card in 0..=N as u8 {
 					f(Move {
 						pos: Pos { row, col },
 						card: CardValue(card),
@@ -230,13 +328,15 @@ where
 #[derive(Clone)]
 pub struct AvailableMoves<'a, const N: usize>
 where
-	[(); N * N]:, {
+	[(); N * N]:,
+	[(); N + 1]:, {
 	state: &'a GameState<N>,
 }
 
 impl<'a, const N: usize> InternalIterator for AvailableMoves<'a, N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	type Item = Move;
 
@@ -256,6 +356,7 @@ where
 impl<const N: usize> BoardSymmetry<GameState<N>> for GameState<N>
 where
 	[(); N * N]:,
+	[(); N + 1]:,
 {
 	type CanonicalKey = ();
 	type Symmetry = board_game::symmetry::UnitSymmetry;
@@ -279,7 +380,7 @@ mod tests {
 
 	fn state5() -> GameState<5> {
 		let mut rng = SmallRng::seed_from_u64(7);
-		GameState::new(GameConfig::default(), &mut rng)
+		GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)])
 	}
 
 	#[test]
@@ -334,7 +435,7 @@ mod tests {
 	fn play_card_not_in_hand() {
 		use board_game::board::Board as _;
 		let mut rng = SmallRng::seed_from_u64(7);
-		let mut s: GameState<5> = GameState::new(GameConfig::default(), &mut rng);
+		let mut s: GameState<5> = GameState::new(GameConfig::default(), &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 		while s.hands[0].count(CardValue(5)) > 0 {
 			s.hands[0].take(CardValue(5));
 		}

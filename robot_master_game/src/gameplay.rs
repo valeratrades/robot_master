@@ -3,16 +3,15 @@ use std::ops::ControlFlow;
 use bevy::{ecs::message::MessageReader, prelude::*};
 use robot_master_arena::{
 	BoardSize,
-	algos::{PlayerKind, rollout::Rollout},
+	algos::PlayerKind,
 	match_::{DynMatch, Match},
-	player::Bot,
 };
 use robot_master_core::{
 	board::{EMPTY, Pos},
 	cards::CardValue,
-	game::{GameConfig, GameState, Move, Player, PlayerDisplay},
+	game::{GameConfig, GameState, Move, Player, PlayerDisplay, PlayerSigned},
 };
-use robot_master_train::mcts::{MctsBot, MctsConfig, RolloutEval};
+use robot_master_train::player_kind::kind_into_bot;
 use v_utils::bevy::{ModalActionFired, ModalState, PressedChars};
 
 use crate::{AppState, InitialPlayers, Textures, theme};
@@ -93,37 +92,18 @@ struct Warning {
 	timer: f32,
 }
 
-fn kind_into_bot<const N: usize>(kind: PlayerKind) -> Box<dyn Bot<N>>
-where
-	[(); N * N]:, {
-	match kind {
-		PlayerKind::Mcts(params) => {
-			let evaluator = RolloutEval::new(Rollout {});
-			let config = MctsConfig {
-				simulations: params.simulations,
-				c_puct: 1.41,
-			};
-			Box::new(MctsBot::new(evaluator, config))
-		}
-		other => other.into_bot(),
-	}
-}
-
 /// Helper: create a `Box<dyn DynMatch>` for the given board size.
-fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> Box<dyn DynMatch + Send + Sync> {
+fn make_match(size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, models_dir: &std::path::Path) -> Box<dyn DynMatch + Send + Sync> {
 	let mut rng: rand::rngs::SmallRng = rand::make_rng();
-	let config = GameConfig {
-		size: size.into(),
-		..GameConfig::default()
-	};
+	let config = GameConfig { size: size.into(), hide };
 	let p1_id = p1.id();
 	let p2_id = p2.id();
 
 	macro_rules! go {
 		($N:literal) => {{
-			let game = GameState::<$N>::new(config, &mut rng);
-			let p1 = kind_into_bot::<$N>(p1);
-			let p2 = kind_into_bot::<$N>(p2);
+			let game = GameState::<$N>::new(config, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
+			let p1 = kind_into_bot::<$N>(&p1, models_dir).unwrap_or_else(|e| panic!("{e}"));
+			let p2 = kind_into_bot::<$N>(&p2, models_dir).unwrap_or_else(|e| panic!("{e}"));
 			Box::new(Match::new(game, p1, p2, p1_id, p2_id))
 		}};
 	}
@@ -140,7 +120,7 @@ fn make_match(size: BoardSize, p1: PlayerKind, p2: PlayerKind) -> Box<dyn DynMat
 struct InitialBoard {
 	n: usize,
 	cells: Vec<u8>,
-	hands: [robot_master_core::cards::Hand; 2],
+	hands: [Vec<u8>; 2],
 }
 
 impl InitialBoard {
@@ -152,14 +132,17 @@ impl InitialBoard {
 fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Textures>) {
 	let size = init.size;
 	let n = u8::from(size) as usize;
+	let hide = init.hide;
 
 	let p1_kind = init.p1.clone();
 	let p2_kind = init.p2.clone();
+	let models_dir = init.models_dir.clone();
 
-	let m = make_match(size, p1_kind.clone(), p2_kind.clone());
+	let m = make_match(size, hide, p1_kind.clone(), p2_kind.clone(), &models_dir);
 
 	// Snapshot initial state before handing ownership to the resource.
-	let hands = m.hands();
+	// In hidden mode Player B's hand is never shown, so use an empty placeholder for B.
+	let hands = if hide { [m.p1_hand(), vec![0u8; 6]] } else { m.hands() };
 	let mut cells = Vec::with_capacity(n * n);
 	for r in 0..n as u8 {
 		for c in 0..n as u8 {
@@ -207,7 +190,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 				..default()
 			})
 			.with_children(|row| {
-				spawn_hand(row, &snap.hands, Player::A, &tex);
+				spawn_hand(row, &snap.hands, Player::A, false, &tex);
 
 				row.spawn(Node {
 					flex_direction: FlexDirection::Column,
@@ -253,7 +236,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 					}
 				});
 
-				spawn_hand(row, &snap.hands, Player::B, &tex);
+				spawn_hand(row, &snap.hands, Player::B, hide, &tex);
 			});
 
 			// Command line at the bottom
@@ -271,7 +254,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 		});
 }
 
-fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::cards::Hand; 2], player: Player, tex: &Textures) {
+fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[Vec<u8>; 2], player: Player, hidden: bool, tex: &Textures) {
 	let hand = &hands[player.index() as usize];
 	let title = format!("{}", PlayerDisplay(player));
 
@@ -294,7 +277,7 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::car
 			));
 
 			for v in 0..=5u8 {
-				let count = hand.count(CardValue(v));
+				let count = if hidden { 0 } else { hand[v as usize] };
 				col.spawn((
 					HandCard { player, value: CardValue(v) },
 					Button,
@@ -305,7 +288,7 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::car
 						align_items: AlignItems::Center,
 						..default()
 					},
-					BackgroundColor(if count == 0 { theme::HAND_CARD_EMPTY } else { theme::HAND_CARD }),
+					BackgroundColor(if hidden || count == 0 { theme::HAND_CARD_EMPTY } else { theme::HAND_CARD }),
 				))
 				.with_children(|card| {
 					card.spawn((
@@ -315,10 +298,11 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[robot_master_core::car
 							height: Val::Px(45.0),
 							..default()
 						},
+						if hidden { Visibility::Hidden } else { Visibility::Inherited },
 					));
 					card.spawn((
 						HandCountLabel { player, value: CardValue(v) },
-						Text::new(format!("x{count}")),
+						Text::new(if hidden { String::new() } else { format!("x{count}") }),
 						TextFont { font_size: 14.0, ..default() },
 						TextColor(if count == 0 { theme::TEXT_MUTED } else { theme::TEXT_PRIMARY }),
 					));
@@ -332,7 +316,7 @@ fn ai_turn(mut game: ResMut<Game>, slots: Res<PlayerSlots>) {
 		return;
 	}
 	let turn = game.0.turn();
-	if matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. }) {
+	if slots.0[turn.index() as usize].is_manual() {
 		return;
 	}
 	match game.0.next(None) {
@@ -347,14 +331,15 @@ fn hand_click(
 	mut selected: ResMut<SelectedCard>,
 	game: Res<Game>,
 	slots: Res<PlayerSlots>,
+	init: Res<InitialPlayers>,
 	mut modal: ResMut<ModalState<GameAction>>,
 ) {
 	let turn = game.0.turn();
-	let is_manual = matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. });
+	let is_manual = slots.0[turn.index() as usize].is_manual();
 	if !is_manual {
 		return;
 	}
-	let hands = game.0.hands();
+	let hands = if init.hide { [game.0.p1_hand(), vec![0u8; 6]] } else { game.0.hands() };
 	for (entity, interaction, hand_card) in &interaction_query {
 		if *interaction != Interaction::Pressed {
 			continue;
@@ -363,7 +348,7 @@ fn hand_click(
 			commands.entity(entity).insert(RejectFlash(Timer::from_seconds(0.3, TimerMode::Once)));
 			continue;
 		}
-		let count = hands[turn.index() as usize].count(hand_card.value);
+		let count = hands[turn.index() as usize][hand_card.value.0 as usize];
 		if count > 0 {
 			if selected.0 == Some(hand_card.value) {
 				selected.0 = None;
@@ -401,7 +386,7 @@ fn board_click(
 		return;
 	}
 	let turn = game.0.turn();
-	if !matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. }) {
+	if !&slots.0[turn.index() as usize].is_manual() {
 		return;
 	}
 	let Some(card) = selected.0 else { return };
@@ -452,7 +437,7 @@ fn rebuild_modal_tree(game: Res<Game>, selected: Res<SelectedCard>, slots: Res<P
 	// Position shortcuts when card is selected
 	if selected.0.is_some() && !game.0.is_done() {
 		let turn = game.0.turn();
-		if matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. }) {
+		if slots.0[turn.index() as usize].is_manual() {
 			let n = game.0.size();
 
 			// Group playable positions by column
@@ -650,6 +635,7 @@ fn sync_visuals(
 	slots: Res<PlayerSlots>,
 	tex: Res<Textures>,
 	modal: Res<ModalState<GameAction>>,
+	init: Res<InitialPlayers>,
 	mut board_cells: Query<(&BoardCell, &mut BackgroundColor, &Children)>,
 	mut hand_counts: Query<(&HandCountLabel, &mut Text, &mut TextColor)>,
 	mut hand_cards: Query<(&HandCard, &mut BackgroundColor, &Interaction, Has<RejectFlash>), Without<BoardCell>>,
@@ -657,7 +643,8 @@ fn sync_visuals(
 	mut turn_indicator: Query<(&mut Text, &mut TextColor), (With<TurnIndicator>, Without<HandCountLabel>, Without<HandCard>, Without<CommandLine>)>,
 ) {
 	let turn = game.0.turn();
-	let hands = game.0.hands();
+	let hide = init.hide;
+	let hands = if hide { [game.0.p1_hand(), vec![0u8; 6]] } else { game.0.hands() };
 
 	// If user has typed a column letter, narrow highlight to that column only
 	let highlight_col: Option<u8> = if modal.active && !modal.sequence.is_empty() {
@@ -671,7 +658,7 @@ fn sync_visuals(
 	for (cell, mut bg, children) in &mut board_cells {
 		let value = game.0.get(Pos { row: cell.row, col: cell.col });
 		let is_playable = game.0.is_playable(Pos { row: cell.row, col: cell.col });
-		let is_manual = matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. });
+		let is_manual = slots.0[turn.index() as usize].is_manual();
 		let highlighted = selected.0.is_some()
 			&& is_playable
 			&& is_manual
@@ -702,7 +689,12 @@ fn sync_visuals(
 
 	// Hand counts
 	for (hc, mut text, mut color) in &mut hand_counts {
-		let count = hands[hc.player.index() as usize].count(hc.value);
+		if hide && hc.player == Player::B {
+			**text = String::new();
+			*color = TextColor(theme::TEXT_MUTED);
+			continue;
+		}
+		let count = hands[hc.player.index() as usize][hc.value.0 as usize];
 		**text = format!("x{count}");
 		*color = if count == 0 {
 			TextColor(theme::TEXT_MUTED)
@@ -718,7 +710,11 @@ fn sync_visuals(
 		if has_reject {
 			continue;
 		}
-		let count = hands[hc.player.index() as usize].count(hc.value);
+		if hide && hc.player == Player::B {
+			*bg = BackgroundColor(theme::HAND_CARD_EMPTY);
+			continue;
+		}
+		let count = hands[hc.player.index() as usize][hc.value.0 as usize];
 		let is_own = hc.player == turn;
 		let is_selected = selected.0 == Some(hc.value) && is_own;
 		let is_hovered = *interaction == Interaction::Hovered && is_own && count > 0;
@@ -754,7 +750,14 @@ fn check_terminal(game: Res<Game>, mut next_state: ResMut<NextState<AppState>>) 
 	}
 }
 
-fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<SelectedCard>, game: Res<Game>, slots: Res<PlayerSlots>, mut modal: ResMut<ModalState<GameAction>>) {
+fn keyboard_card_select(
+	keys: Res<ButtonInput<KeyCode>>,
+	mut selected: ResMut<SelectedCard>,
+	game: Res<Game>,
+	slots: Res<PlayerSlots>,
+	init: Res<InitialPlayers>,
+	mut modal: ResMut<ModalState<GameAction>>,
+) {
 	if game.0.is_done() {
 		return;
 	}
@@ -763,7 +766,7 @@ fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<Se
 		return;
 	}
 	let turn = game.0.turn();
-	if !matches!(&slots.0[turn.index() as usize], PlayerKind::Manual { .. }) {
+	if !&slots.0[turn.index() as usize].is_manual() {
 		return;
 	}
 	let pressed = if keys.just_pressed(KeyCode::Digit0) || keys.just_pressed(KeyCode::Numpad0) {
@@ -782,8 +785,8 @@ fn keyboard_card_select(keys: Res<ButtonInput<KeyCode>>, mut selected: ResMut<Se
 		None
 	};
 	let Some(card) = pressed else { return };
-	let hands = game.0.hands();
-	let count = hands[turn.index() as usize].count(card);
+	let hands = if init.hide { [game.0.p1_hand(), vec![0u8; 6]] } else { game.0.hands() };
+	let count = hands[turn.index() as usize][card.0 as usize];
 	if count > 0 {
 		if selected.0 == Some(card) {
 			selected.0 = None;

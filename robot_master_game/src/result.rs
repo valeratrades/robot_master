@@ -149,39 +149,29 @@ fn play_again_button(mut interaction_query: Query<(&Interaction, &mut Background
 
 #[cfg(not(target_arch = "wasm32"))]
 fn format_elo(slots: &PlayerSlots, s0: u16, s1: u16, i0: usize, i1: usize) -> String {
+	use std::sync::Arc;
+
 	use robot_master_arena::{db::JsonRatingDb, match_::MatchResult};
 
-	let db = JsonRatingDb::default();
-	let mut result = MatchResult {
-		p1_id: slots.0[0].id(),
-		p2_id: slots.0[1].id(),
-		p1_score: s0,
-		p2_score: s1,
-		p1_weak_line: i0,
-		p2_weak_line: i1,
-		moves: Vec::new(),
-		rating_update: None,
-	};
-	result.update_rating(&db);
-	match result.rating_update {
-		Some(ref u) => {
-			let d1 = u.p1_new.rating - u.p1_old.rating;
-			let d2 = u.p2_new.rating - u.p2_old.rating;
-			let sign = |d: f64| if d >= 0.0 { "+" } else { "" };
-			format!(
-				"Rating: {} {:.0} ({}{:.0}) | {} {:.0} ({}{:.0})",
-				result.p1_id,
-				u.p1_new.rating,
-				sign(d1),
-				d1,
-				result.p2_id,
-				u.p2_new.rating,
-				sign(d2),
-				d2
-			)
-		}
-		None => String::new(),
-	}
+	let db: Arc<dyn robot_master_arena::db::RatingDb> = Arc::new(JsonRatingDb::default());
+	let p1_id = slots.0[0].id();
+	let p2_id = slots.0[1].id();
+	let result = MatchResult::new(p1_id, p2_id, s0, s1, i0, i1, Vec::new(), Some(db));
+	let u = result.commit();
+	let d1 = u.p1_new.rating - u.p1_old.rating;
+	let d2 = u.p2_new.rating - u.p2_old.rating;
+	let sign = |d: f64| if d >= 0.0 { "+" } else { "" };
+	format!(
+		"Rating: {} {:.0} ({}{:.0}) | {} {:.0} ({}{:.0})",
+		p1_id,
+		u.p1_new.rating,
+		sign(d1),
+		d1,
+		p2_id,
+		u.p2_new.rating,
+		sign(d2),
+		d2
+	)
 }
 
 fn keyboard_shortcuts(keys: Res<ButtonInput<KeyCode>>, mut next_state: ResMut<NextState<AppState>>) {
