@@ -523,25 +523,24 @@ fn normalize_q(raw_q: f32, (q_min, q_max): (f32, f32)) -> f32 {
 	}
 }
 
-/// v_mix: interpolation between v̂_π and prior-weighted average of observed Q-values.
+/// v_mix: interpolation between v̂_π and prior-weighted sum of observed Q-values.
 /// Appendix D, Eq. 33 from the paper:
-///   v_mix = [v̂_π + N_visited · (Σ_{a visited} π(a)·q(a) / Σ_{a visited} π(a))] / (1 + N_visited)
-/// where N_visited = total visit count across all visited root edges.
+///   v_mix = (v̂_π + Σ_{a:N(a)>0} π(a)·q̂(a)) / (1 + Σ_{a:N(a)>0} π(a))
+/// The denominator is 1 + sum-of-priors-of-visited-actions (a value in (0, 1]),
+/// NOT 1 + total-visit-count.
 fn compute_v_mix(v_pi: f32, priors: &[f32], tree: &Tree, k: usize) -> f32 {
 	let mut visited_prior_sum = 0.0f32;
 	let mut weighted_q_sum = 0.0f32;
-	let mut n_visited = 0u32;
 	for i in 0..k {
 		if tree.root_visited(i) {
 			visited_prior_sum += priors[i];
 			weighted_q_sum += priors[i] * tree.root_q_raw(i);
-			n_visited += tree.root_visit_count(i);
 		}
 	}
 	if visited_prior_sum < 1e-8 {
 		return v_pi;
 	}
-	(v_pi + n_visited as f32 * (weighted_q_sum / visited_prior_sum)) / (1.0 + n_visited as f32)
+	(v_pi + weighted_q_sum) / (1.0 + visited_prior_sum)
 }
 
 /// Compute softmax and pair with moves.
