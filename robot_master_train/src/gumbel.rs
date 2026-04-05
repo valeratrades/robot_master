@@ -135,14 +135,15 @@ where
 		.expect("survivors non-empty");
 
 	// Step 5: compute policy target π' = softmax(logits + σ(completedQ))
+	// Per mctx `qtransform_completed_by_mix_value`: normalize over the FULL completed array
+	// (visited Q values + v_mix for unvisited), not over visited-only anchored by v_pi.
+	// Using v_pi as anchor instead causes the range to collapse in zero-sum games where
+	// root_q_raw ≈ v_pi for all actions when the value head is consistent.
 	let v_mix = compute_v_mix(root_value, &priors, &tree, k);
-	let q_norm_range = tree.q_range(root_value);
-	let completed_q: Vec<f32> = (0..k)
-		.map(|i| {
-			let raw_q = if tree.root_visited(i) { tree.root_q_raw(i) } else { v_mix };
-			normalize_q(raw_q, q_norm_range)
-		})
-		.collect();
+	let raw_completed: Vec<f32> = (0..k).map(|i| if tree.root_visited(i) { tree.root_q_raw(i) } else { v_mix }).collect();
+	let q_min = raw_completed.iter().copied().fold(f32::INFINITY, f32::min);
+	let q_max = raw_completed.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+	let completed_q: Vec<f32> = raw_completed.iter().map(|&q| normalize_q(q, (q_min, q_max))).collect();
 
 	let max_visits_f = max_visits as f32;
 	let improved_logits: Vec<f32> = (0..k).map(|i| logits[i] + (config.c_visit + max_visits_f) * config.c_scale * completed_q[i]).collect();
@@ -348,13 +349,10 @@ where
 			.expect("survivors non-empty");
 
 		let v_mix = compute_v_mix(self.root_value, &self.priors, &self.tree, k);
-		let q_norm_range = self.tree.q_range(self.root_value);
-		let completed_q: Vec<f32> = (0..k)
-			.map(|i| {
-				let raw_q = if self.tree.root_visited(i) { self.tree.root_q_raw(i) } else { v_mix };
-				normalize_q(raw_q, q_norm_range)
-			})
-			.collect();
+		let raw_completed: Vec<f32> = (0..k).map(|i| if self.tree.root_visited(i) { self.tree.root_q_raw(i) } else { v_mix }).collect();
+		let q_min = raw_completed.iter().copied().fold(f32::INFINITY, f32::min);
+		let q_max = raw_completed.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+		let completed_q: Vec<f32> = raw_completed.iter().map(|&q| normalize_q(q, (q_min, q_max))).collect();
 
 		let max_visits_f = max_visits as f32;
 		let improved_logits: Vec<f32> = (0..k)
