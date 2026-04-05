@@ -207,7 +207,7 @@ impl Tree {
 			.iter()
 			.map(|e| if e.child == u32::MAX { 0 } else { self.nodes[e.child as usize].visit_count })
 			.max()
-			.unwrap_or(0)
+			.expect("root must have at least one edge")
 	}
 
 	/// (min, max) Q range seen in the tree, anchored by v̂_π.
@@ -297,8 +297,8 @@ where
 		current = child;
 	}
 
-	// Terminal node (no edges) or re-visited terminal
-	let value = sim_state.outcome().map(|o| outcome_value(o, sim_state.turn)).unwrap_or(0.0);
+	// Terminal node (no edges) — sim_state must have a known outcome here.
+	let value = outcome_value(sim_state.outcome().expect("node with no edges must be terminal"), sim_state.turn);
 	SelectResult::Terminal { path, value: value as f64 }
 }
 
