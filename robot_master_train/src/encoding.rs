@@ -6,15 +6,17 @@ use robot_master_core::{
 /// Number of input channels for an N×N board.
 ///
 /// Layout:
-///   [0:N+1]         card value presence — plane `v` for values 0..=N
-///   [N+1]           empty cells
-///   [N+2]           playable cells
-///   [N+3:3N+5]      current player hand — 2 planes per value: ≥1 copy, ≥2 copies
-///   [3N+5:5N+7]     opponent hand       — same encoding
-///   [5N+7]          turn indicator
-///   Total: 5N + 8
+///   [0:N+1]       card value presence — plane `v` is 1.0 where card value v is placed
+///   [N+1:2N+2]    current player hand — one plane per value, count/(N+1) normalized
+///   [2N+2:3N+3]   opponent hand       — same encoding
+///   Total: 3N + 3
+///
+/// Removed vs previous versions:
+///   - empty/playable planes: derivable by the conv net from card planes
+///   - turn indicator: board is transposed for Player B, encoding is player-invariant
+///   - 2-plane-per-value hand encoding: collapsed to single normalized float plane
 pub const fn in_channels(n: usize) -> usize {
-	5 * n + 8
+	3 * n + 3
 }
 
 /// Encode `GameState<N>` into `in_channels(N) * N * N` f32 values, channel-first (CHW).
@@ -30,12 +32,8 @@ where
 		planes[ch * n2 + row * N + col] = v;
 	};
 
-	// Channel offsets derived from N:
-	let ch_empty = N + 1;
-	let ch_playable = N + 2;
-	let ch_hand_cur = N + 3; // 2 planes per value: [ch + v*2], [ch + v*2 + 1]
-	let ch_hand_opp = 3 * N + 5; // same layout
-	let ch_turn = 5 * N + 7;
+	let ch_hand_cur = N + 1; // one plane per value: count / (N+1)
+	let ch_hand_opp = 2 * N + 2;
 
 	// When it's Player B's turn, transpose board reads (row↔col) so that both
 	// players always see "my scoring dimension is columns". The network learns
@@ -51,19 +49,8 @@ where
 	for row in 0..N {
 		for col in 0..N {
 			let cell = state.board.get(bpos(row, col));
-			if cell == EMPTY {
-				set(&mut planes, ch_empty, row, col, 1.0);
-			} else {
+			if cell != EMPTY {
 				set(&mut planes, cell as usize, row, col, 1.0);
-			}
-		}
-	}
-
-	// playable: empty + has occupied neighbour — reuse Board::is_playable
-	for row in 0..N {
-		for col in 0..N {
-			if state.board.is_playable(bpos(row, col)) {
-				set(&mut planes, ch_playable, row, col, 1.0);
 			}
 		}
 	}
@@ -74,34 +61,24 @@ where
 	let hand_cur = &hands[current_idx];
 	let hand_opp = &hands[opponent_idx];
 
-	// broadcast: fill entire plane with 1.0
-	let fill_plane = |planes: &mut Vec<f32>, ch: usize| {
+	// Hand planes: normalized count so the network sees a meaningful magnitude.
+	// Max copies of any single card value is N+1 (one of each suit), so divide by N+1.
+	let norm = (N + 1) as f32;
+	let fill_plane = |planes: &mut Vec<f32>, ch: usize, val: f32| {
 		let start = ch * n2;
-		planes[start..start + n2].fill(1.0);
+		planes[start..start + n2].fill(val);
 	};
 
 	for v in 0..=N {
 		let card = robot_master_core::cards::CardValue(v as u8);
-		let cnt_cur = hand_cur.count(card);
-		let cnt_opp = hand_opp.count(card);
-
-		if cnt_cur >= 1 {
-			fill_plane(&mut planes, ch_hand_cur + v * 2);
+		let cnt_cur = hand_cur.count(card) as f32 / norm;
+		let cnt_opp = hand_opp.count(card) as f32 / norm;
+		if cnt_cur > 0.0 {
+			fill_plane(&mut planes, ch_hand_cur + v, cnt_cur);
 		}
-		if cnt_cur >= 2 {
-			fill_plane(&mut planes, ch_hand_cur + v * 2 + 1);
+		if cnt_opp > 0.0 {
+			fill_plane(&mut planes, ch_hand_opp + v, cnt_opp);
 		}
-		if cnt_opp >= 1 {
-			fill_plane(&mut planes, ch_hand_opp + v * 2);
-		}
-		if cnt_opp >= 2 {
-			fill_plane(&mut planes, ch_hand_opp + v * 2 + 1);
-		}
-	}
-
-	if state.turn == Player::A {
-		let start = ch_turn * n2;
-		planes[start..start + n2].fill(1.0);
 	}
 
 	planes
@@ -162,27 +139,18 @@ mod tests {
 		assert_ne!(center_cell, EMPTY);
 		let planes = encode_planes(&state);
 		assert_eq!(planes[center_cell as usize * 25 + 2 * 5 + 2], 1.0, "card-value plane at center");
-		// empty channel for N=5 is N+1=6
-		assert_eq!(planes[6 * 25 + 2 * 5 + 2], 0.0, "empty plane not set at center");
 	}
 
 	#[test]
-	fn planes_playable_adjacent_to_center() {
+	fn hand_plane_normalized() {
 		let state = state5();
 		let planes = encode_planes(&state);
-		// playable channel for N=5 is N+2=7
-		// (2,1) is adjacent to center (2,2) and should be playable at game start
-		assert_eq!(planes[7 * 25 + 2 * 5 + 1], 1.0, "adjacent to center is playable");
-		// (0,0) is not adjacent to anything occupied
-		assert_eq!(planes[7 * 25 + 0 * 5 + 0], 0.0, "corner is not playable");
-	}
-
-	#[test]
-	fn turn_indicator_player_a() {
-		let state = state5(); // starts as Player::A
-		let planes = encode_planes(&state);
-		// turn channel for N=5 is 5*5+7=32
-		assert_eq!(planes[32 * 25], 1.0, "player A indicator");
+		// ch_hand_cur starts at N+1 = 6. Each plane should be in [0, 1].
+		let ch_hand_cur = 5 + 1;
+		for v in 0..=5usize {
+			let val = planes[(ch_hand_cur + v) * 25];
+			assert!(val >= 0.0 && val <= 1.0, "hand plane {v} out of range: {val}");
+		}
 	}
 
 	#[test]

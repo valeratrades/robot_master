@@ -1,18 +1,19 @@
 """Track A: Small SE-ResNet for AlphaZero.
 
 Architecture (N×N board):
-  Input:  in_channels(N) x N x N   where in_channels(N) = 5*N + 8
+  Input:  in_channels(N) x N x N   where in_channels(N) = 3*N + 3
   Body:   Conv(in_channels->64, 3x3) -> BN -> ReLU -> 5x SE-ResBlock(64)
   Policy: Conv(64->2, 1x1) -> BN -> ReLU -> FC(2*N*N, (N+1)*N*N) -> logits
   Value:  Conv(64->1, 1x1) -> BN -> ReLU -> FC(N*N, 64) -> ReLU -> FC(64, 1) -> tanh
 
-Input planes (5*N+8 total, e.g. 33 for N=5):
+Input planes (3*N+3 total, e.g. 18 for N=5):
   [0:N+1]      Card value presence (binary plane per value 0..N)
-  [N+1]        Empty cells
-  [N+2]        Playable cells (adjacent to occupied & empty)
-  [N+3:3N+5]   Current player's hand (2 planes per value: >=1, >=2)
-  [3N+5:5N+7]  Opponent's hand (same)
-  [5N+7]       Current player indicator (1.0 = Player A)
+  [N+1:2N+2]   Current player's hand (one plane per value, count/(N+1) normalized)
+  [2N+2:3N+3]  Opponent's hand (same)
+
+Removed: empty plane (derivable from card planes), playable plane (derivable by
+conv net), turn indicator (board transposed for Player B — encoding is
+player-invariant; turn plane was a value-head collapse shortcut).
 """
 
 import numpy as np
@@ -23,7 +24,7 @@ import torch.nn.functional as F
 
 def in_channels(n: int) -> int:
     """Number of input planes for an N×N board."""
-    return 5 * n + 8
+    return 3 * n + 3
 
 
 def num_card_values(n: int) -> int:
@@ -50,49 +51,26 @@ def encode_state(board: list[list[int | None]], hand_current: dict[int, int], ha
         np.ndarray of shape (in_channels(N), N, N).
     """
     n = board_size
-    ch_empty = n + 1
-    ch_playable = n + 2
-    ch_hand_cur = n + 3
-    ch_hand_opp = 3 * n + 5
-    ch_turn = 5 * n + 7
+    ch_hand_cur = n + 1
+    ch_hand_opp = 2 * n + 2
 
     planes = np.zeros((in_channels(n), n, n), dtype=np.float32)
 
     for r in range(n):
         for c in range(n):
             cell = board[r][c]
-            if cell is None:
-                planes[ch_empty, r, c] = 1.0
-            else:
+            if cell is not None:
                 planes[cell, r, c] = 1.0
 
-    # playable: empty + has occupied neighbour
-    for r in range(n):
-        for c in range(n):
-            if board[r][c] is not None:
-                continue
-            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < n and 0 <= nc < n and board[nr][nc] is not None:
-                    planes[ch_playable, r, c] = 1.0
-                    break
-
-    # hand planes: 2 per card value (>=1, >=2), broadcast across spatial dims
+    # hand planes: one per card value, count/(N+1) normalized, broadcast across spatial dims
+    norm = float(n + 1)
     for v in range(num_card_values(n)):
-        cnt_cur = hand_current.get(v, 0)
-        cnt_opp = hand_opponent.get(v, 0)
-        if cnt_cur >= 1:
-            planes[ch_hand_cur + v * 2, :, :] = 1.0
-        if cnt_cur >= 2:
-            planes[ch_hand_cur + v * 2 + 1, :, :] = 1.0
-        if cnt_opp >= 1:
-            planes[ch_hand_opp + v * 2, :, :] = 1.0
-        if cnt_opp >= 2:
-            planes[ch_hand_opp + v * 2 + 1, :, :] = 1.0
-
-    # current player indicator
-    if current_player == 0:
-        planes[ch_turn, :, :] = 1.0
+        cnt_cur = hand_current.get(v, 0) / norm
+        cnt_opp = hand_opponent.get(v, 0) / norm
+        if cnt_cur > 0.0:
+            planes[ch_hand_cur + v, :, :] = cnt_cur
+        if cnt_opp > 0.0:
+            planes[ch_hand_opp + v, :, :] = cnt_opp
 
     return planes
 
@@ -216,10 +194,8 @@ if __name__ == "__main__":
     n = board_size
     assert planes.shape == (in_channels(n), n, n), f"encode shape: {planes.shape}"
     assert planes[3, 2, 2] == 1.0, "card value 3 at center"
-    assert planes[n + 1, 0, 0] == 1.0, "empty at (0,0)"
-    assert planes[n + 1, 2, 2] == 0.0, "not empty at center"
-    assert planes[n + 2, 2, 1] == 1.0, "playable adjacent to center"
-    assert planes[n + 2, 0, 0] == 0.0, "not playable at corner"
-    assert planes[5 * n + 7, 0, 0] == 1.0, "player A indicator"
+    assert planes[3, 0, 0] == 0.0, "card value 3 not at corner"
+    # hand plane for value 0, cur: ch_hand_cur + 0 = n+1
+    assert planes[n + 1, 0, 0] == hand_cur.get(0, 0) / (n + 1), "cur hand plane 0 normalized"
     print("encode_state: OK")
     print("All checks passed.")
