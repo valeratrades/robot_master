@@ -15,7 +15,7 @@ use rand_distr::{Distribution as _, Gumbel};
 use robot_master_arena::player::Bot;
 use robot_master_core::game::{GameState, Move};
 
-use crate::mcts::{Evaluation, Evaluator, PuctVariant, SearchBot, SelectResult, Tree, backpropagate_pub, expand_and_backprop, select, simulate};
+use crate::mcts::{Evaluation, Evaluator, PuctVariant, SearchBot, SelectResult, Tree, backpropagate_pub, expand_and_backprop, normalize_q, select, simulate};
 
 #[derive(Clone)]
 pub struct GumbelConfig {
@@ -26,10 +26,13 @@ pub struct GumbelConfig {
 	pub m_actions: u32,
 	/// c_visit in σ(q) = (c_visit + max_N) * c_scale * q. Paper default: 50.
 	pub c_visit: f32,
-	/// c_scale in σ. Paper default: 1.0 (use 0.1 if Q-values are unnormalized).
+	/// c_scale in σ. Use 0.1 with raw (unnormalized) Q-values in [-1, 1].
 	pub c_scale: f32,
-	/// c_puct for non-root PUCT selection (unchanged from standard MCTS).
-	pub c_puct: f32,
+	/// puct_init for non-root PUCT selection. MiniZero/AlphaZero default: 1.25.
+	/// puct_bias = puct_init + log((1 + N + puct_base) / puct_base)
+	pub puct_init: f32,
+	/// puct_base for non-root PUCT selection. MiniZero/AlphaZero default: 19652.
+	pub puct_base: f32,
 }
 
 impl Default for GumbelConfig {
@@ -39,8 +42,9 @@ impl Default for GumbelConfig {
 			n_simulations: n,
 			m_actions: n.min(16),
 			c_visit: 50.0,
-			c_scale: 1.0,
-			c_puct: 1.41,
+			c_scale: 0.1,
+			puct_init: 1.25,
+			puct_base: 19652.0,
 		}
 	}
 }
@@ -101,7 +105,9 @@ where
 		let sims_per_action = (n.saturating_sub(sims_used)) / (remaining_phases * survivors.len()).max(1);
 		let sims_per_action = sims_per_action.max(1);
 
-		run_phase_batched(&mut tree, root_idx, state, evaluator, config.c_puct, &survivors, sims_per_action, n, &mut sims_used);
+		run_phase_batched(
+			&mut tree, root_idx, state, evaluator, config.puct_init, config.puct_base, &survivors, sims_per_action, n, &mut sims_used,
+		);
 
 		if survivors.len() <= 1 {
 			break;
@@ -110,8 +116,8 @@ where
 		// Rank survivors by g(a) + logits(a) + σ(q̂(a)), drop bottom half
 		let max_visits = tree.max_root_visits();
 		survivors.sort_unstable_by(|&a, &b| {
-			let sa = gumbel_scores[a] + sigma(tree.root_q(a), max_visits, config);
-			let sb = gumbel_scores[b] + sigma(tree.root_q(b), max_visits, config);
+			let sa = gumbel_scores[a] + sigma(tree.root_q_normalized(a), max_visits, config);
+			let sb = gumbel_scores[b] + sigma(tree.root_q_normalized(b), max_visits, config);
 			sb.partial_cmp(&sa).expect("NaN in Gumbel score")
 		});
 		survivors.truncate((survivors.len() + 1) / 2);
@@ -119,7 +125,16 @@ where
 
 	// Spend any remaining budget on the last survivor(s)
 	while sims_used < n {
-		simulate(&mut tree, root_idx, Some(survivors[0]), state, evaluator, config.c_puct, PuctVariant::MiniZero);
+		simulate(
+			&mut tree,
+			root_idx,
+			Some(survivors[0]),
+			state,
+			evaluator,
+			config.puct_init,
+			config.puct_base,
+			PuctVariant::MiniZero,
+		);
 		sims_used += 1;
 	}
 
@@ -128,22 +143,17 @@ where
 	let best_idx = *survivors
 		.iter()
 		.max_by(|&&a, &&b| {
-			let sa = gumbel_scores[a] + sigma(tree.root_q(a), max_visits, config);
-			let sb = gumbel_scores[b] + sigma(tree.root_q(b), max_visits, config);
+			let sa = gumbel_scores[a] + sigma(tree.root_q_normalized(a), max_visits, config);
+			let sb = gumbel_scores[b] + sigma(tree.root_q_normalized(b), max_visits, config);
 			sa.partial_cmp(&sb).expect("NaN in Gumbel score")
 		})
 		.expect("survivors non-empty");
 
 	// Step 5: compute policy target π' = softmax(logits + σ(completedQ))
-	// Per mctx `qtransform_completed_by_mix_value`: normalize over the FULL completed array
-	// (visited Q values + v_mix for unvisited), not over visited-only anchored by v_pi.
-	// Using v_pi as anchor instead causes the range to collapse in zero-sum games where
-	// root_q_raw ≈ v_pi for all actions when the value head is consistent.
-	let v_mix = compute_v_mix(root_value, &priors, &tree, k);
-	let raw_completed: Vec<f32> = (0..k).map(|i| if tree.root_visited(i) { tree.root_q_raw(i) } else { v_mix }).collect();
-	let q_min = raw_completed.iter().copied().fold(f32::INFINITY, f32::min);
-	let q_max = raw_completed.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-	let completed_q: Vec<f32> = raw_completed.iter().map(|&q| normalize_q(q, (q_min, q_max))).collect();
+	// v_mix and root_q_normalized are both already in [-1,1] (normalized space), matching
+	// MiniZero's getMCTSPolicy which builds q_sum from getNormalizedMean.
+	let v_mix = compute_v_mix(root_value, &priors, &tree, k, config.n_simulations);
+	let completed_q: Vec<f32> = (0..k).map(|i| if tree.root_visited(i) { tree.root_q_normalized(i) } else { v_mix }).collect();
 
 	let max_visits_f = max_visits as f32;
 	let improved_logits: Vec<f32> = (0..k).map(|i| logits[i] + (config.c_visit + max_visits_f) * config.c_scale * completed_q[i]).collect();
@@ -264,7 +274,15 @@ where
 				}
 				self.sims_used += 1;
 
-				match select(&self.tree, 0, Some(action_idx), &self.root_state, self.config.c_puct, PuctVariant::MiniZero) {
+				match select(
+					&self.tree,
+					0,
+					Some(action_idx),
+					&self.root_state,
+					self.config.puct_init,
+					self.config.puct_base,
+					PuctVariant::MiniZero,
+				) {
 					SelectResult::Terminal { path, value } => {
 						backpropagate_pub(&mut self.tree, &path, value);
 					}
@@ -306,8 +324,8 @@ where
 		self.phase_needs_halving = false;
 		let max_visits = self.tree.max_root_visits();
 		self.survivors.sort_unstable_by(|&a, &b| {
-			let sa = self.gumbel_scores[a] + sigma(self.tree.root_q(a), max_visits, &self.config);
-			let sb = self.gumbel_scores[b] + sigma(self.tree.root_q(b), max_visits, &self.config);
+			let sa = self.gumbel_scores[a] + sigma(self.tree.root_q_normalized(a), max_visits, &self.config);
+			let sb = self.gumbel_scores[b] + sigma(self.tree.root_q_normalized(b), max_visits, &self.config);
 			sb.partial_cmp(&sa).expect("NaN in Gumbel score")
 		});
 		self.survivors.truncate((self.survivors.len() + 1) / 2);
@@ -342,17 +360,14 @@ where
 			.survivors
 			.iter()
 			.max_by(|&&a, &&b| {
-				let sa = self.gumbel_scores[a] + sigma(self.tree.root_q(a), max_visits, &self.config);
-				let sb = self.gumbel_scores[b] + sigma(self.tree.root_q(b), max_visits, &self.config);
+				let sa = self.gumbel_scores[a] + sigma(self.tree.root_q_normalized(a), max_visits, &self.config);
+				let sb = self.gumbel_scores[b] + sigma(self.tree.root_q_normalized(b), max_visits, &self.config);
 				sa.partial_cmp(&sb).expect("NaN in Gumbel score")
 			})
 			.expect("survivors non-empty");
 
-		let v_mix = compute_v_mix(self.root_value, &self.priors, &self.tree, k);
-		let raw_completed: Vec<f32> = (0..k).map(|i| if self.tree.root_visited(i) { self.tree.root_q_raw(i) } else { v_mix }).collect();
-		let q_min = raw_completed.iter().copied().fold(f32::INFINITY, f32::min);
-		let q_max = raw_completed.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-		let completed_q: Vec<f32> = raw_completed.iter().map(|&q| normalize_q(q, (q_min, q_max))).collect();
+		let v_mix = compute_v_mix(self.root_value, &self.priors, &self.tree, k, self.config.n_simulations);
+		let completed_q: Vec<f32> = (0..k).map(|i| if self.tree.root_visited(i) { self.tree.root_q_normalized(i) } else { v_mix }).collect();
 
 		let max_visits_f = max_visits as f32;
 		let improved_logits: Vec<f32> = (0..k)
@@ -406,6 +421,70 @@ impl<E> GumbelMcts<E> {
 	}
 }
 
+/// Per-move search health stats returned by [`search_diag`].
+pub struct SearchDiag {
+	/// Value predicted by the evaluator for this position (current player's perspective).
+	pub root_value: f32,
+	/// Width of the raw Q range across all completed actions (visited + v_mix for unvisited).
+	/// Near zero means the value head isn't differentiating positions → no policy signal.
+	pub q_range_raw: f32,
+	/// Variance of completed_q (normalized to [0,1]).
+	/// Near zero means the policy target is flat → the training label is nearly uniform.
+	pub completed_q_variance: f32,
+	/// completed_q of the action selected by the search.
+	pub selected_cq: f32,
+	/// Mean completed_q across all actions (always ~0.5 when flat).
+	pub mean_cq: f32,
+}
+/// Run one Gumbel search and return diagnostic stats for the policy-signal health.
+/// Uses only `m` simulations (one per top-m action) to keep it cheap.
+pub fn search_diag<const N: usize, E, R>(state: &GameState<N>, evaluator: &E, config: &GumbelConfig, rng: &mut R) -> SearchDiag
+where
+	E: Evaluator<N>,
+	R: Rng,
+	[(); N * N]:,
+	[(); N + 1]:, {
+	let root_eval = evaluator.evaluate(state);
+	let k = root_eval.policy.len();
+	let root_value = root_eval.value;
+
+	let (gumbel_scores, moves, priors) = gumbel_setup::<N, _>(&root_eval, rng);
+	let m = (config.m_actions as usize).min(k).min(config.n_simulations as usize).max(1);
+	let top_m = argtop_m(&gumbel_scores, m);
+
+	let mut tree = Tree::new_with_root(root_value, &moves, &priors);
+	for &action_idx in &top_m {
+		simulate(&mut tree, 0, Some(action_idx), state, evaluator, config.puct_init, config.puct_base, PuctVariant::MiniZero);
+	}
+
+	let v_mix = compute_v_mix(root_value, &priors, &tree, k, config.n_simulations);
+	let (q_min, q_max) = tree.q_bounds();
+	let q_range_raw = if q_min.is_nan() { 0.0 } else { q_max - q_min };
+
+	let completed_q: Vec<f32> = (0..k).map(|i| if tree.root_visited(i) { tree.root_q_normalized(i) } else { v_mix }).collect();
+	let mean_cq = completed_q.iter().sum::<f32>() / k as f32;
+	let completed_q_variance = completed_q.iter().map(|&q| (q - mean_cq).powi(2)).sum::<f32>() / k as f32;
+
+	// Best action = argmax gumbel_scores + sigma(root_q) among top_m (one phase only)
+	let max_visits = tree.max_root_visits();
+	let best_idx = *top_m
+		.iter()
+		.max_by(|&&a, &&b| {
+			let sa = gumbel_scores[a] + sigma(tree.root_q_normalized(a), max_visits, config);
+			let sb = gumbel_scores[b] + sigma(tree.root_q_normalized(b), max_visits, config);
+			sa.partial_cmp(&sb).expect("NaN")
+		})
+		.expect("top_m non-empty");
+	let selected_cq = completed_q[best_idx];
+
+	SearchDiag {
+		root_value,
+		q_range_raw,
+		completed_q_variance,
+		selected_cq,
+		mean_cq,
+	}
+}
 /// Run one phase of Sequential Halving using batched leaf evaluation.
 ///
 /// Within a phase, all simulations that need NN evaluation are batched together.
@@ -426,7 +505,8 @@ fn run_phase_batched<const N: usize, E>(
 	root_idx: u32,
 	state: &GameState<N>,
 	evaluator: &E,
-	c_puct: f32,
+	puct_init: f32,
+	puct_base: f32,
 	survivors: &[usize],
 	sims_per_action: usize,
 	budget: usize,
@@ -464,7 +544,7 @@ fn run_phase_batched<const N: usize, E>(
 			}
 			*sims_used += 1;
 
-			match select(tree, root_idx, Some(action_idx), state, c_puct, PuctVariant::MiniZero) {
+			match select(tree, root_idx, Some(action_idx), state, puct_init, puct_base, PuctVariant::MiniZero) {
 				SelectResult::Terminal { path, value } => {
 					crate::mcts::backpropagate_pub(tree, &path, value);
 				}
@@ -476,7 +556,7 @@ fn run_phase_batched<const N: usize, E>(
 						// simulate() which will navigate past the (still-unexpanded) edge
 						// via PUCT to find a different leaf or terminal.
 						*sims_used -= 1; // undo: simulate counts its own sim
-						simulate(tree, root_idx, Some(action_idx), state, evaluator, c_puct, PuctVariant::MiniZero);
+						simulate(tree, root_idx, Some(action_idx), state, evaluator, puct_init, puct_base, PuctVariant::MiniZero);
 						*sims_used += 1;
 					}
 				}
@@ -512,101 +592,26 @@ fn sigma(q_normalized: f32, max_visits: u32, config: &GumbelConfig) -> f32 {
 	(config.c_visit + max_visits as f32) * config.c_scale * q_normalized
 }
 
-/// Normalize a raw Q value to [0,1] using the tree's min/max range.
-fn normalize_q(raw_q: f32, (q_min, q_max): (f32, f32)) -> f32 {
-	if (q_max - q_min).abs() < 1e-8 {
-		0.5
-	} else {
-		((raw_q - q_min) / (q_max - q_min)).clamp(0.0, 1.0)
-	}
-}
-
-/// v_mix: interpolation between v̂_π and prior-weighted sum of observed Q-values.
-/// Appendix D, Eq. 33 from the paper:
-///   v_mix = (v̂_π + Σ_{a:N(a)>0} π(a)·q̂(a)) / (1 + Σ_{a:N(a)>0} π(a))
-/// The denominator is 1 + sum-of-priors-of-visited-actions (a value in (0, 1]),
-/// NOT 1 + total-visit-count.
-fn compute_v_mix(v_pi: f32, priors: &[f32], tree: &Tree, k: usize) -> f32 {
+/// v_mix: interpolation between v̂_π and prior-weighted sum of observed normalized Q-values.
+/// All quantities are in normalized [-1,1] space, matching MiniZero's getMCTSPolicy.
+/// MiniZero formula: v_mix = (v̂_π_norm + (N / π_sum) * Σ_{a:N(a)>0} π(a)·q̂_norm(a)) / (1 + N)
+/// where N = total simulation budget and π_sum = Σ_{a:N(a)>0} π(a).
+fn compute_v_mix(v_pi: f32, priors: &[f32], tree: &Tree, k: usize, n_simulations: u32) -> f32 {
+	let (q_min, q_max) = tree.q_bounds();
+	let v_pi_norm = normalize_q(v_pi, q_min, q_max);
 	let mut visited_prior_sum = 0.0f32;
 	let mut weighted_q_sum = 0.0f32;
 	for i in 0..k {
 		if tree.root_visited(i) {
 			visited_prior_sum += priors[i];
-			weighted_q_sum += priors[i] * tree.root_q_raw(i);
+			weighted_q_sum += priors[i] * tree.root_q_normalized(i);
 		}
 	}
 	if visited_prior_sum < 1e-8 {
-		return v_pi;
+		return v_pi_norm;
 	}
-	(v_pi + weighted_q_sum) / (1.0 + visited_prior_sum)
-}
-
-/// Per-move search health stats returned by [`search_diag`].
-pub struct SearchDiag {
-	/// Value predicted by the evaluator for this position (current player's perspective).
-	pub root_value: f32,
-	/// Width of the raw Q range across all completed actions (visited + v_mix for unvisited).
-	/// Near zero means the value head isn't differentiating positions → no policy signal.
-	pub q_range_raw: f32,
-	/// Variance of completed_q (normalized to [0,1]).
-	/// Near zero means the policy target is flat → the training label is nearly uniform.
-	pub completed_q_variance: f32,
-	/// completed_q of the action selected by the search.
-	pub selected_cq: f32,
-	/// Mean completed_q across all actions (always ~0.5 when flat).
-	pub mean_cq: f32,
-}
-
-/// Run one Gumbel search and return diagnostic stats for the policy-signal health.
-/// Uses only `m` simulations (one per top-m action) to keep it cheap.
-pub fn search_diag<const N: usize, E, R>(state: &GameState<N>, evaluator: &E, config: &GumbelConfig, rng: &mut R) -> SearchDiag
-where
-	E: Evaluator<N>,
-	R: Rng,
-	[(); N * N]:,
-	[(); N + 1]:, {
-	let root_eval = evaluator.evaluate(state);
-	let k = root_eval.policy.len();
-	let root_value = root_eval.value;
-
-	let (gumbel_scores, moves, priors) = gumbel_setup::<N, _>(&root_eval, rng);
-	let m = (config.m_actions as usize).min(k).min(config.n_simulations as usize).max(1);
-	let top_m = argtop_m(&gumbel_scores, m);
-
-	let mut tree = Tree::new_with_root(root_value, &moves, &priors);
-	for &action_idx in &top_m {
-		simulate(&mut tree, 0, Some(action_idx), state, evaluator, config.c_puct, PuctVariant::MiniZero);
-	}
-
-	let v_mix = compute_v_mix(root_value, &priors, &tree, k);
-	let raw_completed: Vec<f32> = (0..k).map(|i| if tree.root_visited(i) { tree.root_q_raw(i) } else { v_mix }).collect();
-	let q_min = raw_completed.iter().copied().fold(f32::INFINITY, f32::min);
-	let q_max = raw_completed.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-	let q_range_raw = q_max - q_min;
-
-	let completed_q: Vec<f32> = raw_completed.iter().map(|&q| normalize_q(q, (q_min, q_max))).collect();
-	let mean_cq = completed_q.iter().sum::<f32>() / k as f32;
-	let completed_q_variance = completed_q.iter().map(|&q| (q - mean_cq).powi(2)).sum::<f32>() / k as f32;
-
-	// Best action = argmax gumbel_scores + sigma(root_q) among top_m (one phase only)
-	let max_visits = tree.max_root_visits();
-	let best_idx = *top_m
-		.iter()
-		.max_by(|&&a, &&b| {
-			let sa = gumbel_scores[a] + sigma(tree.root_q(a), max_visits, config);
-			let sb = gumbel_scores[b] + sigma(tree.root_q(b), max_visits, config);
-			sa.partial_cmp(&sb).expect("NaN")
-		})
-		.expect("top_m non-empty");
-	let selected_cq = completed_q[best_idx];
-
-	SearchDiag {
-		root_value,
-		q_range_raw,
-		completed_q_variance,
-		selected_cq,
-		mean_cq,
-	}
+	let n = n_simulations as f32;
+	(v_pi_norm + (n / visited_prior_sum) * weighted_q_sum) / (1.0 + n)
 }
 
 /// Compute softmax and pair with moves.
