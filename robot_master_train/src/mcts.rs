@@ -194,12 +194,6 @@ impl Tree {
 		self.nodes[0].edges[action_idx].child != u32::MAX
 	}
 
-	/// Visit count of root edge `action_idx` (0 if unvisited).
-	pub(crate) fn root_visit_count(&self, action_idx: usize) -> u32 {
-		let edge = &self.nodes[0].edges[action_idx];
-		if edge.child == u32::MAX { 0 } else { self.nodes[edge.child as usize].visit_count }
-	}
-
 	/// Visit count of the most-visited root edge.
 	pub(crate) fn max_root_visits(&self) -> u32 {
 		self.nodes[0]

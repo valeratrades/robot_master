@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use ort::{ep, inputs, session::Session, value::TensorRef};
 use robot_master_arena::player::Bot;
-use robot_master_core::game::{GameState, Move};
+use robot_master_core::game::{GameState, Move, Player};
 
 use crate::{
 	encoding::{action_index, encode_planes, in_channels},
@@ -107,7 +107,7 @@ where
 	let legal: Vec<(Move, f32)> = state
 		.valid_moves()
 		.map(|mv| {
-			let idx = action_index(mv.card.0, mv.pos.row as usize, mv.pos.col as usize, N);
+			let idx = action_index(mv.card.0, mv.pos.row as usize, mv.pos.col as usize, N, state.turn == Player::B);
 			(mv, logits[idx])
 		})
 		.collect();

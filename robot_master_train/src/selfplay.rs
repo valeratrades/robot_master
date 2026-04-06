@@ -42,7 +42,7 @@ where
 		// Map the per-move policy target to the full action space
 		let mut policy = vec![0.0f32; action_size(N)];
 		for (mv, prob) in result.policy_target {
-			let idx = action_index(mv.card.0, mv.pos.row as usize, mv.pos.col as usize, N);
+			let idx = action_index(mv.card.0, mv.pos.row as usize, mv.pos.col as usize, N, mover == Player::B);
 			policy[idx] = prob;
 		}
 
@@ -298,7 +298,7 @@ where
 		let last = self.pending_samples.last_mut().expect("sample was pushed in start_search");
 		let mut policy = vec![0.0f32; action_size(N)];
 		for (mv, prob) in result.policy_target {
-			let idx = action_index(mv.card.0, mv.pos.row as usize, mv.pos.col as usize, N);
+			let idx = action_index(mv.card.0, mv.pos.row as usize, mv.pos.col as usize, N, last.mover == Player::B);
 			policy[idx] = prob;
 		}
 		last.policy = policy;
