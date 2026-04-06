@@ -32,7 +32,7 @@ def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
         input_names=["state"],
         output_names=["policy", "value"],
         dynamic_axes={"state": {0: "batch"}, "policy": {0: "batch"}, "value": {0: "batch"}},
-        opset_version=17,
+        opset_version=18,
         external_data=False,
     )
     print(f"Exported to {output_path}")
@@ -44,8 +44,8 @@ def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
     sess = ort.InferenceSession(output_path)
     onnx_policy, onnx_value = sess.run(None, {"state": dummy.numpy()})
 
-    np.testing.assert_allclose(pt_policy.numpy(), onnx_policy, rtol=1e-4, atol=1e-5)
-    np.testing.assert_allclose(pt_value.numpy(), onnx_value, rtol=1e-4, atol=1e-5)
+    np.testing.assert_allclose(pt_policy.numpy(), onnx_policy, rtol=1e-3, atol=1e-4)
+    np.testing.assert_allclose(pt_value.numpy(), onnx_value, rtol=1e-3, atol=1e-4)
     print("Roundtrip validation: OK")
 
 

@@ -43,6 +43,9 @@ Gumbel AlphaZero selfplay and model evaluation.
 
 **Architecture Invariant:** selfplay produces `.bin` sample files and exits. No connection to the arena or rating DB.
 
+**Parallelism model — game-level batching, not tree-level threading.**
+MiniZero uses multiple CPU threads searching the *same* tree in parallel, with virtual loss to prevent thread pile-up on a single path. We do the opposite: many independent games run concurrently (`play_games_batched`), each with its own tree (no sharing, no locking), and their NN calls are aggregated into one large `evaluate_batch` per loop iteration. This keeps the GPU saturated without any synchronization overhead. Virtual loss is therefore absent from our MCTS — it only makes sense when multiple threads compete on the same tree. For self-play training where sample throughput is the goal and GPU inference is the bottleneck, game-level batching is strictly better.
+
 ### `robot_master` — CLI Entry Point
 
 Dispatches on subcommand and board size.

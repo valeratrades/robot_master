@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use board_game::board::{Board as _, Outcome};
 use robot_master_arena::player::Bot;
 use robot_master_core::game::{GameState, Move};
@@ -35,15 +37,56 @@ pub struct Evaluation {
 	/// Position value from the perspective of the player to move. In [-1, 1].
 	pub value: f32,
 }
-
 /// Evaluator that plays a game to completion using a Bot, then returns the outcome.
 pub struct RolloutEval<B> {
 	bot: B,
 }
-
 impl<B> RolloutEval<B> {
 	pub fn new(bot: B) -> Self {
 		Self { bot }
+	}
+}
+
+/// Vanilla UCT-MCTS bot. Runs `sims` full simulations from the root, picks most-visited child.
+pub struct VanillaMcts<E> {
+	evaluator: E,
+	sims: u32,
+	puct_init: f32,
+	puct_base: f32,
+}
+impl<E> VanillaMcts<E> {
+	pub fn new(evaluator: E, sims: u32) -> Self {
+		Self {
+			evaluator,
+			sims,
+			puct_init: 1.25,
+			puct_base: 19652.0,
+		}
+	}
+}
+
+/// `f32` wrapper that is totally ordered and panics on NaN (fail fast).
+#[derive(Clone, Copy, PartialEq)]
+struct OrdF32(f32);
+
+impl OrdF32 {
+	fn new(v: f32) -> Self {
+		assert!(!v.is_nan(), "NaN in tree Q-value");
+		Self(v)
+	}
+}
+
+impl Eq for OrdF32 {}
+
+impl PartialOrd for OrdF32 {
+	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+		Some(self.cmp(other))
+	}
+}
+
+impl Ord for OrdF32 {
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+		self.0.total_cmp(&other.0)
 	}
 }
 
@@ -76,18 +119,6 @@ where
 {
 	fn evaluate(&self, state: &GameState<N>) -> Evaluation {
 		(**self).evaluate(state)
-	}
-}
-
-/// Vanilla UCT-MCTS bot. Runs `sims` full simulations from the root, picks most-visited child.
-pub struct VanillaMcts<E> {
-	evaluator: E,
-	sims: u32,
-	c_puct: f32,
-}
-impl<E> VanillaMcts<E> {
-	pub fn new(evaluator: E, sims: u32) -> Self {
-		Self { evaluator, sims, c_puct: 1.41 }
 	}
 }
 
@@ -124,6 +155,9 @@ impl Node {
 
 pub(crate) struct Tree {
 	pub(crate) nodes: Vec<Node>,
+	/// Live sorted multiset of Q values across all nodes — mirrors MiniZero's `tree_value_bound_`.
+	/// Key = Q value, value = ref count. Min/max are always exact (never stale).
+	value_bound: BTreeMap<OrdF32, u32>,
 }
 impl Tree {
 	/// Create a tree with a root node already expanded from the given moves and priors.
@@ -136,7 +170,33 @@ impl Tree {
 				visit_count: 1,
 				edges,
 			}],
+			value_bound: BTreeMap::new(),
 		}
+	}
+
+	/// Exact Q bounds from the live sorted multiset.
+	/// Returns `(NaN, NaN)` when fewer than 2 distinct values exist (degenerate case).
+	/// Mirrors MiniZero `getNormalizedMean`'s early-return condition.
+	pub(crate) fn q_bounds(&self) -> (f32, f32) {
+		if self.value_bound.len() < 2 {
+			return (f32::NAN, f32::NAN);
+		}
+		(self.value_bound.first_key_value().unwrap().0.0, self.value_bound.last_key_value().unwrap().0.0)
+	}
+
+	/// Update the live Q-value multiset after a node's Q changes from `old_q` to `new_q`.
+	/// Mirrors MiniZero `updateTreeValueBound`.
+	pub(crate) fn update_value_bound(&mut self, old_q: f32, new_q: f32) {
+		// Remove old entry
+		let old_key = OrdF32::new(old_q);
+		let count = self.value_bound.get_mut(&old_key).expect("old_q must be present in value_bound");
+		if *count <= 1 {
+			self.value_bound.remove(&old_key);
+		} else {
+			*count -= 1;
+		}
+		// Insert new entry
+		*self.value_bound.entry(OrdF32::new(new_q)).or_insert(0) += 1;
 	}
 
 	fn expand(&mut self, eval: Evaluation) -> u32 {
@@ -178,17 +238,6 @@ impl Tree {
 		-self.nodes[edge.child as usize].q() as f32
 	}
 
-	/// Normalized Q in [0,1] using tree min/max range.
-	pub(crate) fn root_q(&self, action_idx: usize) -> f32 {
-		let (q_min, q_max) = self.q_range(self.nodes[0].total_value as f32);
-		let raw = self.root_q_raw(action_idx);
-		if (q_max - q_min).abs() < 1e-8 {
-			0.5
-		} else {
-			((raw - q_min) / (q_max - q_min)).clamp(0.0, 1.0)
-		}
-	}
-
 	/// Whether root edge `action_idx` has been visited at all.
 	pub(crate) fn root_visited(&self, action_idx: usize) -> bool {
 		self.nodes[0].edges[action_idx].child != u32::MAX
@@ -204,25 +253,32 @@ impl Tree {
 			.expect("root must have at least one edge")
 	}
 
-	/// (min, max) Q range seen in the tree, anchored by v̂_π.
-	pub(crate) fn q_range(&self, v_pi: f32) -> (f32, f32) {
-		let mut q_min = v_pi;
-		let mut q_max = v_pi;
-		for (i, _) in self.nodes[0].edges.iter().enumerate() {
-			if self.root_visited(i) {
-				let raw = self.root_q_raw(i);
-				q_min = q_min.min(raw);
-				q_max = q_max.max(raw);
-			}
-		}
-		(q_min, q_max)
+	/// Normalized Q for root edge `action_idx` — mirrors MiniZero `getNormalizedMean`.
+	/// When bounds are degenerate (< 2 distinct values), returns 1.0 per MiniZero convention.
+	pub(crate) fn root_q_normalized(&self, action_idx: usize) -> f32 {
+		let (q_min, q_max) = self.q_bounds();
+		normalize_q(self.root_q_raw(action_idx), q_min, q_max)
 	}
 }
 
 impl Default for Tree {
 	fn default() -> Self {
-		Self { nodes: Vec::new() }
+		Self {
+			nodes: Vec::new(),
+			value_bound: BTreeMap::new(),
+		}
 	}
+}
+
+/// Normalize a raw Q value to [-1,1] using the live tree min/max bounds.
+/// Mirrors MiniZero `getNormalizedMean` (mcts.cpp:44-48).
+/// When `q_min` is NaN (< 2 distinct values in the tree), returns 1.0.
+pub(crate) fn normalize_q(raw: f32, q_min: f32, q_max: f32) -> f32 {
+	if q_min.is_nan() {
+		return 1.0;
+	}
+	let x = ((raw - q_min) / (q_max - q_min)).clamp(0.0, 1.0);
+	2.0 * x - 1.0
 }
 
 /// Result of walking the tree to a leaf during selection.
@@ -253,7 +309,15 @@ pub(crate) enum PuctVariant {
 
 /// Selection phase only — walks the tree from `node_idx` following PUCT/forced action.
 /// Returns either a leaf needing NN evaluation, or a terminal with its value.
-pub(crate) fn select<const N: usize>(tree: &Tree, node_idx: u32, forced_root_action: Option<usize>, state: &GameState<N>, c_puct: f32, puct: PuctVariant) -> SelectResult<N>
+pub(crate) fn select<const N: usize>(
+	tree: &Tree,
+	node_idx: u32,
+	forced_root_action: Option<usize>,
+	state: &GameState<N>,
+	puct_init: f32,
+	puct_base: f32,
+	puct: PuctVariant,
+) -> SelectResult<N>
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
@@ -268,10 +332,10 @@ where
 			is_root = false;
 			match forced_root_action {
 				Some(idx) => idx,
-				None => select_edge(&tree.nodes, node, c_puct, puct),
+				None => select_edge(tree, node, puct_init, puct_base, puct),
 			}
 		} else {
-			select_edge(&tree.nodes, node, c_puct, puct)
+			select_edge(tree, node, puct_init, puct_base, puct)
 		};
 
 		path.push(current);
@@ -320,12 +384,13 @@ pub(crate) fn simulate<const N: usize>(
 	forced_root_action: Option<usize>,
 	state: &GameState<N>,
 	evaluator: &impl Evaluator<N>,
-	c_puct: f32,
+	puct_init: f32,
+	puct_base: f32,
 	puct: PuctVariant,
 ) where
 	[(); N * N]:,
 	[(); N + 1]:, {
-	match select(tree, node_idx, forced_root_action, state, c_puct, puct) {
+	match select(tree, node_idx, forced_root_action, state, puct_init, puct_base, puct) {
 		SelectResult::NeedsEval {
 			path,
 			parent,
@@ -341,40 +406,51 @@ pub(crate) fn simulate<const N: usize>(
 	}
 }
 
-fn select_edge(nodes: &[Node], node: &Node, c_puct: f32, puct: PuctVariant) -> usize {
+fn select_edge(tree: &Tree, node: &Node, puct_init: f32, puct_base: f32, puct: PuctVariant) -> usize {
 	let parent_visits = node.visit_count;
+	let (q_min, q_max) = tree.q_bounds();
 	let q_unvisited = match puct {
 		PuctVariant::MuZero => 0.0f64,
 		PuctVariant::MiniZero => {
-			let mut n_sigma = 0u32;
-			let mut q_sigma = 0.0f64;
+			// MiniZero calculateInitQValue (mcts.cpp:200-216, board-game branch):
+			//   (Σ getNormalizedMean(child) - 1) / (n_visited + 1)
+			// This is a pessimistic estimate: mean of visited children minus one "virtual loss".
+			let mut n_visited = 0u32;
+			let mut q_sum = 0.0f64;
 			for edge in &node.edges {
 				if edge.child != u32::MAX {
-					n_sigma += 1;
-					q_sigma += -nodes[edge.child as usize].q();
+					n_visited += 1;
+					let raw = -tree.nodes[edge.child as usize].q() as f32;
+					q_sum += normalize_q(raw, q_min, q_max) as f64;
 				}
 			}
-			q_sigma / (n_sigma + 1) as f64
+			(q_sum - 1.0) / (n_visited + 1) as f64
 		}
 	};
 	(0..node.edges.len())
 		.max_by(|&a, &b| {
-			let sa = edge_uct(nodes, &node.edges[a], parent_visits, q_unvisited, c_puct);
-			let sb = edge_uct(nodes, &node.edges[b], parent_visits, q_unvisited, c_puct);
+			let sa = edge_uct(tree, &node.edges[a], parent_visits, q_unvisited, puct_init, puct_base, q_min, q_max);
+			let sb = edge_uct(tree, &node.edges[b], parent_visits, q_unvisited, puct_init, puct_base, q_min, q_max);
 			sa.partial_cmp(&sb).expect("NaN in UCT")
 		})
 		.expect("edges is non-empty")
 }
 
-fn edge_uct(nodes: &[Node], edge: &Edge, parent_visits: u32, q_unvisited: f64, c_puct: f32) -> f64 {
+fn edge_uct(tree: &Tree, edge: &Edge, parent_visits: u32, q_unvisited: f64, puct_init: f32, puct_base: f32, q_min: f32, q_max: f32) -> f64 {
 	let (child_q, child_visits) = if edge.child == u32::MAX {
 		(q_unvisited, 0)
 	} else {
-		let child = &nodes[edge.child as usize];
-		(-child.q(), child.visit_count)
+		let child = &tree.nodes[edge.child as usize];
+		// MiniZero uses getNormalizedMean for visited children in PUCT.
+		let raw = -child.q() as f32;
+		(normalize_q(raw, q_min, q_max) as f64, child.visit_count)
 	};
-	// Q + c * P * sqrt(N_parent) / (1 + N_child)
-	child_q + c_puct as f64 * edge.prior as f64 * (parent_visits as f64).sqrt() / (1.0 + child_visits as f64)
+	// MiniZero getNormalizedPUCTScore (mcts.cpp:57-58):
+	//   puct_bias = puct_init + log((1 + N + puct_base) / puct_base)
+	//   value_u = puct_bias * P * sqrt(N_parent) / (1 + N_child)
+	let total_sim = parent_visits.saturating_sub(1) as f64;
+	let puct_bias = puct_init as f64 + ((1.0 + total_sim + puct_base as f64) / puct_base as f64).ln();
+	child_q + puct_bias * edge.prior as f64 * total_sim.sqrt() / (1.0 + child_visits as f64)
 }
 
 /// Walk back up the path, negating at each level (zero-sum).
@@ -386,9 +462,24 @@ fn backpropagate(tree: &mut Tree, path: &[u32], leaf_value: f64) {
 	let mut value = leaf_value;
 	for &n_idx in path.iter().rev() {
 		value = -value;
-		let n = &mut tree.nodes[n_idx as usize];
-		n.visit_count += 1;
-		n.total_value += value;
+		// Capture Q before the update so we can remove the old entry from the multiset.
+		// MiniZero mcts.cpp:174-176: old_mean captured, node updated, then updateTreeValueBound.
+		let old_q = tree.nodes[n_idx as usize].q() as f32;
+		{
+			let n = &mut tree.nodes[n_idx as usize];
+			n.visit_count += 1;
+			n.total_value += value;
+		}
+		let new_q = tree.nodes[n_idx as usize].q() as f32;
+		// First visit: old_q is from the initial total_value/1 set at node creation.
+		// That initial Q was never inserted into value_bound, so we skip removal on visit_count==1.
+		// After the increment above, visit_count >= 2 means the old_q was tracked.
+		if tree.nodes[n_idx as usize].visit_count > 2 {
+			tree.update_value_bound(old_q, new_q);
+		} else {
+			// Second visit: old_q (from visit_count==1) was never in the map; just insert new.
+			*tree.value_bound.entry(OrdF32::new(new_q)).or_insert(0) += 1;
+		}
 	}
 }
 
@@ -415,7 +506,7 @@ where
 		let mut tree = Tree::default();
 		let root = tree.expand(self.evaluator.evaluate(game));
 		for _ in 0..self.sims {
-			simulate(&mut tree, root, None, game, &self.evaluator, self.c_puct, PuctVariant::MuZero);
+			simulate(&mut tree, root, None, game, &self.evaluator, self.puct_init, self.puct_base, PuctVariant::MuZero);
 		}
 		tree.nodes[root as usize]
 			.edges
