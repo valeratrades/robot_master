@@ -37,9 +37,20 @@ where
 	let ch_hand_opp = 3 * N + 5; // same layout
 	let ch_turn = 5 * N + 7;
 
+	// When it's Player B's turn, transpose board reads (row↔col) so that both
+	// players always see "my scoring dimension is columns". The network learns
+	// one strategy instead of two.
+	let bpos = |row: usize, col: usize| -> robot_master_core::board::Pos {
+		if state.turn == Player::B {
+			robot_master_core::board::Pos { row: col as u8, col: row as u8 }
+		} else {
+			robot_master_core::board::Pos { row: row as u8, col: col as u8 }
+		}
+	};
+
 	for row in 0..N {
 		for col in 0..N {
-			let cell = state.board.get(robot_master_core::board::Pos { row: row as u8, col: col as u8 });
+			let cell = state.board.get(bpos(row, col));
 			if cell == EMPTY {
 				set(&mut planes, ch_empty, row, col, 1.0);
 			} else {
@@ -51,8 +62,7 @@ where
 	// playable: empty + has occupied neighbour — reuse Board::is_playable
 	for row in 0..N {
 		for col in 0..N {
-			let pos = robot_master_core::board::Pos { row: row as u8, col: col as u8 };
-			if state.board.is_playable(pos) {
+			if state.board.is_playable(bpos(row, col)) {
 				set(&mut planes, ch_playable, row, col, 1.0);
 			}
 		}
@@ -105,8 +115,11 @@ pub const fn action_size(n: usize) -> usize {
 /// Map `(card_value, row, col)` to a flat policy index.
 ///
 /// Matches `AllMoves` iterator order in `game.rs` and Python's policy layout.
-pub fn action_index(card: u8, row: usize, col: usize, n: usize) -> usize {
-	card as usize * n * n + row * n + col
+/// Pass `player_b = true` when encoding from Player B's perspective (board is
+/// transposed in `encode_planes`), so row↔col are swapped to stay consistent.
+pub fn action_index(card: u8, row: usize, col: usize, n: usize, player_b: bool) -> usize {
+	let (r, c) = if player_b { (col, row) } else { (row, col) };
+	card as usize * n * n + r * n + c
 }
 
 /// Serialize one training sample to raw bytes (little-endian f32s).

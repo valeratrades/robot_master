@@ -541,6 +541,74 @@ fn compute_v_mix(v_pi: f32, priors: &[f32], tree: &Tree, k: usize) -> f32 {
 	(v_pi + weighted_q_sum) / (1.0 + visited_prior_sum)
 }
 
+/// Per-move search health stats returned by [`search_diag`].
+pub struct SearchDiag {
+	/// Value predicted by the evaluator for this position (current player's perspective).
+	pub root_value: f32,
+	/// Width of the raw Q range across all completed actions (visited + v_mix for unvisited).
+	/// Near zero means the value head isn't differentiating positions → no policy signal.
+	pub q_range_raw: f32,
+	/// Variance of completed_q (normalized to [0,1]).
+	/// Near zero means the policy target is flat → the training label is nearly uniform.
+	pub completed_q_variance: f32,
+	/// completed_q of the action selected by the search.
+	pub selected_cq: f32,
+	/// Mean completed_q across all actions (always ~0.5 when flat).
+	pub mean_cq: f32,
+}
+
+/// Run one Gumbel search and return diagnostic stats for the policy-signal health.
+/// Uses only `m` simulations (one per top-m action) to keep it cheap.
+pub fn search_diag<const N: usize, E, R>(state: &GameState<N>, evaluator: &E, config: &GumbelConfig, rng: &mut R) -> SearchDiag
+where
+	E: Evaluator<N>,
+	R: Rng,
+	[(); N * N]:,
+	[(); N + 1]:, {
+	let root_eval = evaluator.evaluate(state);
+	let k = root_eval.policy.len();
+	let root_value = root_eval.value;
+
+	let (gumbel_scores, moves, priors) = gumbel_setup::<N, _>(&root_eval, rng);
+	let m = (config.m_actions as usize).min(k).min(config.n_simulations as usize).max(1);
+	let top_m = argtop_m(&gumbel_scores, m);
+
+	let mut tree = Tree::new_with_root(root_value, &moves, &priors);
+	for &action_idx in &top_m {
+		simulate(&mut tree, 0, Some(action_idx), state, evaluator, config.c_puct, PuctVariant::MiniZero);
+	}
+
+	let v_mix = compute_v_mix(root_value, &priors, &tree, k);
+	let raw_completed: Vec<f32> = (0..k).map(|i| if tree.root_visited(i) { tree.root_q_raw(i) } else { v_mix }).collect();
+	let q_min = raw_completed.iter().copied().fold(f32::INFINITY, f32::min);
+	let q_max = raw_completed.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+	let q_range_raw = q_max - q_min;
+
+	let completed_q: Vec<f32> = raw_completed.iter().map(|&q| normalize_q(q, (q_min, q_max))).collect();
+	let mean_cq = completed_q.iter().sum::<f32>() / k as f32;
+	let completed_q_variance = completed_q.iter().map(|&q| (q - mean_cq).powi(2)).sum::<f32>() / k as f32;
+
+	// Best action = argmax gumbel_scores + sigma(root_q) among top_m (one phase only)
+	let max_visits = tree.max_root_visits();
+	let best_idx = *top_m
+		.iter()
+		.max_by(|&&a, &&b| {
+			let sa = gumbel_scores[a] + sigma(tree.root_q(a), max_visits, config);
+			let sb = gumbel_scores[b] + sigma(tree.root_q(b), max_visits, config);
+			sa.partial_cmp(&sb).expect("NaN")
+		})
+		.expect("top_m non-empty");
+	let selected_cq = completed_q[best_idx];
+
+	SearchDiag {
+		root_value,
+		q_range_raw,
+		completed_q_variance,
+		selected_cq,
+		mean_cq,
+	}
+}
+
 /// Compute softmax and pair with moves.
 fn softmax_to_moves(moves: &[Move], logits: &[f32]) -> Vec<(Move, f32)> {
 	let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
