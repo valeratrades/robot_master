@@ -96,6 +96,81 @@ Expected training: 4-12 hours on a single modern GPU (RTX 3080/4080) for 5x5.
 
 ---
 
+## Post-Training NNUE Optimizations (Phase 5 detail)
+
+Once the AlphaZero eval head is trained and working, the following optimizations replicate the Stockfish NNUE stack. Priority-ordered.
+
+### 1. Flat Feature Representation + Incremental Accumulator (highest ROI)
+
+**The core NNUE insight:** The first linear layer is a sum of active feature columns. When a move changes O(1) features, you add/subtract those columns instead of recomputing the full matrix-vector multiply. 10-15x faster than full recomputation.
+
+**What changes:**
+- Ditch the CNN. Replace with a flat feature set: `(cell_square, card_value, occupancy)` — same information, different encoding. ~150 active features out of a ~2000-dim feature space (<0.1% sparse).
+- First layer is a `[features × hidden_dim]` weight matrix. Accumulator = sum of active feature columns + bias.
+- Maintain an accumulator stack as the search tree descends. On make/unmake move: add columns for new features, subtract columns for removed features. Full recompute only on "dirty" ancestors.
+- Separate accumulators for each player's perspective (white/black equivalent = rows player/cols player). Already done via board transpose in `encoding.rs` — same principle, now needs to live in the accumulator.
+
+**Prerequisite:** This requires redesigning the network architecture away from CNN. The current SE-ResNet cannot be incrementally updated because conv layers are spatially entangled. Same game information, different representation.
+
+### 2. Game-Phase Bucketing (HalfKP analogue)
+
+In chess, features are indexed as `(king_square, piece_square, piece_type)` — all piece values are relative to your king position. There's no king here, but the natural analogues:
+
+- **Turn-number buckets:** Divide the game into 4-8 phase buckets by `turn / total_turns`. The network weights can differ per bucket — early game (spread out) vs late game (shore up your worst line) need different evaluation logic.
+- **Line-state bucketing:** Features indexed by `(scoring_line_id, cell_position, card_value)` so the network explicitly represents "this card matters because it's on line X which is my current minimum." Analogous to king-relative piece values.
+- **Threat features (SFNNv10 analogue):** Add explicit `(line_id, current_minimum_card, cards_remaining_in_line)` as input features — the state of each scoring line directly in the input, not inferred through conv layers.
+
+### 3. INT8/INT16 Quantization
+
+**Feature transformer:** Store weights as int16 (scaled by 127). Accumulator in int16. With ~150 active features × max weight ~127, accumulator stays in int16 range.
+
+**Dense hidden layers:** After ClippedReLU (clamp to [0, 127]), all subsequent layers use int8 × int8 → int32 SIMD. AVX2 processes 32 int8 multiplications per instruction. This is 4-8x faster than float32 on CPU.
+
+**In practice:** ONNX Runtime already supports post-train INT8 quantization via the `quantize_dynamic` / `quantize_static` APIs — try this first before rolling custom SIMD. If you go full custom NNUE in Rust, use `std::arch` AVX2 intrinsics.
+
+### 4. Dual Network (Big + Small)
+
+Train two networks: a full-quality network and a tiny MLP (or even hand-crafted classical eval). Use a cheap `simple_eval()` first:
+- If `simple_eval()` is beyond a threshold (clearly decided — one player has locked in a dominant line), skip the full network.
+- Otherwise, run the full network.
+
+The "clearly decided" signal for Robot Master is easy to compute in O(N): if a player's current minimum line score is already above the opponent's best achievable total, the game is won. No NN needed.
+
+This is SF's `use_smallnet()` / lazy evaluation strategy. Direct analogue.
+
+### 5. Alpha-Beta + Classical Pruning (Architecture Switch)
+
+The biggest architectural question. Switching from Gumbel MCTS to iterative-deepening alpha-beta gives:
+
+- **LMR (Late Move Reductions):** Moves sorted later in the ordered list get searched at reduced depth. Only "interesting" moves (plays that improve your minimum line, block opponent's minimum) get full depth.
+- **Null move pruning:** Pass a turn, do a reduced-depth search. If still above beta, prune. Applicable since tempo has real value.
+- **Aspiration windows:** Start with a narrow window around the previous iteration's score. Converges fast when your evaluator is stable.
+- **Singular extensions:** If one move is clearly best at reduced depth, extend it — searches the critical line deeper.
+- **ProbCut:** Shallow search with a loose bound prunes clearly dominated lines.
+
+**Trade-off:** Gumbel MCTS already gives policy improvement guarantees and is GPU-batchable. Alpha-beta is better when eval quality is high and you want maximum tactical depth on a CPU. With Robot Master's branching factor (~25 avg at 5x5), alpha-beta at depth 8-10 is very practical.
+
+NNUE synergy: every pruning decision (null move, LMR, ProbCut) relies on the accuracy of the shallow eval. NNUE's accurate leaf evaluations make all of these pruning techniques safer and more aggressive.
+
+### 6. WDL Heads + Score Calibration
+
+Instead of a single value in `[-1, 1]`, output `(win, draw, loss)` probabilities separately. Calibrate so +100 eval units = 50% win probability in self-play games. This is what Stockfish and LC0 both do now.
+
+**Why:** Better-calibrated uncertainty estimates. Aspiration windows can be set in expected-value terms. The draw probability matters — Robot Master has draws, and the network should explicitly model them rather than collapsing to a signed scalar.
+
+### Summary Table
+
+| Optimization | Effort | Speedup/Benefit | Prerequisite |
+|---|---|---|---|
+| Flat features + incremental accumulator | High | 10-15x eval speed | Ditch CNN |
+| Game-phase bucketing | Medium | Better eval quality | Flat features |
+| INT8 quantization | Low (ONNX API) | 4-8x CPU throughput | None |
+| Dual network / lazy eval | Medium | 2-3x avg speed | Working NN |
+| Alpha-beta + pruning | High | Exponential depth gain | Good eval |
+| WDL heads | Low | Better calibration | None |
+
+---
+
 ## Track B: Transformers (Learn ML, Scale Up)
 
 Goal: learn modern ML practices that transfer beyond board games. Transformers are the architecture that matters — vision, language, time series, finance all converge on attention.

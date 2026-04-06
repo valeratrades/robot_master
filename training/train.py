@@ -69,15 +69,15 @@ class SelfPlayDataset(Dataset):
 
 
 def alpha_zero_loss(
-    policy_logits: torch.Tensor, value_pred: torch.Tensor, policy_target: torch.Tensor, value_target: torch.Tensor
+    policy_logits: torch.Tensor, value_pred: torch.Tensor, policy_target: torch.Tensor, value_target: torch.Tensor, value_weight: float = 0.25
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """L = MSE(v, z) + CrossEntropy(p, pi).
+    """L = value_weight * MSE(v, z) + CrossEntropy(p, pi).
 
     Returns (total_loss, value_loss, policy_loss) for logging.
     """
     value_loss = F.mse_loss(value_pred, value_target)
     policy_loss = -(policy_target * F.log_softmax(policy_logits, dim=1)).sum(dim=1).mean()
-    return value_loss + policy_loss, value_loss, policy_loss
+    return value_weight * value_loss + policy_loss, value_loss, policy_loss
 
 
 def train(args: argparse.Namespace) -> None:
@@ -129,7 +129,7 @@ def train(args: argparse.Namespace) -> None:
         value_targets = value_targets.to(device)
 
         policy_logits, value_pred = model(states)
-        loss, v_loss, p_loss = alpha_zero_loss(policy_logits, value_pred, policy_targets, value_targets)
+        loss, v_loss, p_loss = alpha_zero_loss(policy_logits, value_pred, policy_targets, value_targets, args.value_weight)
 
         optimizer.zero_grad()
         loss.backward()
@@ -175,4 +175,5 @@ if __name__ == "__main__":
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--resume", default=None, help="Resume from checkpoint")
     parser.add_argument("--max-iters", type=int, default=0, help="Cap replay buffer to this many most-recent iteration files (0 = no cap)")
+    parser.add_argument("--value-weight", type=float, default=0.25, help="Weight for value loss: total = value_weight * MSE + CE (AlphaZero: 1.0, MiniZero: 0.25)")
     train(parser.parse_args())
