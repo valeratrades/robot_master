@@ -31,7 +31,7 @@ pub struct InitialPlayers {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn create_app(asset_dir: &str, size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, sound: bool, models_dir: std::path::PathBuf) -> App {
-	let mut app = App::new();
+	let mut app = App::default();
 	app.insert_resource(InitialPlayers { p1, p2, size, hide, models_dir });
 	app.insert_resource(SoundEnabled(sound));
 	configure_app(&mut app, asset_dir.to_string());
@@ -44,7 +44,7 @@ pub fn create_app() -> App {
 		player::ManualPlayer,
 	};
 
-	let mut app = App::new();
+	let mut app = App::default();
 	//HACK: don't really like this
 	app.insert_resource(InitialPlayers {
 		p1: PlayerKind {
@@ -61,10 +61,10 @@ pub fn create_app() -> App {
 		},
 		size: BoardSize::DEFAULT,
 		hide: false,
-		models_dir: std::path::PathBuf::new(),
+		models_dir: std::path::PathBuf::default(),
 	});
 	app.insert_resource(SoundEnabled(true));
-	configure_app(&mut app, String::new());
+	configure_app(&mut app, String::default());
 	app
 }
 #[derive(Clone, Copy, Debug, Resource)]

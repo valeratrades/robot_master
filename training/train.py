@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
 
 from model_resnet import RobotMasterResNet, action_size, in_channels
+from model_transformer import RobotMasterTransformer
 
 
 class SelfPlayDataset(Dataset):
@@ -93,7 +94,10 @@ def train(args: argparse.Namespace) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    model = RobotMasterResNet(board_size=args.board_size)
+    if args.model == "transformer":
+        model = RobotMasterTransformer(board_size=args.board_size)
+    else:
+        model = RobotMasterResNet(board_size=args.board_size)
     model.to(device)
 
     dataset = SelfPlayDataset(args.data_dir, board_size=args.board_size, max_iters=args.max_iters)
@@ -111,6 +115,9 @@ def train(args: argparse.Namespace) -> None:
     global_step_offset = 0
     if args.resume:
         ckpt = torch.load(args.resume, map_location="cpu", weights_only=True)
+        ckpt_model_type = ckpt.get("model_type", "resnet")
+        if ckpt_model_type != args.model:
+            raise ValueError(f"Checkpoint model type '{ckpt_model_type}' does not match --model '{args.model}'")
         model.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
         global_step_offset = ckpt.get("global_step", 0)
@@ -160,6 +167,7 @@ def train(args: argparse.Namespace) -> None:
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
         "global_step": global_step_offset + args.steps,
+        "model_type": args.model,
         "model_kwargs": {"board_size": args.board_size},
     }
     torch.save(checkpoint, output_dir / "checkpoint.pt")
@@ -173,6 +181,7 @@ if __name__ == "__main__":
     parser.add_argument("--data-dir", required=True, help="Directory with .bin self-play data")
     parser.add_argument("--output-dir", default="models", help="Where to save checkpoints")
     parser.add_argument("--board-size", type=int, default=5)
+    parser.add_argument("--model", choices=["resnet", "transformer"], default="resnet", help="Model architecture to train")
     parser.add_argument("--batch-size", type=int, default=256)
     # MiniZero: steps proportional to games collected, ratio 1:10 (final.tex line 299).
     # Computed by train_cnn.rs as games // 10; passed explicitly — no default here.

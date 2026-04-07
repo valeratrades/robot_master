@@ -183,10 +183,10 @@ fn run_tournament_no_priors(specs: Vec<String>, models_dir: &std::path::Path, mo
 
 	let rating_db: Arc<dyn RatingDb> = Arc::new(NoopRatingDb::default());
 	match size {
-		BoardSize::Five => run_tournament_sized::<5>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db, json),
-		BoardSize::Seven => run_tournament_sized::<7>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db, json),
-		BoardSize::Nine => run_tournament_sized::<9>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db, json),
-		BoardSize::Eleven => run_tournament_sized::<11>(kinds, &std::collections::HashMap::new(), config, mode, threads, models_dir, rating_db, json),
+		BoardSize::Five => run_tournament_sized::<5>(kinds, &std::collections::HashMap::default(), config, mode, threads, models_dir, rating_db, json),
+		BoardSize::Seven => run_tournament_sized::<7>(kinds, &std::collections::HashMap::default(), config, mode, threads, models_dir, rating_db, json),
+		BoardSize::Nine => run_tournament_sized::<9>(kinds, &std::collections::HashMap::default(), config, mode, threads, models_dir, rating_db, json),
+		BoardSize::Eleven => run_tournament_sized::<11>(kinds, &std::collections::HashMap::default(), config, mode, threads, models_dir, rating_db, json),
 	}
 }
 
@@ -277,8 +277,8 @@ fn run_tournament_sized<const N: usize>(
 	pb.finish();
 
 	// Print summary
-	let mut wins: std::collections::HashMap<Ustr, u32> = std::collections::HashMap::new();
-	let mut games: std::collections::HashMap<Ustr, u32> = std::collections::HashMap::new();
+	let mut wins: std::collections::HashMap<Ustr, u32> = std::collections::HashMap::default();
+	let mut games: std::collections::HashMap<Ustr, u32> = std::collections::HashMap::default();
 	for r in &results {
 		*games.entry(r.p1_id).or_default() += 1;
 		*games.entry(r.p2_id).or_default() += 1;
@@ -363,7 +363,7 @@ fn run_players(players_filter: Vec<String>, command: PlayersCommands, models_dir
 	} = command
 	{
 		let constrain_sizes: Option<Vec<u8>> = if sizes.is_empty() { None } else { Some(sizes) };
-		let mut explicit: Vec<PlayerKind> = Vec::new();
+		let mut explicit: Vec<PlayerKind> = Vec::default();
 		for spec in &players {
 			let mut kind: PlayerKind = spec.parse().unwrap_or_else(|_| die(UnknownPlayerSpec { spec: spec.clone() }));
 			if kind.is_manual() {
@@ -452,7 +452,7 @@ fn run_players(players_filter: Vec<String>, command: PlayersCommands, models_dir
 		}
 		eprint!("Confirm? [y/N] ");
 		io::stderr().flush().unwrap();
-		let mut answer = String::new();
+		let mut answer = String::default();
 		io::stdin().lock().read_line(&mut answer).unwrap();
 		if !answer.trim().eq_ignore_ascii_case("y") {
 			eprintln!("Aborted.");

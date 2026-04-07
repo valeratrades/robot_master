@@ -103,7 +103,7 @@ where
 	/// - ` v` — unchanged
 	pub fn display_diff(&self, other: &Board<N>) -> String {
 		use fmt::Write;
-		let mut out = String::new();
+		let mut out = String::default();
 		let bar: String = "-".repeat(9 + 4 * N);
 		writeln!(out, "{bar}").unwrap();
 		write!(out, "          ").unwrap();

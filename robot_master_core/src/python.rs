@@ -42,7 +42,7 @@ pub fn creer_plateau(taille: i64) -> Option<Vec<Vec<Option<u8>>>> {
 /// Return list of empty cells as (row, col) tuples.
 #[pyfunction]
 pub fn cases_libres(plateau: Vec<Vec<Option<u8>>>) -> Vec<(usize, usize)> {
-	let mut out = Vec::new();
+	let mut out = Vec::default();
 	for (r, row) in plateau.iter().enumerate() {
 		for (c, cell) in row.iter().enumerate() {
 			if cell.is_none() {
@@ -58,7 +58,7 @@ pub fn cases_libres(plateau: Vec<Vec<Option<u8>>>) -> Vec<(usize, usize)> {
 pub fn plateau_to_string(plateau: Vec<Vec<Option<u8>>>, vide: &str) -> String {
 	let n = plateau.len();
 	let bar: String = "-".repeat(9 + 4 * n);
-	let mut lines = Vec::new();
+	let mut lines = Vec::default();
 	lines.push(bar.clone());
 	// header row — matches Python: " " * 10 + "".join(f"{j}   " for j in range(n)).rstrip()
 	let cols: String = (0..n).map(|c| format!("{c}   ")).collect();
@@ -85,7 +85,7 @@ pub fn cases_voisines(plateau: Vec<Vec<Option<u8>>>, pos_l: i64, pos_c: i64) -> 
 	if pos_l < 0 || pos_l >= n || pos_c < 0 || pos_c >= n {
 		return vec![];
 	}
-	let mut out = Vec::new();
+	let mut out = Vec::default();
 	for (dr, dc) in [(-1i64, 0i64), (1, 0), (0, -1), (0, 1)] {
 		let r = pos_l + dr;
 		let c = pos_c + dc;
@@ -147,7 +147,7 @@ pub fn distribution_cartes(pile_cartes: Vec<u8>, dico_options: Option<HashMap<St
 			(taille * taille - 1) / 2
 		};
 
-		let mut result: Vec<Py<PyAny>> = Vec::new();
+		let mut result: Vec<Py<PyAny>> = Vec::default();
 		// first element: center card (scalar int)
 		result.push(pile_cartes[0].into_pyobject(py).unwrap().into_any().unbind());
 		// then one hand list per player (as list[int], not bytes)

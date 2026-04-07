@@ -179,7 +179,7 @@ where
 			p2,
 			p1_id,
 			p2_id,
-			moves: Vec::new(),
+			moves: Vec::default(),
 			rating_db: None,
 		}
 	}

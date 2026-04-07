@@ -58,7 +58,7 @@ where
 
 		write!(stdout, "Choisissez une carte : ").unwrap();
 		stdout.flush().unwrap();
-		let mut line = String::new();
+		let mut line = String::default();
 		stdin.read_line(&mut line).unwrap();
 		prompt_lines += 1;
 		let carte: u8 = match line.trim().parse() {
@@ -77,7 +77,7 @@ where
 
 		write!(stdout, "Ligne : ").unwrap();
 		stdout.flush().unwrap();
-		let mut line = String::new();
+		let mut line = String::default();
 		stdin.read_line(&mut line).unwrap();
 		prompt_lines += 1;
 		let row: u8 = match line.trim().parse() {
@@ -91,7 +91,7 @@ where
 
 		write!(stdout, "Colonne : ").unwrap();
 		stdout.flush().unwrap();
-		let mut line = String::new();
+		let mut line = String::default();
 		stdin.read_line(&mut line).unwrap();
 		prompt_lines += 1;
 		let col: u8 = match line.trim().parse() {

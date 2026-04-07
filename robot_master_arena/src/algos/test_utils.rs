@@ -80,7 +80,7 @@ pub(super) mod fixtures {
 		hand_counts[3] = 1;
 		hand_counts[5] = 2;
 
-		let mut moves: Vec<String> = Vec::new();
+		let mut moves: Vec<String> = Vec::default();
 		let turns = [Player::A, Player::B];
 
 		for turn_idx in 0..10usize {

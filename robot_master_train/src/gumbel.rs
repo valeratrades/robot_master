@@ -243,7 +243,7 @@ where
 			phase: 0,
 			survivors: top_m,
 			sims_used: 0,
-			pending: Vec::new(),
+			pending: Vec::default(),
 			phase_needs_halving: false,
 			done: false,
 		}
@@ -262,7 +262,7 @@ where
 	pub fn collect_pending_selections(&mut self) -> &[PendingLeaf<N>] {
 		assert!(self.pending.is_empty(), "apply_evals must be called before collect_pending_selections");
 
-		let mut pending_edges: std::collections::HashSet<(u32, usize)> = std::collections::HashSet::new();
+		let mut pending_edges: std::collections::HashSet<(u32, usize)> = std::collections::HashSet::default();
 
 		let (action_indices, sims_per_action) = if self.phase < self.phases {
 			let remaining_phases = self.phases - self.phase;
@@ -542,8 +542,8 @@ fn run_phase_batched<const N: usize, E>(
 	// selections in the same batch may select the same unexpanded edge. We deduplicate
 	// by (parent, edge_idx): if an edge is already in the pending list we fall back to
 	// simulate() for that sim (it will re-select from the same node using PUCT).
-	let mut pending: Vec<Pending<N>> = Vec::new();
-	let mut pending_edges: std::collections::HashSet<(u32, usize)> = std::collections::HashSet::new();
+	let mut pending: Vec<Pending<N>> = Vec::default();
+	let mut pending_edges: std::collections::HashSet<(u32, usize)> = std::collections::HashSet::default();
 
 	for &action_idx in survivors {
 		for _ in 0..sims_per_action {

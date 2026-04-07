@@ -112,9 +112,9 @@ where
 		// --- Phase 2: collect leaf selections across all active searches ---
 		// Each active game runs its current search phase's selection loop,
 		// accumulating leaves that need NN eval. Terminals are handled inline.
-		let mut leaf_slot_indices: Vec<usize> = Vec::new();
-		let mut leaf_states: Vec<GameState<N>> = Vec::new();
-		let mut leaf_counts: Vec<usize> = Vec::new(); // how many leaves each slot contributed
+		let mut leaf_slot_indices: Vec<usize> = Vec::default();
+		let mut leaf_states: Vec<GameState<N>> = Vec::default();
+		let mut leaf_counts: Vec<usize> = Vec::default(); // how many leaves each slot contributed
 
 		for (i, slot) in slots.iter_mut().enumerate() {
 			let Some(game) = slot else { continue };
@@ -228,7 +228,7 @@ where
 		Self {
 			phase: GamePhase::NeedsRootEval { state },
 			game,
-			pending_samples: Vec::new(),
+			pending_samples: Vec::default(),
 			search: None,
 			terminal: false,
 		}

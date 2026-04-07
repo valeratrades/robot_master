@@ -14,7 +14,7 @@ async fn main() {
 	let addr = conf.leptos_options.site_addr;
 	let leptos_options = conf.leptos_options;
 
-	let app = Router::new()
+	let app = Router::default()
 		.leptos_routes(&leptos_options, generate_route_list(App), {
 			let leptos_options = leptos_options.clone();
 			move || shell(leptos_options.clone())
