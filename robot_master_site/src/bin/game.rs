@@ -21,7 +21,7 @@ fn main() {
 			constrain_hide: None,
 		},
 		true,
-		std::path::PathBuf::new(),
+		std::path::PathBuf::default(),
 	)
 	.run();
 }

@@ -16,7 +16,10 @@ pub struct RandomPlayer {
 }
 impl Default for RandomPlayer {
 	fn default() -> Self {
-		Self { params: Random {}, rng: rand::make_rng() }
+		Self {
+			params: Random {},
+			rng: rand::make_rng(),
+		}
 	}
 }
 impl std::fmt::Display for RandomPlayer {

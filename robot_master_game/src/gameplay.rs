@@ -302,7 +302,7 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[Vec<u8>; 2], player: P
 					));
 					card.spawn((
 						HandCountLabel { player, value: CardValue(v) },
-						Text::new(if hidden { String::new() } else { format!("x{count}") }),
+						Text::new(if hidden { String::default() } else { format!("x{count}") }),
 						TextFont { font_size: 14.0, ..default() },
 						TextColor(if count == 0 { theme::TEXT_MUTED } else { theme::TEXT_PRIMARY }),
 					));
@@ -414,7 +414,7 @@ fn board_click(
 fn rebuild_modal_tree(game: Res<Game>, selected: Res<SelectedCard>, slots: Res<PlayerSlots>, mut modal: ResMut<ModalState<GameAction>>) {
 	use v_utils::bevy::ModalNode;
 
-	let mut root = ModalNode::<GameAction>::new();
+	let mut root = ModalNode::<GameAction>::default();
 
 	// :q → exit (colon then q)
 	root.children.insert(
@@ -462,7 +462,7 @@ fn rebuild_modal_tree(game: Res<Game>, selected: Res<SelectedCard>, slots: Res<P
 					);
 				} else {
 					// Multiple rows → need second key for row
-					let mut col_node = ModalNode::<GameAction>::new();
+					let mut col_node = ModalNode::<GameAction>::default();
 					col_node.label = Some("col");
 					for row in playable_rows {
 						let row_char = (b'1' + row) as char;
@@ -624,7 +624,7 @@ fn sync_command_line(modal: Res<ModalState<GameAction>>, warning: Res<Warning>, 
 			let alpha = (warning.timer / WARNING_DURATION).clamp(0.0, 1.0);
 			*color = TextColor(Color::oklcha(0.65, 0.18, 25.0, alpha));
 		} else {
-			**text = String::new();
+			**text = String::default();
 		}
 	}
 }
@@ -690,7 +690,7 @@ fn sync_visuals(
 	// Hand counts
 	for (hc, mut text, mut color) in &mut hand_counts {
 		if hide && hc.player == Player::B {
-			**text = String::new();
+			**text = String::default();
 			*color = TextColor(theme::TEXT_MUTED);
 			continue;
 		}

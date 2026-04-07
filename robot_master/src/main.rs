@@ -72,7 +72,7 @@ fn resolve_player(input: &str, auto_yes: bool) -> PlayerKind {
 
 	eprint!("Unknown player \"{input}\". Register as manual player? [y/N] ");
 	std::io::stderr().flush().unwrap();
-	let mut answer = String::new();
+	let mut answer = String::default();
 	std::io::stdin().read_line(&mut answer).unwrap();
 	if answer.trim().eq_ignore_ascii_case("y") {
 		return PlayerKind {

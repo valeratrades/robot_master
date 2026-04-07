@@ -41,7 +41,7 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 	#[cfg(not(target_arch = "wasm32"))]
 	let elo_text = format_elo(&slots, s0, s1, i0, i1);
 	#[cfg(target_arch = "wasm32")]
-	let elo_text = String::new();
+	let elo_text = String::default();
 
 	let cell_px = 320.0 / n as f32;
 	let img_px = cell_px - 10.0;
@@ -156,7 +156,7 @@ fn format_elo(slots: &PlayerSlots, s0: u16, s1: u16, i0: usize, i1: usize) -> St
 	let db: Arc<dyn robot_master_arena::db::RatingDb> = Arc::new(JsonRatingDb::default());
 	let p1_id = slots.0[0].id();
 	let p2_id = slots.0[1].id();
-	let result = MatchResult::new(p1_id, p2_id, s0, s1, i0, i1, Vec::new(), Some(db));
+	let result = MatchResult::new(p1_id, p2_id, s0, s1, i0, i1, Vec::default(), Some(db));
 	let u = result.commit();
 	let d1 = u.p1_new.rating - u.p1_old.rating;
 	let d2 = u.p2_new.rating - u.p2_old.rating;

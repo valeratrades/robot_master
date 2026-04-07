@@ -248,7 +248,7 @@ fn spawn_search_modal(commands: &mut Commands, player_idx: usize, candidates: Ve
 				player_idx,
 				candidates,
 				highlighted: 0,
-				last_query: String::new(),
+				last_query: String::default(),
 			},
 			Node {
 				position_type: PositionType::Absolute,
@@ -710,7 +710,7 @@ fn load_ratings() -> HashMap<Ustr, Rating> {
 		db.load_ratings()
 	}
 	#[cfg(target_arch = "wasm32")]
-	HashMap::new()
+	HashMap::default()
 }
 
 fn cleanup_menu(

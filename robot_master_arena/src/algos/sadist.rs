@@ -52,7 +52,7 @@ where
 		let counts = line_counts(&game.board.line(player, i));
 		let empty_slots = N - counts.iter().map(|&c| c as usize).sum::<usize>();
 
-		let mut scores = Vec::new();
+		let mut scores = Vec::default();
 		complete_and_score(&mut counts.clone(), &mut remaining.clone(), &mut scores, empty_slots, 0, N);
 
 		if let Some(&max) = scores.iter().max() {
@@ -134,7 +134,7 @@ mod tests {
 		let mut remaining = [0u8; MAX_BOARD_SIZE + 1];
 		remaining[1] = 2;
 		remaining[2] = 2;
-		let mut scores = Vec::new();
+		let mut scores = Vec::default();
 		complete_and_score(&mut counts, &mut remaining, &mut scores, 2, 0, 2);
 		scores.sort();
 		assert_eq!(scores.len(), scores.iter().collect::<std::collections::HashSet<_>>().len());
@@ -150,7 +150,7 @@ mod tests {
 		remaining[0] = 1;
 		remaining[1] = 1;
 		remaining[2] = 1;
-		let mut scores = Vec::new();
+		let mut scores = Vec::default();
 		complete_and_score(&mut counts, &mut remaining, &mut scores, 0, 0, 2);
 		assert_snapshot!(format!("{scores:?}"), @"[110]");
 	}

@@ -170,7 +170,7 @@ impl Tree {
 				visit_count: 1,
 				edges,
 			}],
-			value_bound: BTreeMap::new(),
+			value_bound: BTreeMap::default(),
 		}
 	}
 
@@ -224,7 +224,7 @@ impl Tree {
 		self.nodes.push(Node {
 			total_value: value as f64,
 			visit_count: 1,
-			edges: Vec::new(),
+			edges: Vec::default(),
 		});
 		idx
 	}
@@ -321,7 +321,7 @@ pub(crate) fn select<const N: usize>(
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
-	let mut path: Vec<u32> = Vec::new();
+	let mut path: Vec<u32> = Vec::default();
 	let mut current = node_idx;
 	let mut sim_state = state.clone();
 	let mut is_root = true;

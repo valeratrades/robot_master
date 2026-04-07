@@ -178,7 +178,7 @@ where
 	[(); N + 1]:, {
 	assert!(player_ids.len() >= 2, "need at least 2 players for a tournament");
 
-	let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().expect("failed to build rayon thread pool");
+	let pool = rayon::ThreadPoolBuilder::default().num_threads(threads).build().expect("failed to build rayon thread pool");
 
 	let live_ratings: DashMap<Ustr, Rating> = {
 		let loaded = rating_db.load_ratings();
@@ -191,7 +191,7 @@ where
 
 	tourney.init(player_ids, &live_ratings);
 
-	let mut all_results = Vec::new();
+	let mut all_results = Vec::default();
 
 	for cycle in 0..tourney.cycles() {
 		let pairs = tourney.pairs_for_cycle(cycle, player_ids, &live_ratings, rng as &mut dyn Rng);
@@ -249,8 +249,8 @@ impl RatingBased {
 		Self {
 			target_rounds,
 			threads,
-			pending_a: Vec::new(),
-			pending_b: Vec::new(),
+			pending_a: Vec::default(),
+			pending_b: Vec::default(),
 			current_pair: None,
 		}
 	}
@@ -379,7 +379,7 @@ impl Swiss {
 		Self {
 			brackets,
 			rounds_per_bracket: 0,
-			scores: HashMap::new(),
+			scores: HashMap::default(),
 		}
 	}
 }
@@ -469,8 +469,8 @@ impl Elimination {
 			brackets,
 			max_inner_rounds: 0,
 			n: 0,
-			active: Vec::new(),
-			next_active: Vec::new(),
+			active: Vec::default(),
+			next_active: Vec::default(),
 			current_bracket: 0,
 		}
 	}
@@ -603,7 +603,7 @@ struct RoundRobin {
 
 impl RoundRobin {
 	fn new(sweeps: usize) -> Self {
-		Self { sweeps, schedule: Vec::new() }
+		Self { sweeps, schedule: Vec::default() }
 	}
 }
 
@@ -697,7 +697,7 @@ fn fide_pair_by_score(player_ids: &[Ustr], scores: &HashMap<Ustr, u32>, live_rat
 	players.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.2.partial_cmp(&a.2).unwrap()));
 
 	let mut pairs = Vec::with_capacity(n / 2);
-	let mut unpaired: Vec<(usize, u32, f64)> = Vec::new();
+	let mut unpaired: Vec<(usize, u32, f64)> = Vec::default();
 	let mut i = 0;
 
 	while i < players.len() {
