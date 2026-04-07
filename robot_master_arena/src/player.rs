@@ -36,15 +36,8 @@ where
 #[derive(Clone, Debug, derive_more::Display, Eq, PartialEq)]
 #[display("manual:{name}")]
 pub struct ManualPlayer {
-	pub name: String,
+	pub name: String = "Player".into(),
 }
-
-impl Default for ManualPlayer {
-	fn default() -> Self {
-		Self { name: "Player".into() }
-	}
-}
-
 impl FromStr for ManualPlayer {
 	type Err = String;
 

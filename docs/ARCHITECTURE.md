@@ -43,6 +43,10 @@ Gumbel AlphaZero selfplay and model evaluation.
 
 **Architecture Invariant:** selfplay produces `.bin` sample files and exits. No connection to the arena or rating DB.
 
+**Intentional divergences from MiniZero:**
+- **LR schedule**: MiniZero uses `StepLR(step_size=1_000_000, gamma=0.1)` — effectively flat for our training runs. We use `CosineAnnealingLR(T_max=total_steps)`. Functionally similar at our scale (300 iters × 200 steps = 60k total steps).
+- **Replay buffer granularity**: MiniZero evicts per-game. We evict per-iteration file (coarser). Functionally equivalent.
+
 **Parallelism model — game-level batching, not tree-level threading.**
 MiniZero uses multiple CPU threads searching the *same* tree in parallel, with virtual loss to prevent thread pile-up on a single path. We do the opposite: many independent games run concurrently (`play_games_batched`), each with its own tree (no sharing, no locking), and their NN calls are aggregated into one large `evaluate_batch` per loop iteration. This keeps the GPU saturated without any synchronization overhead. Virtual loss is therefore absent from our MCTS — it only makes sense when multiple threads compete on the same tree. For self-play training where sample throughput is the goal and GPU inference is the bottleneck, game-level batching is strictly better.
 

@@ -44,6 +44,12 @@ struct Args {
 	/// If omitted, starts NN selfplay immediately with no eval.
 	#[arg(long)]
 	supervise: Option<String>,
+	/// Average number of legal moves per position. Used to balance value vs policy loss:
+	/// value_weight = ln(per_move_actions), so both losses contribute equally at initialization.
+	/// For 5×5 Robot Master: ~5 legal moves → weight ≈ 1.6. MiniZero uses 0.25 which is
+	/// calibrated for Go (~200 legal moves → ln(200)≈5.3, 0.25*5.3≈1.3).
+	#[arg(long, default_value = "5")]
+	per_move_actions: u32,
 }
 
 fn main() {
@@ -52,6 +58,9 @@ fn main() {
 	// MiniZero: steps proportional to games collected, ratio 1:10 (final.tex line 299).
 	let train_steps = (args.games / 10).max(1);
 	let total_steps = train_steps * args.iterations;
+	// value_weight = ln(per_move_actions): balances value MSE (~1.0 at init) against policy KL
+	// (~ln(k) at init with uniform policy). MiniZero's 0.25 is implicitly ln(200)*0.25≈1.3 for Go.
+	let value_weight = (args.per_move_actions as f64).ln();
 	let hide_label = if args.hide { "hide" } else { "show" };
 	let run_id = format!("{}:g{}:s{}/{}x{}_{}", args.generation, args.games, args.sims, args.size, args.size, hide_label);
 	let data_dir = xdg_cache_dir(&format!("{run_id}/training_data"));
@@ -153,6 +162,7 @@ fn main() {
 				.args(["--steps", &train_steps.to_string()])
 				.args(["--total-steps", &total_steps.to_string()])
 				.args(["--max-iters", &replay_buffer_iters(args.iterations).to_string()])
+				.args(["--value-weight", &format!("{value_weight:.4}")])
 				.env("LD_LIBRARY_PATH", &zlib_path)
 				.current_dir(&repo_root);
 			if let Some(ref ckpt) = resume_checkpoint {

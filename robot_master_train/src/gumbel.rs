@@ -56,6 +56,10 @@ pub struct GumbelResult {
 	/// Improved policy π' = softmax(logits + σ(completedQ)), indexed by action.
 	/// Same length and ordering as the legal moves in the root evaluation.
 	pub policy_target: Vec<(Move, f32)>,
+	/// Root node mean Q after all simulations — the search-backed value estimate.
+	/// Equivalent to getMCTS()->getRootNode()->getMean() in MiniZero.
+	/// Used as the value training target instead of the raw game outcome.
+	pub root_mean: f32,
 }
 
 /// Run Gumbel AlphaZero search from `state`.
@@ -159,7 +163,11 @@ where
 	let improved_logits: Vec<f32> = (0..k).map(|i| logits[i] + (config.c_visit + max_visits_f) * config.c_scale * completed_q[i]).collect();
 	let policy_target = softmax_to_moves(&moves, &improved_logits);
 
-	GumbelResult { mv: moves[best_idx], policy_target }
+	GumbelResult {
+		mv: moves[best_idx],
+		policy_target,
+		root_mean: tree.nodes[0].q() as f32,
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -378,6 +386,7 @@ where
 		GumbelResult {
 			mv: self.moves[best_idx],
 			policy_target,
+			root_mean: self.tree.nodes[0].q() as f32,
 		}
 	}
 }
