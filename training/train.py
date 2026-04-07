@@ -25,7 +25,7 @@ class SelfPlayDataset(Dataset):
     File format per sample (written by Rust selfplay binary):
         state:  in_channels(N) * N * N float32 values (row-major)
         policy: (N+1) * N * N float32 values (visit count distribution, already normalized)
-        value:  1 float32 (+1 or -1, game outcome from perspective of player to move)
+        value:  1 float32 (MCTS root mean from perspective of player to move, in [-1, 1])
     """
 
     def __init__(self, data_dir: str, board_size: int = 5, max_iters: int = 0):

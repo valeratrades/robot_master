@@ -106,7 +106,7 @@ fn run_nn(args: &Args, config: &GumbelConfig, model_path: &str, timestamp: u64) 
 	macro_rules! run_batched {
 		($N:literal) => {{
 			let init_start = Instant::now();
-			let evaluator = NnEval::new(model_path, $N, args.force_cpu).expect("failed to load ONNX model");
+			let evaluator = NnEval::try_new(model_path, $N, args.force_cpu).expect("failed to load ONNX model");
 			let init_elapsed = init_start.elapsed().as_secs_f64();
 			let game_start = Instant::now();
 			let mut rng = SmallRng::seed_from_u64(42);
@@ -155,7 +155,7 @@ fn run_nn_sequential(args: &Args, config: &GumbelConfig, model_path: &str, times
 
 			let threads = args.threads.min(args.games);
 			(0..threads).into_par_iter().for_each(|thread_id| {
-				let evaluator = NnEval::new(model_path, $N, args.force_cpu).expect("failed to load ONNX model");
+				let evaluator = NnEval::try_new(model_path, $N, args.force_cpu).expect("failed to load ONNX model");
 				let games_per_thread = (args.games + threads - 1) / threads;
 				let mut rng = SmallRng::seed_from_u64(42 + thread_id as u64);
 				let mut thread_samples = 0u32;

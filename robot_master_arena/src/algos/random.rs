@@ -9,11 +9,20 @@ use crate::player::Bot;
 #[derive(Clone, CompactFormatNamed, Debug, Default, Eq, PartialEq)]
 pub struct Random {}
 
-#[derive(Clone, Debug, derive_more::Display)]
-#[display("{params}")]
+#[derive(Clone, Debug)]
 pub struct RandomPlayer {
-	params: Random = Random {},
-	rng: SmallRng = rand::make_rng(),
+	params: Random,
+	rng: SmallRng,
+}
+impl Default for RandomPlayer {
+	fn default() -> Self {
+		Self { params: Random {}, rng: rand::make_rng() }
+	}
+}
+impl std::fmt::Display for RandomPlayer {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.params)
+	}
 }
 impl PartialEq for RandomPlayer {
 	fn eq(&self, other: &Self) -> bool {

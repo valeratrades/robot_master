@@ -85,8 +85,8 @@ fn play_game_5(player_a_model: &str, player_b_model: &str, sims: u32, rng: &mut 
 		m_actions: sims.min(16),
 		..GumbelConfig::default()
 	};
-	let mut bot_a = GumbelMcts::new(NnEval::new(player_a_model, 5, false).expect("failed to load player A model"), make_config());
-	let mut bot_b = GumbelMcts::new(NnEval::new(player_b_model, 5, false).expect("failed to load player B model"), make_config());
+	let mut bot_a = GumbelMcts::new(NnEval::try_new(player_a_model, 5, false).expect("failed to load player A model"), make_config());
+	let mut bot_b = GumbelMcts::new(NnEval::try_new(player_b_model, 5, false).expect("failed to load player B model"), make_config());
 	let mut state = GameState::<5>::new(GameConfig::default(), rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 
 	while state.outcome().is_none() {
