@@ -21,7 +21,7 @@ pub struct NnEval {
 }
 
 impl NnEval {
-	pub fn new(model_path: &str, board_size: usize, force_cpu: bool) -> ort::Result<Self> {
+	pub fn try_new(model_path: &str, board_size: usize, force_cpu: bool) -> ort::Result<Self> {
 		let mut builder = Session::builder()?;
 		if !force_cpu {
 			builder = builder.with_execution_providers([ep::CUDA::default().build()])?;

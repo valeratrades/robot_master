@@ -24,7 +24,7 @@ impl Sample {
 /// Play one game using Gumbel AlphaZero search and return all training samples.
 ///
 /// Policy targets are the completed-Q improved policy π' from each Gumbel search.
-/// Values are filled in retroactively from the game outcome.
+/// Value targets are the game outcome from the mover's perspective (±1/0).
 pub fn play_game<const N: usize, E, R>(state: &GameState<N>, evaluator: &E, config: &GumbelConfig, rng: &mut R) -> Vec<Sample>
 where
 	E: crate::mcts::Evaluator<N>,
@@ -58,7 +58,6 @@ where
 	pending
 		.into_iter()
 		.map(|s| {
-			use board_game::board::Outcome;
 			let value = match outcome {
 				Outcome::WonBy(winner) if winner == s.mover => 1.0,
 				Outcome::WonBy(_) => -1.0,
@@ -271,7 +270,8 @@ where
 	/// Called after the root eval arrives. Sets up the GumbelSearch for this move.
 	fn start_search(&mut self, root_eval: crate::mcts::Evaluation, config: &GumbelConfig, rng: &mut impl Rng) {
 		let state = self.game.clone();
-		// Record the pre-move state planes and mover for the sample
+		// Record the pre-move state planes and mover for the sample.
+		// value is filled in try_advance_move once root_mean is available.
 		let planes = encode_planes(&state);
 		let mover = state.turn;
 		self.pending_samples.push(PendingSample {
@@ -294,7 +294,7 @@ where
 
 		let result = self.search.take().unwrap().finish();
 
-		// Fill in the policy target for the sample we pushed in start_search
+		// Fill in the policy target for the sample we pushed in start_search.
 		let last = self.pending_samples.last_mut().expect("sample was pushed in start_search");
 		let mut policy = vec![0.0f32; action_size(N)];
 		for (mv, prob) in result.policy_target {

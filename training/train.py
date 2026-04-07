@@ -71,12 +71,21 @@ class SelfPlayDataset(Dataset):
 def alpha_zero_loss(
     policy_logits: torch.Tensor, value_pred: torch.Tensor, policy_target: torch.Tensor, value_target: torch.Tensor, value_weight: float = 0.25
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """L = value_weight * MSE(v, z) + CrossEntropy(p, pi).
+    """L = value_weight * MSE(v, z) + KL(pi || p).
+
+    Policy loss: KL divergence matching tmp/minizero/train.py:133.
+    KL divergence is correct for Gumbel AlphaZero — the improved policy target
+    is not uniform, so cross-entropy and KL diverge in their gradients.
 
     Returns (total_loss, value_loss, policy_loss) for logging.
     """
     value_loss = F.mse_loss(value_pred, value_target)
-    policy_loss = -(policy_target * F.log_softmax(policy_logits, dim=1)).sum(dim=1).mean()
+    # KL(pi || p) = sum(pi * (log pi - log p)); PyTorch kl_div takes (log_q, p).
+    policy_loss = F.kl_div(
+        F.log_softmax(policy_logits, dim=1),
+        policy_target,
+        reduction='none',
+    ).sum(dim=1).mean()
     return value_weight * value_loss + policy_loss, value_loss, policy_loss
 
 
@@ -175,5 +184,5 @@ if __name__ == "__main__":
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--resume", default=None, help="Resume from checkpoint")
     parser.add_argument("--max-iters", type=int, default=0, help="Cap replay buffer to this many most-recent iteration files (0 = no cap)")
-    parser.add_argument("--value-weight", type=float, default=0.25, help="Weight for value loss: total = value_weight * MSE + CE (AlphaZero: 1.0, MiniZero: 0.25)")
+    parser.add_argument("--value-weight", type=float, default=1.0, help="Weight for value loss: total = value_weight * MSE + KL. Set to ln(avg_legal_moves) for balanced gradients at init. MiniZero uses 0.25 (calibrated for Go ~200 legal moves). Default 1.0 = AlphaZero.")
     train(parser.parse_args())

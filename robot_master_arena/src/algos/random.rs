@@ -12,19 +12,9 @@ pub struct Random {}
 #[derive(Clone, Debug, derive_more::Display)]
 #[display("{params}")]
 pub struct RandomPlayer {
-	params: Random,
-	rng: SmallRng,
+	params: Random = Random {},
+	rng: SmallRng = rand::make_rng(),
 }
-
-impl Default for RandomPlayer {
-	fn default() -> Self {
-		Self {
-			params: Random {},
-			rng: rand::make_rng(),
-		}
-	}
-}
-
 impl PartialEq for RandomPlayer {
 	fn eq(&self, other: &Self) -> bool {
 		self.params == other.params
