@@ -1,4 +1,4 @@
-use board_game::board::{Board as _, Outcome};
+use board_game::board::Board as _;
 use rand::Rng;
 use robot_master_core::game::{GameConfig, GameState, Player, PlayerSigned};
 
@@ -12,7 +12,7 @@ use crate::{
 pub struct Sample {
 	pub state_planes: Vec<f32>,
 	pub policy: Vec<f32>,
-	/// +1.0 if the player who was to move at this step won, -1.0 if they lost.
+	/// MCTS root mean from the current player's perspective, in [-1, 1].
 	pub value: f32,
 }
 impl Sample {
@@ -24,7 +24,7 @@ impl Sample {
 /// Play one game using Gumbel AlphaZero search and return all training samples.
 ///
 /// Policy targets are the completed-Q improved policy π' from each Gumbel search.
-/// Value targets are the game outcome from the mover's perspective (±1/0).
+/// Value targets are the MCTS root mean from the current player's perspective.
 pub fn play_game<const N: usize, E, R>(state: &GameState<N>, evaluator: &E, config: &GumbelConfig, rng: &mut R) -> Vec<Sample>
 where
 	E: crate::mcts::Evaluator<N>,
@@ -32,7 +32,7 @@ where
 	[(); N * N]:,
 	[(); N + 1]:, {
 	let mut game = state.clone();
-	let mut pending: Vec<PendingSample> = Vec::with_capacity(GameState::<N>::total_moves());
+	let mut samples: Vec<Sample> = Vec::with_capacity(GameState::<N>::total_moves());
 
 	while game.outcome().is_none() {
 		let planes = encode_planes(&game);
@@ -46,30 +46,15 @@ where
 			policy[idx] = prob;
 		}
 
-		pending.push(PendingSample {
+		samples.push(Sample {
 			state_planes: planes,
 			policy,
-			mover,
+			value: result.root_value_mean,
 		});
 		game.play(result.mv).expect("Gumbel selected illegal move");
 	}
 
-	let outcome = game.outcome().expect("game must be finished");
-	pending
-		.into_iter()
-		.map(|s| {
-			let value = match outcome {
-				Outcome::WonBy(winner) if winner == s.mover => 1.0,
-				Outcome::WonBy(_) => -1.0,
-				Outcome::Draw => 0.0,
-			};
-			Sample {
-				state_planes: s.state_planes,
-				policy: s.policy,
-				value,
-			}
-		})
-		.collect()
+	samples
 }
 
 /// Play `total_games` games using a pool of `batch_size` concurrent in-flight
@@ -196,7 +181,8 @@ struct PendingSample {
 	state_planes: Vec<f32>,
 	/// Completed-Q improved policy over all 6*N² actions.
 	policy: Vec<f32>,
-	mover: Player,
+	/// MCTS root mean from current player's perspective.
+	value: f32,
 }
 
 // ---------------------------------------------------------------------------
@@ -270,14 +256,12 @@ where
 	/// Called after the root eval arrives. Sets up the GumbelSearch for this move.
 	fn start_search(&mut self, root_eval: crate::mcts::Evaluation, config: &GumbelConfig, rng: &mut impl Rng) {
 		let state = self.game.clone();
-		// Record the pre-move state planes and mover for the sample.
-		// value is filled in try_advance_move once root_mean is available.
+		// Record the pre-move state planes; policy and value are filled in try_advance_move.
 		let planes = encode_planes(&state);
-		let mover = state.turn;
 		self.pending_samples.push(PendingSample {
 			state_planes: planes,
 			policy: vec![],
-			mover,
+			value: 0.0,
 		});
 
 		let (gumbel_scores, moves, priors) = gumbel_setup::<N, _>(&root_eval, rng);
@@ -292,16 +276,18 @@ where
 			return;
 		}
 
+		let mover = self.game.turn;
 		let result = self.search.take().unwrap().finish();
 
-		// Fill in the policy target for the sample we pushed in start_search.
+		// Fill in the policy target and MCTS value for the sample we pushed in start_search.
 		let last = self.pending_samples.last_mut().expect("sample was pushed in start_search");
 		let mut policy = vec![0.0f32; action_size(N)];
 		for (mv, prob) in result.policy_target {
-			let idx = action_index(mv.card.0, mv.pos.row as usize, mv.pos.col as usize, N, last.mover == Player::B);
+			let idx = action_index(mv.card.0, mv.pos.row as usize, mv.pos.col as usize, N, mover == Player::B);
 			policy[idx] = prob;
 		}
 		last.policy = policy;
+		last.value = result.root_value_mean;
 
 		self.game.play(result.mv).expect("Gumbel selected illegal move");
 
@@ -317,20 +303,12 @@ where
 
 	/// Consume this game and produce its training samples.
 	fn finish(self) -> Vec<Sample> {
-		let outcome = self.game.outcome().expect("finish called on non-terminal game");
 		self.pending_samples
 			.into_iter()
-			.map(|s| {
-				let value = match outcome {
-					Outcome::WonBy(winner) if winner == s.mover => 1.0,
-					Outcome::WonBy(_) => -1.0,
-					Outcome::Draw => 0.0,
-				};
-				Sample {
-					state_planes: s.state_planes,
-					policy: s.policy,
-					value,
-				}
+			.map(|s| Sample {
+				state_planes: s.state_planes,
+				policy: s.policy,
+				value: s.value,
 			})
 			.collect()
 	}
@@ -378,7 +356,7 @@ mod tests {
 		for s in &samples {
 			assert_eq!(s.state_planes.len(), in_channels(5) * 25);
 			assert_eq!(s.policy.len(), action_size(5));
-			assert!(s.value == 1.0 || s.value == -1.0 || s.value == 0.0);
+			assert!(s.value >= -1.0 && s.value <= 1.0, "value out of [-1,1]: {}", s.value);
 			let policy_sum: f32 = s.policy.iter().sum();
 			assert!((policy_sum - 1.0).abs() < 1e-5, "policy not normalized: {policy_sum}");
 		}

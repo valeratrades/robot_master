@@ -21,7 +21,7 @@ where
 	[(); N + 1]:, {
 	if let InnerKind::OnnxPlayer(p) = &kind.inner {
 		let path = models_dir.join(format!("{}.onnx", p.stem));
-		let evaluator = NnEval::new(path.to_str().ok_or_else(|| format!("non-UTF8 model path: {path:?}"))?, N, false).map_err(|e| format!("failed to load {path:?}: {e}"))?;
+		let evaluator = NnEval::try_new(path.to_str().ok_or_else(|| format!("non-UTF8 model path: {path:?}"))?, N, false).map_err(|e| format!("failed to load {path:?}: {e}"))?;
 		return Ok(match kind.sims {
 			None => Box::new(evaluator),
 			Some((SearchKind::Vanilla, sims)) => Box::new(VanillaMcts::with_sims(evaluator, sims)),

@@ -26,7 +26,7 @@ pub struct GumbelConfig {
 	pub m_actions: u32,
 	/// c_visit in σ(q) = (c_visit + max_N) * c_scale * q. Paper default: 50.
 	pub c_visit: f32,
-	/// c_scale in σ. Use 0.1 with raw (unnormalized) Q-values in [-1, 1].
+	/// c_scale in σ. MiniZero default: 1.0 (with normalized Q-values in [-1, 1]).
 	pub c_scale: f32,
 	/// puct_init for non-root PUCT selection. MiniZero/AlphaZero default: 1.25.
 	/// puct_bias = puct_init + log((1 + N + puct_base) / puct_base)
@@ -42,7 +42,7 @@ impl Default for GumbelConfig {
 			n_simulations: n,
 			m_actions: n.min(16),
 			c_visit: 50.0,
-			c_scale: 0.1,
+			c_scale: 1.0,
 			puct_init: 1.25,
 			puct_base: 19652.0,
 		}
@@ -56,10 +56,9 @@ pub struct GumbelResult {
 	/// Improved policy π' = softmax(logits + σ(completedQ)), indexed by action.
 	/// Same length and ordering as the legal moves in the root evaluation.
 	pub policy_target: Vec<(Move, f32)>,
-	/// Root node mean Q after all simulations — the search-backed value estimate.
-	/// Equivalent to getMCTS()->getRootNode()->getMean() in MiniZero.
-	/// Used as the value training target instead of the raw game outcome.
-	pub root_mean: f32,
+	/// Backed-up MCTS mean at the root from the current player's perspective.
+	/// Used as the value training target (self-consistent bootstrap signal).
+	pub root_value_mean: f32,
 }
 
 /// Run Gumbel AlphaZero search from `state`.
@@ -166,7 +165,7 @@ where
 	GumbelResult {
 		mv: moves[best_idx],
 		policy_target,
-		root_mean: tree.nodes[0].q() as f32,
+		root_value_mean: tree.nodes[0].q() as f32,
 	}
 }
 
@@ -386,7 +385,7 @@ where
 		GumbelResult {
 			mv: self.moves[best_idx],
 			policy_target,
-			root_mean: self.tree.nodes[0].q() as f32,
+			root_value_mean: self.tree.nodes[0].q() as f32,
 		}
 	}
 }

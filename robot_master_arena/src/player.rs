@@ -33,10 +33,19 @@ where
 /// Placeholder for human-controlled players.
 ///
 /// `choose_move` panics — the caller must always supply moves via `Match::next(Some(m))`.
-#[derive(Clone, Debug, derive_more::Display, Eq, PartialEq)]
-#[display("manual:{name}")]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ManualPlayer {
-	pub name: String = "Player".into(),
+	pub name: String,
+}
+impl Default for ManualPlayer {
+	fn default() -> Self {
+		Self { name: "Player".to_string() }
+	}
+}
+impl std::fmt::Display for ManualPlayer {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "manual:{}", self.name)
+	}
 }
 impl FromStr for ManualPlayer {
 	type Err = String;
