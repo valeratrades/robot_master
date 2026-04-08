@@ -13,13 +13,18 @@ import torch
 import onnxruntime as ort
 
 from model_resnet import RobotMasterResNet, in_channels
+from model_transformer import RobotMasterTransformer
 
 
 def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
 
     model_kwargs = checkpoint.get("model_kwargs", {"board_size": board_size})
-    model = RobotMasterResNet(**model_kwargs)
+    model_type = checkpoint.get("model_type", "resnet")
+    if model_type == "transformer":
+        model = RobotMasterTransformer(**model_kwargs)
+    else:
+        model = RobotMasterResNet(**model_kwargs)
     model.load_state_dict(checkpoint["model"])
     model.eval()
 
@@ -34,6 +39,7 @@ def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
         dynamic_axes={"state": {0: "batch"}, "policy": {0: "batch"}, "value": {0: "batch"}},
         opset_version=18,
         external_data=False,
+        dynamo=False,
     )
     print(f"Exported to {output_path}")
 

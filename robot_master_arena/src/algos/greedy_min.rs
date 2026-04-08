@@ -64,7 +64,6 @@ where
 #[cfg(test)]
 mod tests {
 	use insta::assert_snapshot;
-	use robot_master_core::{cards::CardValue, game::Player};
 
 	use super::{super::test_utils::fixtures::*, *};
 

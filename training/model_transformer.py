@@ -9,12 +9,18 @@ Architecture (N×N board):
   Value:  reshape -> (B, d_model, N, N) -> Conv(->1, 1x1) -> BN -> ReLU -> FC(N*N, 64) -> ReLU -> FC(64, 1) -> tanh
 
 Block AttnRes (arxiv 2603.15031):
-  Replace standard h = h_prev + f(h_prev) with:
-    attended = softmax_over_depth(query @ [b_0,...,b_{n-1}, partial_block])
-    h = partial_block + f(attended)  -- but since we use "bias" gate type, attended replaces partial_block input
+  Replace standard h = h_prev + f(h_prev) with softmax attention over block-level history:
+    attended = softmax_over_depth(query @ [b_0, ..., b_{n-1}, partial_block])
+    sublayer_out = f(LayerNorm(attended))
+    partial_block = partial_block + sublayer_out
   The recency_bias is a large scalar added to the last logit (partial_block), so at init
-  attended ≈ partial_block and the model is equivalent to a standard transformer.
-  During training, proj weights learn to blend information from earlier blocks.
+  attended ≈ partial_block and the model behaves identically to a standard transformer.
+
+ONNX compatibility:
+  Block history is stored in a pre-allocated tensor buf[max_blocks, B, T, D].
+  Each layer receives a compile-time-constant slice count `n_blocks_seen` so that
+  buf[:n_blocks_seen+1] is a static shape from the ONNX tracer's perspective.
+  This avoids dynamic Python lists and variable-length stacks that break tracing.
 """
 
 import torch
@@ -25,35 +31,48 @@ from model_resnet import SEBlock, ResBlock, in_channels, action_size
 
 
 # ---------------------------------------------------------------------------
+# RMSNorm (manual — RMSNorm not supported by ONNX opset 18)
+# ---------------------------------------------------------------------------
+
+class RMSNorm(nn.Module):
+    def __init__(self, d: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(d))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        rms = x.pow(2).mean(-1, keepdim=True).add(self.eps).sqrt()
+        return self.weight * (x / rms)
+
+
+# ---------------------------------------------------------------------------
 # Block AttnRes core operation
 # ---------------------------------------------------------------------------
 
 def block_attn_res(
-    blocks: list[torch.Tensor],   # completed block sums [B, T, D] each
-    partial_block: torch.Tensor,  # current intra-block partial sum [B, T, D]
+    V: torch.Tensor,              # stacked history [N, B, T, D] — blocks + partial
     proj: nn.Linear,              # pseudo-query weight, Linear(D, 1, bias=False)
-    norm: nn.RMSNorm,             # applied to keys before scoring
-    recency_bias: nn.Parameter,   # scalar added to partial_block's logit
+    norm: RMSNorm,             # applied to keys before scoring
+    recency_bias: nn.Parameter,   # scalar added to partial_block's logit (last slot)
 ) -> torch.Tensor:
-    """Attend over all block representations + current partial block.
+    """Attend over N block representations (last entry = current partial block).
 
     Returns [B, T, D] — the attended aggregation of depth history.
-    At init (proj weights zero, large recency_bias), output ≈ partial_block.
+    At init (proj weights zero, large recency_bias), output ≈ V[-1] = partial_block.
     """
-    # Stack: [N+1, B, T, D]
-    V = torch.stack(blocks + [partial_block], dim=0)
-
-    # Keys = RMSNorm(V)
+    # Keys = RMSNorm(V), shape [N, B, T, D]
     K = norm(V)
 
     # Pseudo-query: single learned vector (D,)
     query = proj.weight.view(-1)                              # (D,)
-    logits = torch.einsum("d, n b t d -> n b t", query, K)   # (N+1, B, T)
+    logits = torch.einsum("d, n b t d -> n b t", query, K)   # (N, B, T)
 
-    # Recency bias: boost partial_block (last element)
-    logits[-1] = logits[-1] + recency_bias
+    # Recency bias: boost last slot (partial_block)
+    bias = torch.zeros(logits.shape[0], 1, 1, device=logits.device, dtype=logits.dtype)
+    bias[-1] = recency_bias
+    logits = logits + bias
 
-    weights = logits.softmax(dim=0)                           # (N+1, B, T)
+    weights = logits.softmax(dim=0)                           # (N, B, T)
     h = torch.einsum("n b t, n b t d -> b t d", weights, V)  # (B, T, D)
     return h
 
@@ -65,19 +84,23 @@ def block_attn_res(
 class AttnResTransformerLayer(nn.Module):
     """Single transformer layer (self-attn + MLP) using Block AttnRes residuals.
 
-    At each sublayer, instead of computing f(partial_block), we compute:
-      h = block_attn_res(blocks, partial_block)   # ≈ partial_block at init
-      sublayer_out = f(LayerNorm(h))
-      partial_block = partial_block + sublayer_out
-
-    This preserves the standard residual stream semantics while allowing each
-    sublayer to selectively aggregate from earlier block representations.
+    `n_blocks_before` is a compile-time constant: how many completed blocks exist
+    before this layer runs. The block buffer slice buf[:n_blocks_before+1] has a
+    static shape that ONNX can trace without dynamic control flow.
     """
 
-    def __init__(self, d_model: int, num_heads: int, mlp_ratio: int, recency_bias_init: float, layer_idx: int, layers_per_block: int):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        mlp_ratio: int,
+        recency_bias_init: float,
+        is_boundary: bool,
+        n_blocks_before: int,
+    ):
         super().__init__()
-        self.layer_idx = layer_idx
-        self.layers_per_block = layers_per_block
+        self.is_boundary = is_boundary
+        self.n_blocks_before = n_blocks_before
 
         # Self-attention sublayer
         self.attn = nn.MultiheadAttention(d_model, num_heads, batch_first=True)
@@ -94,43 +117,57 @@ class AttnResTransformerLayer(nn.Module):
 
         # AttnRes components for attention sublayer
         self.attn_res_proj = nn.Linear(d_model, 1, bias=False)
-        self.attn_res_norm = nn.RMSNorm(d_model)
+        self.attn_res_norm = RMSNorm(d_model)
         self.attn_res_bias = nn.Parameter(torch.tensor(recency_bias_init))
 
         # AttnRes components for MLP sublayer
         self.mlp_res_proj = nn.Linear(d_model, 1, bias=False)
-        self.mlp_res_norm = nn.RMSNorm(d_model)
+        self.mlp_res_norm = RMSNorm(d_model)
         self.mlp_res_bias = nn.Parameter(torch.tensor(recency_bias_init))
 
-        # Zero-init pseudo-query projections: uniform attention across blocks at init,
-        # but recency_bias >> 0 dominates, making attended ≈ partial_block.
+        # Zero-init pseudo-queries: at init, recency_bias dominates → attended ≈ partial_block.
         nn.init.zeros_(self.attn_res_proj.weight)
         nn.init.zeros_(self.mlp_res_proj.weight)
 
-    @property
-    def is_block_boundary(self) -> bool:
-        return (self.layer_idx + 1) % self.layers_per_block == 0
-
     def forward(
         self,
-        blocks: list[torch.Tensor],
-        partial_block: torch.Tensor,
-    ) -> tuple[list[torch.Tensor], torch.Tensor]:
+        buf: torch.Tensor,        # [max_blocks, B, T, D] — pre-allocated block buffer
+        next_slot: int,           # index of next free slot in buf (compile-time constant)
+        partial_block: torch.Tensor,  # [B, T, D]
+    ) -> tuple[torch.Tensor, int, torch.Tensor]:
+        n = self.n_blocks_before  # number of completed blocks before this layer
+
+        # Build V: [n+1, B, T, D] — n completed blocks + current partial
+        # buf[:n] are the completed blocks; partial_block is appended as the last slot.
+        # This slice has a static shape (n is compile-time constant).
+        if n == 0:
+            V_attn = partial_block.unsqueeze(0)   # [1, B, T, D]
+        else:
+            V_attn = torch.cat([buf[:n], partial_block.unsqueeze(0)], dim=0)
+
         # ---- Attention sublayer ----
-        h = block_attn_res(blocks, partial_block, self.attn_res_proj, self.attn_res_norm, self.attn_res_bias)
+        h = block_attn_res(V_attn, self.attn_res_proj, self.attn_res_norm, self.attn_res_bias)
         attn_out, _ = self.attn(self.norm1(h), self.norm1(h), self.norm1(h))
         partial_block = partial_block + attn_out
 
+        # V for MLP: partial_block has been updated, rebuild with same blocks
+        if n == 0:
+            V_mlp = partial_block.unsqueeze(0)
+        else:
+            V_mlp = torch.cat([buf[:n], partial_block.unsqueeze(0)], dim=0)
+
         # ---- MLP sublayer ----
-        h = block_attn_res(blocks, partial_block, self.mlp_res_proj, self.mlp_res_norm, self.mlp_res_bias)
+        h = block_attn_res(V_mlp, self.mlp_res_proj, self.mlp_res_norm, self.mlp_res_bias)
         mlp_out = self.mlp(self.norm2(h))
         partial_block = partial_block + mlp_out
 
-        # At block boundaries, snapshot partial_block into the history
-        if self.is_block_boundary:
-            blocks = blocks + [partial_block]
+        # At block boundaries, write partial_block into the next buffer slot
+        if self.is_boundary:
+            buf = buf.clone()
+            buf[next_slot] = partial_block
+            next_slot = next_slot + 1
 
-        return blocks, partial_block
+        return buf, next_slot, partial_block
 
 
 # ---------------------------------------------------------------------------
@@ -142,13 +179,6 @@ class RobotMasterTransformer(nn.Module):
 
     Drop-in replacement for RobotMasterResNet:
       forward(x) -> (policy_logits, value_scalar)
-
-    Architecture:
-      - Stem: Conv + BN + ReLU + num_stem_blocks x SE-ResBlock  [spatial encoding]
-      - Flatten: (B, d_model, N, N) -> (B, N*N, d_model)        [token sequence]
-      - Transformer: num_layers x AttnResTransformerLayer        [depth attention]
-      - Reshape: (B, N*N, d_model) -> (B, d_model, N, N)        [spatial recovery]
-      - Policy head and value head (same as ResNet)
     """
 
     def __init__(
@@ -165,6 +195,7 @@ class RobotMasterTransformer(nn.Module):
         super().__init__()
         self.board_size = board_size
         self.d_model = num_filters
+        self.num_attnres_blocks = num_attnres_blocks
         n2 = board_size * board_size
 
         # ---- Stem: spatial feature extraction ----
@@ -175,17 +206,22 @@ class RobotMasterTransformer(nn.Module):
 
         # ---- Transformer body with Block AttnRes ----
         layers_per_block = max(1, (num_transformer_layers + num_attnres_blocks - 1) // num_attnres_blocks)
-        self.transformer_layers = nn.ModuleList([
-            AttnResTransformerLayer(
+        layers = []
+        n_blocks_before = 0  # completed blocks before each layer (includes b_0 = token embedding)
+        for i in range(num_transformer_layers):
+            is_boundary = (i + 1) % layers_per_block == 0
+            layers.append(AttnResTransformerLayer(
                 d_model=num_filters,
                 num_heads=num_heads,
                 mlp_ratio=mlp_ratio,
                 recency_bias_init=recency_bias_init,
-                layer_idx=i,
-                layers_per_block=layers_per_block,
-            )
-            for i in range(num_transformer_layers)
-        ])
+                is_boundary=is_boundary,
+                # b_0 = token embedding is always slot 0; completed transformer blocks start at slot 1
+                n_blocks_before=n_blocks_before + 1,  # +1 for token embedding in slot 0
+            ))
+            if is_boundary:
+                n_blocks_before += 1
+        self.transformer_layers = nn.ModuleList(layers)
         self.final_norm = nn.LayerNorm(num_filters)
 
         # ---- Policy head ----
@@ -200,7 +236,7 @@ class RobotMasterTransformer(nn.Module):
         self.value_fc2 = nn.Linear(64, 1)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        B, _, N, _ = x.shape
+        N = self.board_size
 
         # ---- Stem ----
         out = F.relu(self.bn_in(self.conv_in(x)))
@@ -212,19 +248,24 @@ class RobotMasterTransformer(nn.Module):
         # (B, d_model, N, N) -> (B, N*N, d_model)
         tokens = out.flatten(2).transpose(1, 2)
 
-        # ---- Transformer with Block AttnRes ----
-        # Token embedding acts as b_0 per the paper (§3.2, b_0 = h_1 = token embedding)
-        blocks: list[torch.Tensor] = [tokens]
-        partial_block: torch.Tensor = tokens
+        B, T, D = tokens.shape
 
+        # ---- Pre-allocate block buffer ----
+        # Slots: [0] = token embedding (b_0), [1..] = completed transformer blocks
+        max_slots = 1 + self.num_attnres_blocks
+        buf = tokens.new_zeros(max_slots, B, T, D)
+        buf[0] = tokens  # b_0 = token embedding
+        next_slot = 1
+
+        partial_block = tokens
         for layer in self.transformer_layers:
-            blocks, partial_block = layer(blocks, partial_block)
+            buf, next_slot, partial_block = layer(buf, next_slot, partial_block)
 
         partial_block = self.final_norm(partial_block)
 
         # ---- Reshape back to spatial ----
         # (B, N*N, d_model) -> (B, d_model, N, N)
-        spatial = partial_block.transpose(1, 2).reshape(B, self.d_model, N, N)
+        spatial = partial_block.transpose(1, 2).reshape(-1, self.d_model, N, N)
 
         # ---- Policy head ----
         p = F.relu(self.policy_bn(self.policy_conv(spatial)))
@@ -241,8 +282,6 @@ class RobotMasterTransformer(nn.Module):
 
 
 if __name__ == "__main__":
-    from model_resnet import encode_state
-
     board_size = 5
     model = RobotMasterTransformer(board_size=board_size)
     total_params = sum(p.numel() for p in model.parameters())
