@@ -41,8 +41,7 @@ impl Default for ManualPlayer {
 	fn default() -> Self {
 		Self { name: "Player".to_string() }
 	}
-}
-impl std::fmt::Display for ManualPlayer {
+}impl std::fmt::Display for ManualPlayer {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "manual:{}", self.name)
 	}

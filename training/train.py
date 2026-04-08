@@ -108,7 +108,11 @@ def train(args: argparse.Namespace) -> None:
 
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=2, pin_memory=True)
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
+    # Transformers train stably with Adam; SGD + high LR diverges.
+    if args.model == "transformer":
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    else:
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
     # Cosine schedule spans the full training run (steps_per_iter * total_iters), not just
     # one iteration. MiniZero trains with a single continuous schedule over 60k total steps.
     # We restore last_epoch so the scheduler resumes at the right position after each call.
@@ -118,9 +122,14 @@ def train(args: argparse.Namespace) -> None:
         ckpt_model_type = ckpt.get("model_type", "resnet")
         if ckpt_model_type != args.model:
             raise ValueError(f"Checkpoint model type '{ckpt_model_type}' does not match --model '{args.model}'")
-        model.load_state_dict(ckpt["model"])
-        optimizer.load_state_dict(ckpt["optimizer"])
-        global_step_offset = ckpt.get("global_step", 0)
+        model_state = ckpt["model"]
+        nan_params = [k for k, v in model_state.items() if torch.any(torch.isnan(v))]
+        if nan_params:
+            print(f"WARNING: checkpoint has NaN weights in {len(nan_params)} tensors — discarding and starting fresh")
+        else:
+            model.load_state_dict(model_state)
+            optimizer.load_state_dict(ckpt["optimizer"])
+            global_step_offset = ckpt.get("global_step", 0)
     # Cosine schedule spans the full training run, not just one iteration call.
     # last_epoch restores the scheduler's position so LR continues from where it left off.
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.total_steps, last_epoch=global_step_offset if global_step_offset > 0 else -1)
@@ -149,6 +158,7 @@ def train(args: argparse.Namespace) -> None:
 
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
         optimizer.step()
         scheduler.step()
 
@@ -189,7 +199,9 @@ if __name__ == "__main__":
     parser.add_argument("--total-steps", type=int, required=True, help="Total steps across all iterations, for cosine schedule T_max")
     # MiniZero (arxiv 2310.11305, table 2) uses lr=0.1 with SGD+momentum=0.9 for board games.
     # Original AlphaZero (1712.01815) also starts at 0.1. Our previous 0.02 was 5x too low.
+    # For transformer (Adam), 1e-3 is standard. Pass --lr explicitly to override.
     parser.add_argument("--lr", type=float, default=0.1)
+    parser.add_argument("--grad-clip", type=float, default=1.0, help="Max gradient norm (applied every step). Default 1.0 is safe for both ResNet and Transformer.")
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--resume", default=None, help="Resume from checkpoint")
     parser.add_argument("--max-iters", type=int, default=0, help="Cap replay buffer to this many most-recent iteration files (0 = no cap)")
