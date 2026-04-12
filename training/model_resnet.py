@@ -22,6 +22,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def screlu(x: torch.Tensor) -> torch.Tensor:
+    """SCReLU: concatenate squared and linear clipped-relu branches, doubling channels."""
+    c = x.clamp(0.0, 1.0)
+    return torch.cat([c * c, c], dim=1)
+
+
 def in_channels(n: int) -> int:
     """Number of input planes for an N×N board."""
     return 3 * n + 3
@@ -88,7 +94,7 @@ class SEBlock(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         b, c, _, _ = x.shape
         squeezed = self.pool(x).view(b, c)
-        excited = F.relu(self.fc1(squeezed))
+        excited = F.leaky_relu(self.fc1(squeezed))
         excited = self.fc2(excited)
         w, bias = excited.split(self.channels, dim=1)
         w = torch.sigmoid(w).view(b, c, 1, 1)
@@ -109,10 +115,10 @@ class ResBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         residual = x
-        out = F.relu(self.bn1(self.conv1(x)))
+        out = F.leaky_relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         out = self.se(out)
-        return F.relu(out + residual)
+        return F.leaky_relu(out + residual)
 
 
 class RobotMasterResNet(nn.Module):
@@ -139,29 +145,29 @@ class RobotMasterResNet(nn.Module):
         # policy head
         self.policy_conv = nn.Conv2d(num_filters, 2, 1, bias=False)
         self.policy_bn = nn.BatchNorm2d(2)
-        self.policy_fc = nn.Linear(2 * n2, action_size(board_size))
+        self.policy_fc = nn.Linear(4 * n2, action_size(board_size))  # 2x from SCReLU
 
         # value head
         self.value_conv = nn.Conv2d(num_filters, 1, 1, bias=False)
         self.value_bn = nn.BatchNorm2d(1)
-        self.value_fc1 = nn.Linear(n2, 64)
-        self.value_fc2 = nn.Linear(64, 1)
+        self.value_fc1 = nn.Linear(2 * n2, 64)  # 2x from SCReLU
+        self.value_fc2 = nn.Linear(128, 1)  # 2x from SCReLU
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # body
-        out = F.relu(self.bn_in(self.conv_in(x)))
+        out = F.leaky_relu(self.bn_in(self.conv_in(x)))
         for block in self.blocks:
             out = block(out)
 
         # policy head
-        p = F.relu(self.policy_bn(self.policy_conv(out)))
+        p = screlu(self.policy_bn(self.policy_conv(out)))
         p = p.flatten(1)
         p = self.policy_fc(p)
 
         # value head
-        v = F.relu(self.value_bn(self.value_conv(out)))
+        v = screlu(self.value_bn(self.value_conv(out)))
         v = v.flatten(1)
-        v = F.relu(self.value_fc1(v))
+        v = screlu(self.value_fc1(v))
         v = torch.tanh(self.value_fc2(v))
 
         return p, v.squeeze(-1)

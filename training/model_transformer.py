@@ -27,7 +27,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model_resnet import SEBlock, ResBlock, in_channels, action_size
+from model_resnet import SEBlock, ResBlock, in_channels, action_size, screlu
 
 
 # ---------------------------------------------------------------------------
@@ -227,19 +227,19 @@ class RobotMasterTransformer(nn.Module):
         # ---- Policy head ----
         self.policy_conv = nn.Conv2d(num_filters, 2, 1, bias=False)
         self.policy_bn = nn.BatchNorm2d(2)
-        self.policy_fc = nn.Linear(2 * n2, action_size(board_size))
+        self.policy_fc = nn.Linear(4 * n2, action_size(board_size))  # 2x from SCReLU
 
         # ---- Value head ----
         self.value_conv = nn.Conv2d(num_filters, 1, 1, bias=False)
         self.value_bn = nn.BatchNorm2d(1)
-        self.value_fc1 = nn.Linear(n2, 64)
-        self.value_fc2 = nn.Linear(64, 1)
+        self.value_fc1 = nn.Linear(2 * n2, 64)  # 2x from SCReLU
+        self.value_fc2 = nn.Linear(128, 1)  # 2x from SCReLU
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         N = self.board_size
 
         # ---- Stem ----
-        out = F.relu(self.bn_in(self.conv_in(x)))
+        out = F.leaky_relu(self.bn_in(self.conv_in(x)))
         for block in self.stem_blocks:
             out = block(out)
         # out: (B, d_model, N, N)
@@ -268,14 +268,14 @@ class RobotMasterTransformer(nn.Module):
         spatial = partial_block.transpose(1, 2).reshape(-1, self.d_model, N, N)
 
         # ---- Policy head ----
-        p = F.relu(self.policy_bn(self.policy_conv(spatial)))
+        p = screlu(self.policy_bn(self.policy_conv(spatial)))
         p = p.flatten(1)
         p = self.policy_fc(p)
 
         # ---- Value head ----
-        v = F.relu(self.value_bn(self.value_conv(spatial)))
+        v = screlu(self.value_bn(self.value_conv(spatial)))
         v = v.flatten(1)
-        v = F.relu(self.value_fc1(v))
+        v = screlu(self.value_fc1(v))
         v = torch.tanh(self.value_fc2(v))
 
         return p, v.squeeze(-1)
