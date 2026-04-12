@@ -28,8 +28,6 @@ def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
     model.load_state_dict(checkpoint["model"])
     model.eval()
 
-    dummy = torch.randn(1, in_channels(model.board_size), model.board_size, model.board_size)
-
     # Wrap to drop the soft head — Rust inference only consumes policy + value.
     class ExportWrapper(torch.nn.Module):
         def __init__(self, inner: torch.nn.Module):
@@ -41,27 +39,36 @@ def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
             return policy, value
 
     export_model = ExportWrapper(model)
+    export_model.eval()
 
-    torch.onnx.export(
+    N = model.board_size
+    # Use batch=2 so dynamo doesn't specialize the batch dim to a constant.
+    dummy = torch.randn(2, in_channels(N), N, N)
+
+    batch_dim = torch.export.Dim("batch")
+    ep = torch.export.export(
         export_model,
-        dummy,
-        output_path,
+        (dummy,),
+        dynamic_shapes=({0: batch_dim},),
+        strict=False,
+    )
+
+    onnx_prog = torch.onnx.export(
+        ep,
         input_names=["state"],
         output_names=["policy", "value"],
-        # value is [batch, 3] WDL logits; both dims are dynamic
-        dynamic_axes={"state": {0: "batch"}, "policy": {0: "batch"}, "value": {0: "batch", 1: "wdl"}},
         opset_version=18,
-        external_data=False,
-        dynamo=False,
     )
+    onnx_prog.save(output_path)
     print(f"Exported to {output_path}")
 
     # validate roundtrip
+    dummy1 = torch.randn(1, in_channels(N), N, N)
     with torch.no_grad():
-        pt_policy, pt_value = export_model(dummy)
+        pt_policy, pt_value = export_model(dummy1)
 
     sess = ort.InferenceSession(output_path)
-    onnx_policy, onnx_value = sess.run(None, {"state": dummy.numpy()})
+    onnx_policy, onnx_value = sess.run(None, {"state": dummy1.numpy()})
 
     np.testing.assert_allclose(pt_policy.numpy(), onnx_policy, rtol=1e-3, atol=1e-4)
     # pt_value is [batch, 3] WDL logits; onnx_value shape should match

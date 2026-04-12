@@ -232,6 +232,7 @@ class RobotMasterTransformer(nn.Module):
 
         # ---- Flatten to token sequence ----
         # (B, d_model, N, N) -> (B, N*N, d_model)
+        B = x.shape[0]
         tokens = out.flatten(2).transpose(1, 2)
 
         # ---- Block history as a list: [b_0=token_embedding, ...completed_transformer_blocks] ----
