@@ -30,8 +30,20 @@ def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
 
     dummy = torch.randn(1, in_channels(model.board_size), model.board_size, model.board_size)
 
+    # Wrap to drop the soft head — Rust inference only consumes policy + value.
+    class ExportWrapper(torch.nn.Module):
+        def __init__(self, inner: torch.nn.Module):
+            super().__init__()
+            self.inner = inner
+
+        def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+            policy, _policy_soft, value = self.inner(x)
+            return policy, value
+
+    export_model = ExportWrapper(model)
+
     torch.onnx.export(
-        model,
+        export_model,
         dummy,
         output_path,
         input_names=["state"],
@@ -46,7 +58,7 @@ def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
 
     # validate roundtrip
     with torch.no_grad():
-        pt_policy, pt_value = model(dummy)
+        pt_policy, pt_value = export_model(dummy)
 
     sess = ort.InferenceSession(output_path)
     onnx_policy, onnx_value = sess.run(None, {"state": dummy.numpy()})

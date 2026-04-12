@@ -87,16 +87,22 @@ def value_to_wdl_target(v: torch.Tensor) -> torch.Tensor:
 
 
 def alpha_zero_loss(
-    policy_logits: torch.Tensor, value_logits: torch.Tensor, policy_target: torch.Tensor, value_target: torch.Tensor, value_weight: float = 0.25
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """L = value_weight * CE(wdl, z) + KL(pi || p).
+    policy_logits: torch.Tensor,
+    policy_soft_logits: torch.Tensor,
+    value_logits: torch.Tensor,
+    policy_target: torch.Tensor,
+    value_target: torch.Tensor,
+    value_weight: float = 0.25,
+    soft_policy_temperature: float = 4.0,
+    soft_policy_weight: float = 8.0,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """L = value_weight * CE(wdl, z) + KL(pi_hard || p) + soft_policy_weight * KL(pi_soft || p_soft).
 
     Value loss: soft cross-entropy against WDL target derived from scalar value.
-    Policy loss: KL divergence matching tmp/minizero/train.py:133.
-    KL divergence is correct for Gumbel AlphaZero — the improved policy target
-    is not uniform, so cross-entropy and KL diverge in their gradients.
+    Hard policy loss: KL divergence against original MCTS distribution.
+    Soft policy loss: KL divergence against temperature-scaled MCTS distribution (T=soft_policy_temperature).
 
-    Returns (total_loss, value_loss, policy_loss) for logging.
+    Returns (total_loss, value_loss, policy_loss, policy_soft_loss) for logging.
     """
     wdl_target = value_to_wdl_target(value_target)  # [B, 3]
     # F.cross_entropy accepts soft targets when passed as a 2D float tensor.
@@ -107,7 +113,16 @@ def alpha_zero_loss(
         policy_target,
         reduction='none',
     ).sum(dim=1).mean()
-    return value_weight * value_loss + policy_loss, value_loss, policy_loss
+    # Soft target: raise each prob to (1/T), renormalize
+    soft_target = policy_target ** (1.0 / soft_policy_temperature)
+    soft_target = soft_target / soft_target.sum(dim=1, keepdim=True)
+    policy_soft_loss = F.kl_div(
+        F.log_softmax(policy_soft_logits, dim=1),
+        soft_target,
+        reduction='none',
+    ).sum(dim=1).mean()
+    total = value_weight * value_loss + policy_loss + soft_policy_weight * policy_soft_loss
+    return total, value_loss, policy_loss, policy_soft_loss
 
 
 def train(args: argparse.Namespace) -> None:
@@ -173,8 +188,11 @@ def train(args: argparse.Namespace) -> None:
         policy_targets = policy_targets.to(device)
         value_targets = value_targets.to(device)
 
-        policy_logits, value_pred = model(states)
-        loss, v_loss, p_loss = alpha_zero_loss(policy_logits, value_pred, policy_targets, value_targets, args.value_weight)
+        policy_logits, policy_soft_logits, value_pred = model(states)
+        loss, v_loss, p_loss, ps_loss = alpha_zero_loss(
+            policy_logits, policy_soft_logits, value_pred, policy_targets, value_targets,
+            args.value_weight, args.soft_policy_temperature, args.soft_policy_weight,
+        )
 
         optimizer.zero_grad()
         loss.backward()
@@ -188,6 +206,7 @@ def train(args: argparse.Namespace) -> None:
             writer.add_scalar("loss/total", loss.item(), global_step)
             writer.add_scalar("loss/value", v_loss.item(), global_step)
             writer.add_scalar("loss/policy", p_loss.item(), global_step)
+            writer.add_scalar("loss/policy_soft", ps_loss.item(), global_step)
             writer.add_scalar("lr", scheduler.get_last_lr()[0], global_step)
 
     avg = total_loss / max(args.steps, 1)
@@ -226,4 +245,6 @@ if __name__ == "__main__":
     parser.add_argument("--resume", default=None, help="Resume from checkpoint")
     parser.add_argument("--max-iters", type=int, default=0, help="Cap replay buffer to this many most-recent iteration files (0 = no cap)")
     parser.add_argument("--value-weight", type=float, default=1.0, help="Weight for value loss: total = value_weight * MSE + KL. Set to ln(avg_legal_moves) for balanced gradients at init. MiniZero uses 0.25 (calibrated for Go ~200 legal moves). Default 1.0 = AlphaZero.")
+    parser.add_argument("--soft-policy-temperature", type=float, default=4.0, help="Temperature for soft policy target: target = visits^(1/T), renormalized. Default 4.0 (Chessformer).")
+    parser.add_argument("--soft-policy-weight", type=float, default=8.0, help="Weight for soft policy loss. Default 8.0 (Chessformer).")
     train(parser.parse_args())
