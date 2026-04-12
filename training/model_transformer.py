@@ -85,8 +85,9 @@ class AttnResTransformerLayer(nn.Module):
     """Single transformer layer (self-attn + MLP) using Block AttnRes residuals.
 
     `n_blocks_before` is a compile-time constant: how many completed blocks exist
-    before this layer runs. The block buffer slice buf[:n_blocks_before+1] has a
-    static shape that ONNX can trace without dynamic control flow.
+    before this layer runs. Completed blocks are passed as a Python list of tensors
+    (each [B, T, D]) so TorchScript unrolls the list at trace time — no dynamic
+    indexing into a mutable buffer, which broke ONNX tracing.
     """
 
     def __init__(
@@ -96,11 +97,9 @@ class AttnResTransformerLayer(nn.Module):
         mlp_ratio: int,
         recency_bias_init: float,
         is_boundary: bool,
-        n_blocks_before: int,
     ):
         super().__init__()
         self.is_boundary = is_boundary
-        self.n_blocks_before = n_blocks_before
 
         # Self-attention sublayer
         self.attn = nn.MultiheadAttention(d_model, num_heads, batch_first=True)
@@ -131,43 +130,30 @@ class AttnResTransformerLayer(nn.Module):
 
     def forward(
         self,
-        buf: torch.Tensor,        # [max_blocks, B, T, D] — pre-allocated block buffer
-        next_slot: int,           # index of next free slot in buf (compile-time constant)
-        partial_block: torch.Tensor,  # [B, T, D]
-    ) -> tuple[torch.Tensor, int, torch.Tensor]:
-        n = self.n_blocks_before  # number of completed blocks before this layer
-
-        # Build V: [n+1, B, T, D] — n completed blocks + current partial
-        # buf[:n] are the completed blocks; partial_block is appended as the last slot.
-        # This slice has a static shape (n is compile-time constant).
-        if n == 0:
-            V_attn = partial_block.unsqueeze(0)   # [1, B, T, D]
-        else:
-            V_attn = torch.cat([buf[:n], partial_block.unsqueeze(0)], dim=0)
+        completed_blocks: list[torch.Tensor],  # list of [B, T, D] — completed blocks so far
+        partial_block: torch.Tensor,           # [B, T, D]
+    ) -> tuple[list[torch.Tensor], torch.Tensor]:
+        # Build V: stack completed blocks + partial into [n+1, B, T, D]
+        V_attn = torch.stack(completed_blocks + [partial_block], dim=0)
 
         # ---- Attention sublayer ----
         h = block_attn_res(V_attn, self.attn_res_proj, self.attn_res_norm, self.attn_res_bias)
         attn_out, _ = self.attn(self.norm1(h), self.norm1(h), self.norm1(h))
         partial_block = partial_block + attn_out
 
-        # V for MLP: partial_block has been updated, rebuild with same blocks
-        if n == 0:
-            V_mlp = partial_block.unsqueeze(0)
-        else:
-            V_mlp = torch.cat([buf[:n], partial_block.unsqueeze(0)], dim=0)
+        # V for MLP: partial_block updated, rebuild stack
+        V_mlp = torch.stack(completed_blocks + [partial_block], dim=0)
 
         # ---- MLP sublayer ----
         h = block_attn_res(V_mlp, self.mlp_res_proj, self.mlp_res_norm, self.mlp_res_bias)
         mlp_out = self.mlp(self.norm2(h))
         partial_block = partial_block + mlp_out
 
-        # At block boundaries, write partial_block into the next buffer slot
+        # At block boundaries, append partial_block as a new completed block
         if self.is_boundary:
-            buf = buf.clone()
-            buf[next_slot] = partial_block
-            next_slot = next_slot + 1
+            completed_blocks = completed_blocks + [partial_block]
 
-        return buf, next_slot, partial_block
+        return completed_blocks, partial_block
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +193,6 @@ class RobotMasterTransformer(nn.Module):
         # ---- Transformer body with Block AttnRes ----
         layers_per_block = max(1, (num_transformer_layers + num_attnres_blocks - 1) // num_attnres_blocks)
         layers = []
-        n_blocks_before = 0  # completed blocks before each layer (includes b_0 = token embedding)
         for i in range(num_transformer_layers):
             is_boundary = (i + 1) % layers_per_block == 0
             layers.append(AttnResTransformerLayer(
@@ -216,11 +201,7 @@ class RobotMasterTransformer(nn.Module):
                 mlp_ratio=mlp_ratio,
                 recency_bias_init=recency_bias_init,
                 is_boundary=is_boundary,
-                # b_0 = token embedding is always slot 0; completed transformer blocks start at slot 1
-                n_blocks_before=n_blocks_before + 1,  # +1 for token embedding in slot 0
             ))
-            if is_boundary:
-                n_blocks_before += 1
         self.transformer_layers = nn.ModuleList(layers)
         self.final_norm = nn.LayerNorm(num_filters)
 
@@ -253,18 +234,13 @@ class RobotMasterTransformer(nn.Module):
         # (B, d_model, N, N) -> (B, N*N, d_model)
         tokens = out.flatten(2).transpose(1, 2)
 
-        B, T, D = tokens.shape
-
-        # ---- Pre-allocate block buffer ----
-        # Slots: [0] = token embedding (b_0), [1..] = completed transformer blocks
-        max_slots = 1 + self.num_attnres_blocks
-        buf = tokens.new_zeros(max_slots, B, T, D)
-        buf[0] = tokens  # b_0 = token embedding
-        next_slot = 1
+        # ---- Block history as a list: [b_0=token_embedding, ...completed_transformer_blocks] ----
+        # Using a list avoids mutable tensor indexing which breaks ONNX tracing.
+        completed_blocks: list[torch.Tensor] = [tokens]  # b_0 = token embedding
 
         partial_block = tokens
         for layer in self.transformer_layers:
-            buf, next_slot, partial_block = layer(buf, next_slot, partial_block)
+            completed_blocks, partial_block = layer(completed_blocks, partial_block)
 
         partial_block = self.final_norm(partial_block)
 
