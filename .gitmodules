@@ -1,0 +1,27 @@
+[submodule "docs/references/chessformer_2409.12272/code/lc0-attention-visualizer"]
+	path = docs/references/chessformer_2409.12272/code/lc0-attention-visualizer
+	url = https://github.com/Ergodice/lc0-attention-visualizer
+[submodule "docs/references/chessformer_2409.12272/code/lczero-training"]
+	path = docs/references/chessformer_2409.12272/code/lczero-training
+	url = https://github.com/Ergodice/lczero-training
+[submodule "docs/references/restnet_2410.05347/code/restnet-src"]
+	path = docs/references/restnet_2410.05347/code/restnet-src
+	url = https://github.com/rlglab/restnet
+[submodule "docs/references/replay_buffer_sizing/elf_opengo_1902.04522/code"]
+	path = docs/references/replay_buffer_sizing/elf_opengo_1902.04522/code
+	url = https://github.com/pytorch/ELF
+[submodule "docs/references/replay_buffer_sizing/experience_replay_fundamentals_2007.06700/code"]
+	path = docs/references/replay_buffer_sizing/experience_replay_fundamentals_2007.06700/code
+	url = https://github.com/google-research/google-research
+[submodule "docs/references/replay_buffer_sizing/gumbel_alphazero_iclr2022/code"]
+	path = docs/references/replay_buffer_sizing/gumbel_alphazero_iclr2022/code
+	url = https://github.com/google-deepmind/mctx
+[submodule "docs/references/replay_buffer_sizing/mcts_test_time_2204.13307/code"]
+	path = docs/references/replay_buffer_sizing/mcts_test_time_2204.13307/code
+	url = https://github.com/amjshl/compute_efficient_alphazero
+[submodule "docs/references/replay_buffer_sizing/minizero_2310.11305/code"]
+	path = docs/references/replay_buffer_sizing/minizero_2310.11305/code
+	url = https://github.com/rlglab/minizero
+[submodule "docs/references/replay_buffer_sizing/search_contempt_2504.07757/code"]
+	path = docs/references/replay_buffer_sizing/search_contempt_2504.07757/code
+	url = https://github.com/amjshl/lc0_v31_sc
