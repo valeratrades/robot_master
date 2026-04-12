@@ -1,15 +1,19 @@
 """Track A: Small SE-ResNet for AlphaZero.
 
 Architecture (N×N board):
-  Input:  in_channels(N) x N x N   where in_channels(N) = 3*N + 3
+  Input:  in_channels(N) x N x N   where in_channels(N) = 5*N + 5
   Body:   Conv(in_channels->64, 3x3) -> BN -> ReLU -> 5x SE-ResBlock(64)
   Policy: Conv(64->2, 1x1) -> BN -> ReLU -> FC(2*N*N, (N+1)*N*N) -> logits
   Value:  Conv(64->1, 1x1) -> BN -> ReLU -> FC(N*N, 64) -> ReLU -> FC(64, 1) -> tanh
 
-Input planes (3*N+3 total, e.g. 18 for N=5):
-  [0:N+1]      Card value presence (binary plane per value 0..N)
-  [N+1:2N+2]   Current player's hand (one plane per value, count/(N+1) normalized)
-  [2N+2:3N+3]  Opponent's hand (same)
+Input planes (5*N+5 total, e.g. 30 for N=5):
+  [0:N+1]        Card value presence (binary plane per value 0..N)
+  [N+1:2N+2]     Current player's hand (one plane per value, count/(N+1) normalized)
+  [2N+2:3N+3]    Opponent's hand (same)
+  [3N+3]         Current player total score (min line score), normalized /100
+  [3N+4:4N+4]    Current player per-line scores (line 0..N-1), normalized /100
+  [4N+4]         Opponent total score, normalized /100
+  [4N+5:5N+5]    Opponent per-line scores (line 0..N-1), normalized /100
 
 Removed: empty plane (derivable from card planes), playable plane (derivable by
 conv net), turn indicator (board transposed for Player B — encoding is
@@ -30,7 +34,7 @@ def screlu(x: torch.Tensor) -> torch.Tensor:
 
 def in_channels(n: int) -> int:
     """Number of input planes for an N×N board."""
-    return 3 * n + 3
+    return 5 * n + 5
 
 
 def num_card_values(n: int) -> int:
@@ -59,12 +63,17 @@ def encode_state(board: list[list[int | None]], hand_current: dict[int, int], ha
     n = board_size
     ch_hand_cur = n + 1
     ch_hand_opp = 2 * n + 2
+    ch_score_cur = 3 * n + 3
+    ch_score_opp = ch_score_cur + n + 1
 
     planes = np.zeros((in_channels(n), n, n), dtype=np.float32)
 
+    # Card planes: for Player B, transpose board reads (row↔col) so the NN always
+    # sees "my scoring dimension is columns", matching the Rust encoder.
     for r in range(n):
         for c in range(n):
-            cell = board[r][c]
+            br, bc = (c, r) if current_player == 1 else (r, c)
+            cell = board[br][bc]
             if cell is not None:
                 planes[cell, r, c] = 1.0
 
@@ -77,6 +86,39 @@ def encode_state(board: list[list[int | None]], hand_current: dict[int, int], ha
             planes[ch_hand_cur + v, :, :] = cnt_cur
         if cnt_opp > 0.0:
             planes[ch_hand_opp + v, :, :] = cnt_opp
+
+    # Score planes — broadcast scalar across all N² spatial cells, normalized /100.
+    # board.line(player, i): col i for A, row i for B. After the transpose above,
+    # spatial column i in the NN's view matches scoring line i for each player.
+    def line_score(line: list[int | None]) -> float:
+        counts: dict[int, int] = {}
+        for v in line:
+            if v is not None:
+                counts[v] = counts.get(v, 0) + 1
+        s = 0
+        for v, c in counts.items():
+            s += v if c == 1 else (10 * v if c == 2 else 100)
+        return float(s)
+
+    # Current player's scoring lines: col i for A, row i for B
+    for i in range(n):
+        if current_player == 0:
+            cur_line = [board[r][i] for r in range(n)]
+        else:
+            cur_line = [board[i][c] for c in range(n)]
+        planes[ch_score_cur + 1 + i, :, :] = line_score(cur_line) / 100.0
+
+    planes[ch_score_cur, :, :] = min(planes[ch_score_cur + 1 + i, 0, 0] for i in range(n))
+
+    # Opponent's scoring lines: row i for A's opponent (B), col i for B's opponent (A)
+    for i in range(n):
+        if current_player == 0:
+            opp_line = [board[i][c] for c in range(n)]
+        else:
+            opp_line = [board[r][i] for r in range(n)]
+        planes[ch_score_opp + 1 + i, :, :] = line_score(opp_line) / 100.0
+
+    planes[ch_score_opp, :, :] = min(planes[ch_score_opp + 1 + i, 0, 0] for i in range(n))
 
     return planes
 
@@ -203,5 +245,10 @@ if __name__ == "__main__":
     assert planes[3, 0, 0] == 0.0, "card value 3 not at corner"
     # hand plane for value 0, cur: ch_hand_cur + 0 = n+1
     assert planes[n + 1, 0, 0] == hand_cur.get(0, 0) / (n + 1), "cur hand plane 0 normalized"
+    # score planes: only board[2][2]=3 placed, so line score for col 2 = 3, others = 0
+    ch_score_cur = 3 * n + 3
+    assert planes[ch_score_cur + 1 + 2, 0, 0] == 3.0 / 100.0, "cur score plane for col 2"
+    assert planes[ch_score_cur + 1 + 0, 0, 0] == 0.0, "cur score plane for col 0 (empty)"
+    assert planes[ch_score_cur, 0, 0] == 0.0, "cur total score = min = 0"
     print("encode_state: OK")
     print("All checks passed.")
