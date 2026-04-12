@@ -134,13 +134,12 @@ class SEBlock(nn.Module):
         self.channels = channels
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        b, c, _, _ = x.shape
-        squeezed = self.pool(x).view(b, c)
+        squeezed = self.pool(x).flatten(1)
         excited = F.leaky_relu(self.fc1(squeezed))
         excited = self.fc2(excited)
         w, bias = excited.split(self.channels, dim=1)
-        w = torch.sigmoid(w).view(b, c, 1, 1)
-        bias = bias.view(b, c, 1, 1)
+        w = torch.sigmoid(w).unsqueeze(-1).unsqueeze(-1)
+        bias = bias.unsqueeze(-1).unsqueeze(-1)
         return w * x + bias
 
 
