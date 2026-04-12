@@ -36,7 +36,8 @@ def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
         output_path,
         input_names=["state"],
         output_names=["policy", "value"],
-        dynamic_axes={"state": {0: "batch"}, "policy": {0: "batch"}, "value": {0: "batch"}},
+        # value is [batch, 3] WDL logits; both dims are dynamic
+        dynamic_axes={"state": {0: "batch"}, "policy": {0: "batch"}, "value": {0: "batch", 1: "wdl"}},
         opset_version=18,
         external_data=False,
         dynamo=False,
@@ -51,7 +52,11 @@ def export(checkpoint_path: str, output_path: str, board_size: int = 5) -> None:
     onnx_policy, onnx_value = sess.run(None, {"state": dummy.numpy()})
 
     np.testing.assert_allclose(pt_policy.numpy(), onnx_policy, rtol=1e-3, atol=1e-4)
+    # pt_value is [batch, 3] WDL logits; onnx_value shape should match
     np.testing.assert_allclose(pt_value.numpy(), onnx_value, rtol=1e-3, atol=1e-4)
+    wdl = pt_value.softmax(dim=-1)
+    v_scalar = wdl[:, 0] - wdl[:, 2]
+    print(f"Sample value scalar: {v_scalar[0].item():.4f}  (win={wdl[0,0].item():.3f} draw={wdl[0,1].item():.3f} loss={wdl[0,2].item():.3f})")
     print("Roundtrip validation: OK")
 
 

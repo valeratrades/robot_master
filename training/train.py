@@ -69,18 +69,38 @@ class SelfPlayDataset(Dataset):
         return torch.from_numpy(state), torch.from_numpy(policy), torch.tensor(value)
 
 
-def alpha_zero_loss(
-    policy_logits: torch.Tensor, value_pred: torch.Tensor, policy_target: torch.Tensor, value_target: torch.Tensor, value_weight: float = 0.25
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """L = value_weight * MSE(v, z) + KL(pi || p).
+def value_to_wdl_target(v: torch.Tensor) -> torch.Tensor:
+    """Convert scalar value in [-1, 1] to soft WDL probability target [B, 3].
 
+    Linear interpolation onto the WDL simplex:
+      win  = clamp(v, 0, 1)   — fraction of "win"
+      loss = clamp(-v, 0, 1)  — fraction of "loss"
+      draw = 1 - win - loss   — remainder
+
+    Terminal outcomes (v in {-1, 0, 1}) map to one-hot vectors.
+    MCTS soft values between -1 and 1 produce soft targets.
+    """
+    win  = v.clamp(0.0, 1.0)
+    loss = (-v).clamp(0.0, 1.0)
+    draw = 1.0 - win - loss
+    return torch.stack([win, draw, loss], dim=-1)  # [B, 3]
+
+
+def alpha_zero_loss(
+    policy_logits: torch.Tensor, value_logits: torch.Tensor, policy_target: torch.Tensor, value_target: torch.Tensor, value_weight: float = 0.25
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """L = value_weight * CE(wdl, z) + KL(pi || p).
+
+    Value loss: soft cross-entropy against WDL target derived from scalar value.
     Policy loss: KL divergence matching tmp/minizero/train.py:133.
     KL divergence is correct for Gumbel AlphaZero — the improved policy target
     is not uniform, so cross-entropy and KL diverge in their gradients.
 
     Returns (total_loss, value_loss, policy_loss) for logging.
     """
-    value_loss = F.mse_loss(value_pred, value_target)
+    wdl_target = value_to_wdl_target(value_target)  # [B, 3]
+    # F.cross_entropy accepts soft targets when passed as a 2D float tensor.
+    value_loss = F.cross_entropy(value_logits, wdl_target)
     # KL(pi || p) = sum(pi * (log pi - log p)); PyTorch kl_div takes (log_q, p).
     policy_loss = F.kl_div(
         F.log_softmax(policy_logits, dim=1),
