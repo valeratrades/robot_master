@@ -1,22 +1,27 @@
 use robot_master_core::{
 	board::EMPTY,
 	game::{GameState, Player},
+	scoring::{line_counts, score_line},
 };
 
 /// Number of input channels for an N×N board.
 ///
 /// Layout:
-///   [0:N+1]       card value presence — plane `v` is 1.0 where card value v is placed
-///   [N+1:2N+2]    current player hand — one plane per value, count/(N+1) normalized
-///   [2N+2:3N+3]   opponent hand       — same encoding
-///   Total: 3N + 3
+///   [0:N+1]         card value presence — plane `v` is 1.0 where card value v is placed
+///   [N+1:2N+2]      current player hand — one plane per value, count/(N+1) normalized
+///   [2N+2:3N+3]     opponent hand       — same encoding
+///   [3N+3]          current player total score (min line score), normalized /100
+///   [3N+4:4N+4]     current player per-line scores (line 0..N-1), normalized /100
+///   [4N+4]          opponent total score, normalized /100
+///   [4N+5:5N+5]     opponent per-line scores (line 0..N-1), normalized /100
+///   Total: 5N + 5
 ///
 /// Removed vs previous versions:
 ///   - empty/playable planes: derivable by the conv net from card planes
 ///   - turn indicator: board is transposed for Player B, encoding is player-invariant
 ///   - 2-plane-per-value hand encoding: collapsed to single normalized float plane
 pub const fn in_channels(n: usize) -> usize {
-	3 * n + 3
+	5 * n + 5
 }
 
 /// Encode `GameState<N>` into `in_channels(N) * N * N` f32 values, channel-first (CHW).
@@ -79,6 +84,29 @@ where
 		if cnt_opp > 0.0 {
 			fill_plane(&mut planes, ch_hand_opp + v, cnt_opp);
 		}
+	}
+
+	// Score planes — each scalar broadcast across all N² spatial cells, normalized /100.
+	// board.line(player, i) returns column i for Player A, row i for Player B, so
+	// score plane i corresponds exactly to spatial column i in the NN's transposed view.
+	let ch_score_cur = 3 * N + 3;
+	let ch_score_opp = ch_score_cur + N + 1;
+
+	let opp = state.turn.other();
+
+	let cur_line_scores: Vec<f32> = (0..N).map(|i| score_line(&line_counts(&state.board.line(state.turn, i))) as f32).collect();
+	let opp_line_scores: Vec<f32> = (0..N).map(|i| score_line(&line_counts(&state.board.line(opp, i))) as f32).collect();
+
+	let cur_total = cur_line_scores.iter().cloned().fold(f32::INFINITY, f32::min);
+	let opp_total = opp_line_scores.iter().cloned().fold(f32::INFINITY, f32::min);
+
+	fill_plane(&mut planes, ch_score_cur, cur_total / 100.0);
+	for i in 0..N {
+		fill_plane(&mut planes, ch_score_cur + 1 + i, cur_line_scores[i] / 100.0);
+	}
+	fill_plane(&mut planes, ch_score_opp, opp_total / 100.0);
+	for i in 0..N {
+		fill_plane(&mut planes, ch_score_opp + 1 + i, opp_line_scores[i] / 100.0);
 	}
 
 	planes
