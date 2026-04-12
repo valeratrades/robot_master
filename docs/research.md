@@ -90,9 +90,8 @@ Expected training: 4-12 hours on a single modern GPU (RTX 3080/4080) for 5x5.
 2. **Quantized inference** — int8/int16 for fast WASM deployment in the Bevy game
 
 **From AlphaGo/AlphaZero:**
-3. **Dirichlet noise at root** — exploration during self-play, prevents policy collapse
-4. **Virtual loss in parallel MCTS** — prevents threads from exploring same path
-5. **Symmetry augmentation** — 90° rotation + player swap is equivalent, multiplies training data
+- [ ] **Virtual loss in parallel MCTS** — prevents threads from exploring same path
+- [x] **Symmetry augmentation** — 90° rotation + player swap is equivalent, multiplies training data
 
 ---
 
