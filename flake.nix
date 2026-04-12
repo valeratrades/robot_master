@@ -71,6 +71,7 @@
             lastSupportedVersion = "nightly-2026-02-01";
             jobs.default = true;
             gitlabSync.mirrorBaseUrl = "https://gitlab.isima.fr/vasakharov";
+            gitignore.extra = "docs/references/**/*.pdf\ndocs/references/**/*.tar.gz";
           };
           readme = v_flakes.readme-fw {
             inherit pkgs pname;
