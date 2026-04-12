@@ -6,7 +6,7 @@ Architecture (N×N board):
   Tokens: flatten spatial dims -> (B, N*N, d_model)
   Body:   num_layers x TransformerLayer with Block AttnRes residuals
   Policy: reshape -> (B, d_model, N, N) -> Conv(->2, 1x1) -> BN -> ReLU -> FC(2*N*N, action_size)
-  Value:  reshape -> (B, d_model, N, N) -> Conv(->1, 1x1) -> BN -> ReLU -> FC(N*N, 64) -> ReLU -> FC(64, 1) -> tanh
+  Value:  reshape -> (B, d_model, N, N) -> Conv(->1, 1x1) -> BN -> ReLU -> FC(N*N, 64) -> ReLU -> FC(64, 3) -> WDL logits
 
 Block AttnRes (arxiv 2603.15031):
   Replace standard h = h_prev + f(h_prev) with softmax attention over block-level history:
@@ -178,7 +178,7 @@ class RobotMasterTransformer(nn.Module):
     """AlphaZero dual-headed Transformer with Block AttnRes for Robot Master.
 
     Drop-in replacement for RobotMasterResNet:
-      forward(x) -> (policy_logits, value_scalar)
+      forward(x) -> (policy_logits, wdl_logits[B, 3])
     """
 
     def __init__(
@@ -233,7 +233,7 @@ class RobotMasterTransformer(nn.Module):
         self.value_conv = nn.Conv2d(num_filters, 1, 1, bias=False)
         self.value_bn = nn.BatchNorm2d(1)
         self.value_fc1 = nn.Linear(2 * n2, 64)  # 2x from SCReLU
-        self.value_fc2 = nn.Linear(128, 1)  # 2x from SCReLU
+        self.value_fc2 = nn.Linear(128, 3)  # 2x from SCReLU; outputs WDL logits
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         N = self.board_size
@@ -272,13 +272,13 @@ class RobotMasterTransformer(nn.Module):
         p = p.flatten(1)
         p = self.policy_fc(p)
 
-        # ---- Value head ----
+        # ---- Value head — raw WDL logits [B, 3]: (Win, Draw, Loss) ----
         v = screlu(self.value_bn(self.value_conv(spatial)))
         v = v.flatten(1)
         v = screlu(self.value_fc1(v))
-        v = torch.tanh(self.value_fc2(v))
+        v = self.value_fc2(v)
 
-        return p, v.squeeze(-1)
+        return p, v
 
 
 if __name__ == "__main__":
@@ -293,9 +293,11 @@ if __name__ == "__main__":
         policy, value = model(batch)
 
     assert policy.shape == (4, action_size(board_size)), f"policy shape: {policy.shape}"
-    assert value.shape == (4,), f"value shape: {value.shape}"
-    assert (value.abs() <= 1.0).all(), "value out of [-1, 1]"
+    assert value.shape == (4, 3), f"value shape: {value.shape}"
+    wdl = value.softmax(dim=-1)
+    v_scalar = wdl[:, 0] - wdl[:, 2]
+    assert (v_scalar.abs() <= 1.0).all(), "value scalar out of [-1, 1]"
     print(f"Policy shape: {policy.shape}  (expected (4, {action_size(board_size)}))")
-    print(f"Value shape:  {value.shape}  (expected (4,))")
-    print(f"Value range:  [{value.min():.4f}, {value.max():.4f}]")
+    print(f"Value shape:  {value.shape}  (expected (4, 3) WDL logits)")
+    print(f"Value scalar range:  [{v_scalar.min():.4f}, {v_scalar.max():.4f}]")
     print("All checks passed.")

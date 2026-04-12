@@ -4,7 +4,7 @@ Architecture (N×N board):
   Input:  in_channels(N) x N x N   where in_channels(N) = 5*N + 5
   Body:   Conv(in_channels->64, 3x3) -> BN -> ReLU -> 5x SE-ResBlock(64)
   Policy: Conv(64->2, 1x1) -> BN -> ReLU -> FC(2*N*N, (N+1)*N*N) -> logits
-  Value:  Conv(64->1, 1x1) -> BN -> ReLU -> FC(N*N, 64) -> ReLU -> FC(64, 1) -> tanh
+  Value:  Conv(64->1, 1x1) -> BN -> ReLU -> FC(N*N, 64) -> ReLU -> FC(64, 3) -> WDL logits
 
 Input planes (5*N+5 total, e.g. 30 for N=5):
   [0:N+1]        Card value presence (binary plane per value 0..N)
@@ -167,7 +167,7 @@ class RobotMasterResNet(nn.Module):
     """AlphaZero-style dual-headed SE-ResNet for Robot Master.
 
     Policy output: (N+1) * N^2 logits (card_value * N*N + row * N + col).
-    Value output: scalar in [-1, 1].
+    Value output: [B, 3] raw WDL logits (Win, Draw, Loss order).
     """
 
     def __init__(self, board_size: int = 5, num_blocks: int = 5, num_filters: int = 64):
@@ -193,7 +193,7 @@ class RobotMasterResNet(nn.Module):
         self.value_conv = nn.Conv2d(num_filters, 1, 1, bias=False)
         self.value_bn = nn.BatchNorm2d(1)
         self.value_fc1 = nn.Linear(2 * n2, 64)  # 2x from SCReLU
-        self.value_fc2 = nn.Linear(128, 1)  # 2x from SCReLU
+        self.value_fc2 = nn.Linear(128, 3)  # 2x from SCReLU; outputs WDL logits
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # body
@@ -206,13 +206,13 @@ class RobotMasterResNet(nn.Module):
         p = p.flatten(1)
         p = self.policy_fc(p)
 
-        # value head
+        # value head — raw WDL logits [B, 3]: (Win, Draw, Loss)
         v = screlu(self.value_bn(self.value_conv(out)))
         v = v.flatten(1)
         v = screlu(self.value_fc1(v))
-        v = torch.tanh(self.value_fc2(v))
+        v = self.value_fc2(v)
 
-        return p, v.squeeze(-1)
+        return p, v
 
 
 if __name__ == "__main__":
@@ -227,11 +227,13 @@ if __name__ == "__main__":
         policy, value = model(batch)
 
     assert policy.shape == (4, action_size(board_size)), f"policy shape: {policy.shape}"
-    assert value.shape == (4,), f"value shape: {value.shape}"
-    assert (value.abs() <= 1.0).all(), "value out of [-1, 1]"
+    assert value.shape == (4, 3), f"value shape: {value.shape}"
+    wdl = value.softmax(dim=-1)
+    v_scalar = wdl[:, 0] - wdl[:, 2]
+    assert (v_scalar.abs() <= 1.0).all(), "value scalar out of [-1, 1]"
     print(f"Policy shape: {policy.shape}  (expected (4, {action_size(board_size)}))")
-    print(f"Value shape:  {value.shape}  (expected (4,))")
-    print(f"Value range:  [{value.min():.4f}, {value.max():.4f}]")
+    print(f"Value shape:  {value.shape}  (expected (4, 3) WDL logits)")
+    print(f"Value scalar range:  [{v_scalar.min():.4f}, {v_scalar.max():.4f}]")
 
     # encode_state smoke test
     board = [[None] * board_size for _ in range(board_size)]

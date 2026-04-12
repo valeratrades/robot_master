@@ -14,7 +14,7 @@ use crate::{
 /// The ONNX model interface (see training/export_onnx.py):
 ///   input  "state":  f32[batch, 33, N, N]
 ///   output "policy": f32[batch, 6*N²]  — raw logits
-///   output "value":  f32[batch]         — tanh output in [-1, 1]
+///   output "value":  f32[batch, 3]      — raw WDL logits (Win, Draw, Loss)
 pub struct NnEval {
 	session: Mutex<Session>,
 	board_size: usize,
@@ -76,12 +76,14 @@ where
 		let (_, value_raw) = outputs["value"].try_extract_tensor::<f32>().expect("value extraction");
 
 		let policy_stride = policy_logits.len() / batch;
+		// value_raw is [batch * 3] in WDL order: (Win, Draw, Loss) logits per sample
 		states
 			.iter()
 			.enumerate()
 			.map(|(i, state)| {
 				let logits = &policy_logits[i * policy_stride..(i + 1) * policy_stride];
-				let value = value_raw[i];
+				let wdl_logits = &value_raw[i * 3..(i + 1) * 3];
+				let value = wdl_to_scalar(wdl_logits);
 				let policy = extract_legal_policy(logits, state);
 				Evaluation { policy, value }
 			})
@@ -98,6 +100,14 @@ where
 		let eval = self.evaluate(state);
 		eval.policy.into_iter().max_by(|a, b| a.1.partial_cmp(&b.1).expect("NaN in policy")).expect("no legal moves").0
 	}
+}
+
+/// Softmax over 3 WDL logits, then return win_prob - loss_prob ∈ [-1, 1].
+fn wdl_to_scalar(logits: &[f32]) -> f32 {
+	let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+	let exps = [(logits[0] - max).exp(), (logits[1] - max).exp(), (logits[2] - max).exp()];
+	let sum = exps[0] + exps[1] + exps[2];
+	exps[0] / sum - exps[2] / sum
 }
 
 fn extract_legal_policy<const N: usize>(logits: &[f32], state: &GameState<N>) -> Vec<(Move, f32)>
