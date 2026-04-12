@@ -467,8 +467,8 @@
         "nixpkgs": "nixpkgs_7"
       },
       "locked": {
-        "lastModified": 1774926644,
-        "narHash": "sha256-6Ku8o06CuSFsZ15CzEkmqxxiDIT7zICWJql/cRdckk4=",
+        "lastModified": 1776025083,
+        "narHash": "sha256-yZboKzvWL3M0n5Q/v2aV6Ydq7LHiJPnMR5H94Dxcrcg=",
         "path": "/home/v/s/v_flakes",
         "type": "path"
       },

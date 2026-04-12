@@ -4,11 +4,11 @@ edition = "2024"
 version = "0.1.0"
 
 [dependencies]
-robot_master_arena = { path = "../robot_master_arena" }
-robot_master_core = { path = "../robot_master_core" }
+robot_master_arena = { workspace = true }
+robot_master_core = { workspace = true }
 
-bytemuck = "1"
-ort = { version = "=2.0.0-rc.12", features = ["cuda"] }
+bytemuck = { workspace = true }
+ort = { workspace = true, features = ["cuda"] }
 
 board-game.workspace = true
 clap.workspace = true

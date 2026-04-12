@@ -37,18 +37,18 @@ ssr = [
 ]
 
 [dependencies]
-robot_master_arena = { path = "../robot_master_arena" }
-robot_master_game = { path = "../robot_master_game" }
+robot_master_arena = { workspace = true }
+robot_master_game = { workspace = true }
 
-axum = { version = "0.8", optional = true }
-console_error_panic_hook = { version = "0.1", optional = true }
-getrandom = { version = "0.4", features = ["wasm_js"] }
-leptos = "0.8"
-leptos_axum = { version = "0.8", optional = true }
-leptos_meta = "0.8"
-leptos_router = "0.8"
-tower-http = { version = "0.6", features = ["fs"], optional = true }
-wasm-bindgen = { version = "0.2.106", optional = true }
+axum = { workspace = true, optional = true }
+console_error_panic_hook = { workspace = true, optional = true }
+getrandom = { workspace = true, features = ["wasm_js"] }
+leptos = { workspace = true }
+leptos_axum = { workspace = true, optional = true }
+leptos_meta = { workspace = true }
+leptos_router = { workspace = true }
+tower-http = { workspace = true, features = ["fs"], optional = true }
+wasm-bindgen = { workspace = true, optional = true }
 
 tokio = { workspace = true, optional = true }
 

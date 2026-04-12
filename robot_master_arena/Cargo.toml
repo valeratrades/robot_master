@@ -8,10 +8,10 @@ default = []
 clickhouse = ["dep:clickhouse", "dep:tokio"]
 
 [dependencies]
-robot_master_core = { path = "../robot_master_core" }
+robot_master_core = { workspace = true }
 
-clickhouse = { version = "0.14", optional = true }
-dashmap = "6"
+clickhouse = { workspace = true, optional = true }
+dashmap = { workspace = true }
 
 board-game.workspace = true
 bon.workspace = true
