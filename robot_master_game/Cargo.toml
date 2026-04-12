@@ -9,12 +9,12 @@ version = "0.1.0"
 v_utils = { workspace = true, features = ["io", "bevy"] }
 
 [dependencies]
-robot_master_arena = { path = "../robot_master_arena" }
-robot_master_core = { path = "../robot_master_core" }
-robot_master_train = { path = "../robot_master_train" }
+robot_master_arena = { workspace = true }
+robot_master_core = { workspace = true }
+robot_master_train = { workspace = true }
 
-bevy_simple_text_input = "0.14"
-fuzzy-matcher = "0.3"
+bevy_simple_text_input = { workspace = true }
+fuzzy-matcher = { workspace = true }
 
 bevy.workspace = true
 rand.workspace = true
