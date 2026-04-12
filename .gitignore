@@ -67,3 +67,7 @@ venv/
 **/__pycache__/
 .py-env/
 .ruff_cache/
+
+## Docs / References
+docs/references/**/*.pdf
+docs/references/**/*.tar.gz
