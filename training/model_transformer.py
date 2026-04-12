@@ -224,10 +224,15 @@ class RobotMasterTransformer(nn.Module):
         self.transformer_layers = nn.ModuleList(layers)
         self.final_norm = nn.LayerNorm(num_filters)
 
-        # ---- Policy head ----
+        # ---- Policy head (hard) ----
         self.policy_conv = nn.Conv2d(num_filters, 2, 1, bias=False)
         self.policy_bn = nn.BatchNorm2d(2)
         self.policy_fc = nn.Linear(4 * n2, action_size(board_size))  # 2x from SCReLU
+
+        # ---- Policy head (soft) ----
+        self.policy_soft_conv = nn.Conv2d(num_filters, 2, 1, bias=False)
+        self.policy_soft_bn = nn.BatchNorm2d(2)
+        self.policy_soft_fc = nn.Linear(4 * n2, action_size(board_size))  # 2x from SCReLU
 
         # ---- Value head ----
         self.value_conv = nn.Conv2d(num_filters, 1, 1, bias=False)
@@ -235,7 +240,7 @@ class RobotMasterTransformer(nn.Module):
         self.value_fc1 = nn.Linear(2 * n2, 64)  # 2x from SCReLU
         self.value_fc2 = nn.Linear(128, 3)  # 2x from SCReLU; outputs WDL logits
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         N = self.board_size
 
         # ---- Stem ----
@@ -267,10 +272,15 @@ class RobotMasterTransformer(nn.Module):
         # (B, N*N, d_model) -> (B, d_model, N, N)
         spatial = partial_block.transpose(1, 2).reshape(-1, self.d_model, N, N)
 
-        # ---- Policy head ----
+        # ---- Policy head (hard) ----
         p = screlu(self.policy_bn(self.policy_conv(spatial)))
         p = p.flatten(1)
         p = self.policy_fc(p)
+
+        # ---- Policy head (soft) ----
+        ps = screlu(self.policy_soft_bn(self.policy_soft_conv(spatial)))
+        ps = ps.flatten(1)
+        ps = self.policy_soft_fc(ps)
 
         # ---- Value head — raw WDL logits [B, 3]: (Win, Draw, Loss) ----
         v = screlu(self.value_bn(self.value_conv(spatial)))
@@ -278,7 +288,7 @@ class RobotMasterTransformer(nn.Module):
         v = screlu(self.value_fc1(v))
         v = self.value_fc2(v)
 
-        return p, v
+        return p, ps, v
 
 
 if __name__ == "__main__":
@@ -290,14 +300,16 @@ if __name__ == "__main__":
     batch = torch.randn(4, in_channels(board_size), board_size, board_size)
     model.eval()
     with torch.no_grad():
-        policy, value = model(batch)
+        policy, policy_soft, value = model(batch)
 
     assert policy.shape == (4, action_size(board_size)), f"policy shape: {policy.shape}"
+    assert policy_soft.shape == (4, action_size(board_size)), f"policy_soft shape: {policy_soft.shape}"
     assert value.shape == (4, 3), f"value shape: {value.shape}"
     wdl = value.softmax(dim=-1)
     v_scalar = wdl[:, 0] - wdl[:, 2]
     assert (v_scalar.abs() <= 1.0).all(), "value scalar out of [-1, 1]"
     print(f"Policy shape: {policy.shape}  (expected (4, {action_size(board_size)}))")
+    print(f"Policy soft shape: {policy_soft.shape}  (expected (4, {action_size(board_size)}))")
     print(f"Value shape:  {value.shape}  (expected (4, 3) WDL logits)")
     print(f"Value scalar range:  [{v_scalar.min():.4f}, {v_scalar.max():.4f}]")
     print("All checks passed.")
