@@ -10,9 +10,6 @@
 [submodule "docs/references/replay_buffer_sizing/elf_opengo_1902.04522/code"]
 	path = docs/references/replay_buffer_sizing/elf_opengo_1902.04522/code
 	url = https://github.com/pytorch/ELF
-[submodule "docs/references/replay_buffer_sizing/experience_replay_fundamentals_2007.06700/code"]
-	path = docs/references/replay_buffer_sizing/experience_replay_fundamentals_2007.06700/code
-	url = https://github.com/google-research/google-research
 [submodule "docs/references/replay_buffer_sizing/gumbel_alphazero_iclr2022/code"]
 	path = docs/references/replay_buffer_sizing/gumbel_alphazero_iclr2022/code
 	url = https://github.com/google-deepmind/mctx
