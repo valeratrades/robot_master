@@ -3,6 +3,7 @@
 
 pub mod arena;
 pub mod config;
+pub mod train;
 pub mod tui;
 
 #[cfg(feature = "python")]
