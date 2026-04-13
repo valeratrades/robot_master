@@ -15,9 +15,9 @@ const MAX_VOLATILITY: f64 = 0.1;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Rating {
-	pub rating: f64,
-	pub deviation: f64,
-	pub volatility: f64,
+	pub rating: f64 = 1500.0,
+	pub deviation: f64 = MAX_DEVIATION,
+	pub volatility: f64 = 0.09,
 }
 impl Rating {
 	/// Whether this player is still provisional (high uncertainty).
@@ -34,16 +34,6 @@ impl Rating {
 			rating: (mu * SCALE + 1500.0).clamp(MIN_RATING, MAX_RATING),
 			deviation: (phi * SCALE).clamp(MIN_DEVIATION, MAX_DEVIATION),
 			volatility: volatility.min(MAX_VOLATILITY),
-		}
-	}
-}
-
-impl Default for Rating {
-	fn default() -> Self {
-		Self {
-			rating: 1500.0,
-			deviation: MAX_DEVIATION,
-			volatility: 0.09,
 		}
 	}
 }
