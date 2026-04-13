@@ -43,6 +43,9 @@ fn main() {
 		Commands::Arena { select, no_priors, command } => {
 			robot_master::arena::run(select, no_priors, models_dir, command, size, hide, rating_db, auto_yes);
 		}
+		Commands::Train { arch } => {
+			robot_master::train::run(arch);
+		}
 	}
 }
 

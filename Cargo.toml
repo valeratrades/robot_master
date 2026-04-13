@@ -33,6 +33,7 @@ derive-new = "^0.7.0"
 derive_more = { version = "2", features = ["display", "from"] }
 fuzzy-matcher = "0.3"
 getrandom = "0.4"
+indicatif = "0.17"
 insta = "1"
 internal-iterator = "0.2"
 leptos = "0.8"

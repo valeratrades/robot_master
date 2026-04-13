@@ -16,6 +16,7 @@ clap.workspace = true
 
 [dependencies]
 derive-new.workspace = true
+indicatif.workspace = true
 miette.workspace = true
 pyo3 = { workspace = true, optional = true }
 rand.workspace = true

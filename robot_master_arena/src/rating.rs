@@ -11,12 +11,22 @@ const MIN_DEVIATION: f64 = 45.0;
 const MAX_DEVIATION: f64 = 500.0;
 const MAX_VOLATILITY: f64 = 0.1;
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Rating {
-	pub rating: f64 = 1500.0,
-	pub deviation: f64 = MAX_DEVIATION,
-	pub volatility: f64 = 0.09,
+	pub rating: f64,
+	pub deviation: f64,
+	pub volatility: f64,
 }
+impl Default for Rating {
+	fn default() -> Self {
+		Self {
+			rating: 1500.0,
+			deviation: MAX_DEVIATION,
+			volatility: 0.09,
+		}
+	}
+}
+
 impl Rating {
 	/// Whether this player is still provisional (high uncertainty).
 	pub fn is_provisional(&self) -> bool {
