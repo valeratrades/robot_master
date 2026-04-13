@@ -31,7 +31,7 @@ rough arch outline, functionality of each function, tests, desired behavior, - c
 <!-- markdownlint-disable -->
 <details>
 <summary>
-<h3>Installation</h3>
+<h2>Installation</h2>
 </summary>
 
 ### Installation

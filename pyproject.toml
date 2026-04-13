@@ -40,21 +40,3 @@ typeguard-packages = "py_src"
 [tool.ty.environment]
 extra-paths = ["py_src"]
 python = ".devenv/state/venv"
-[tool.inline-snapshot]
-format-command = "ruff format --stdin-filename {filename}"
-
-[tool.pytest.ini_options]
-typeguard-packages = "py_src"
-
-[tool.ty.environment]
-extra-paths = ["py_src"]
-python = ".devenv/state/venv"
-[tool.inline-snapshot]
-format-command = "ruff format --stdin-filename {filename}"
-
-[tool.pytest.ini_options]
-typeguard-packages = "py_src"
-
-[tool.ty.environment]
-extra-paths = ["py_src"]
-python = ".devenv/state/venv"
