@@ -30,6 +30,29 @@ pub struct PlayerArgs {
 	#[arg(long, default_value = "./models")]
 	pub models_dir: std::path::PathBuf,
 }
+#[derive(Clone, Debug, Parser)]
+pub struct TrainArgs {
+	/// Generation name — all data/checkpoints/models are scoped under this label (e.g. "v1", "cnn_big")
+	pub generation: String,
+	/// Number of selfplay → train → export iterations
+	#[arg(long, default_value = "20")]
+	pub iterations: u32,
+	/// Self-play games per iteration
+	#[arg(long, default_value = "200")]
+	pub games: u32,
+	/// Gumbel simulations per move during self-play
+	#[arg(long, default_value = "25")]
+	pub sims: u32,
+	/// Board size (must match the selfplay binary and model architecture)
+	#[arg(long, default_value = "5")]
+	pub size: u32,
+	/// Pass --force-cpu to selfplay (sequential rayon, faster at 5×5/7×7).
+	#[arg(long)]
+	pub force_cpu: bool,
+	/// Hide opponent's hand (information-hidden mode).
+	#[arg(long)]
+	pub hide: bool,
+}
 #[derive(Subcommand)]
 pub enum Commands {
 	/// Play the game in the terminal
@@ -79,30 +102,6 @@ pub enum TrainArch {
 		#[clap(flatten)]
 		args: TrainArgs,
 	},
-}
-
-#[derive(Clone, Debug, Parser)]
-pub struct TrainArgs {
-	/// Generation name — all data/checkpoints/models are scoped under this label (e.g. "v1", "cnn_big")
-	pub generation: String,
-	/// Number of selfplay → train → export iterations
-	#[arg(long, default_value = "20")]
-	pub iterations: u32,
-	/// Self-play games per iteration
-	#[arg(long, default_value = "200")]
-	pub games: u32,
-	/// Gumbel simulations per move during self-play
-	#[arg(long, default_value = "25")]
-	pub sims: u32,
-	/// Board size (must match the selfplay binary and model architecture)
-	#[arg(long, default_value = "5")]
-	pub size: u32,
-	/// Pass --force-cpu to selfplay (sequential rayon, faster at 5×5/7×7).
-	#[arg(long)]
-	pub force_cpu: bool,
-	/// Hide opponent's hand (information-hidden mode).
-	#[arg(long)]
-	pub hide: bool,
 }
 
 #[derive(Subcommand)]

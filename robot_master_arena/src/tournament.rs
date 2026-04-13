@@ -271,7 +271,7 @@ where
 		let n = player_ids.len();
 
 		// Build rating-sorted snapshot (ascending: rank 0 = weakest)
-		let mut sorted: Vec<(Ustr, f64)> = player_ids.iter().map(|&id| (id, live_ratings.get(&id).map(|r| r.rating).unwrap_or(1500.0))).collect();
+		let mut sorted: Vec<(Ustr, f64)> = player_ids.iter().map(|&id| (id, live_ratings.get(&id).expect("player always in live_ratings").rating)).collect();
 		sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
 		// Pick A: weighted by rating
@@ -304,8 +304,8 @@ where
 
 		// Snapshot ratings for the batch update (ratings may change mid-cycle for other tourneys,
 		// but for rating_based each cycle is one isolated pair so we snapshot once here).
-		let r_a = live_ratings.get(&a_id).map(|r| r.clone()).unwrap_or_default();
-		let r_b = live_ratings.get(&b_id).map(|r| r.clone()).unwrap_or_default();
+		let r_a = live_ratings.get(&a_id).expect("player always in live_ratings").clone();
+		let r_b = live_ratings.get(&b_id).expect("player always in live_ratings").clone();
 		self.pending_a.clear();
 		self.pending_b.clear();
 		// Store the opponent snapshot; scores filled in apply_result.
@@ -325,8 +325,8 @@ where
 	fn apply_result(&mut self, result: &MatchResult, live_ratings: &DashMap<Ustr, Rating>) {
 		let (a_id, b_id) = self.current_pair.expect("apply_result called before pairs_for_cycle");
 		// Get opponent snapshot for Glicko-2 — we read current value (not yet updated this cycle).
-		let r_a = live_ratings.get(&a_id).map(|r| r.clone()).unwrap_or_default();
-		let r_b = live_ratings.get(&b_id).map(|r| r.clone()).unwrap_or_default();
+		let r_a = live_ratings.get(&a_id).expect("player always in live_ratings").clone();
+		let r_b = live_ratings.get(&b_id).expect("player always in live_ratings").clone();
 
 		let (score_a, score_b) = if result.p1_id == a_id {
 			(score_f64(result.p1_score, result.p2_score), score_f64(result.p2_score, result.p1_score))
@@ -347,8 +347,8 @@ where
 		}
 
 		// Read current (pre-update) ratings for the batch computation.
-		let r_a = live_ratings.get(&a_id).map(|r| r.clone()).unwrap_or_default();
-		let r_b = live_ratings.get(&b_id).map(|r| r.clone()).unwrap_or_default();
+		let r_a = live_ratings.get(&a_id).expect("player always in live_ratings").clone();
+		let r_b = live_ratings.get(&b_id).expect("player always in live_ratings").clone();
 
 		// Build slices of (&Rating, score) — the opponent snapshot stored in pending is used.
 		let a_games: Vec<(&Rating, f64)> = self.pending_a.iter().map(|(opp, s)| (opp as &Rating, *s)).collect();
@@ -408,8 +408,8 @@ where
 			// Round 1: sort by rating desc, pair rank i vs rank (n/2 + i)
 			let mut order: Vec<usize> = (0..n).collect();
 			order.sort_by(|&a, &b| {
-				let ra = live_ratings.get(&player_ids[a]).map(|r| r.rating).unwrap_or(1500.0);
-				let rb = live_ratings.get(&player_ids[b]).map(|r| r.rating).unwrap_or(1500.0);
+				let ra = live_ratings.get(&player_ids[a]).expect("player always in live_ratings").rating;
+				let rb = live_ratings.get(&player_ids[b]).expect("player always in live_ratings").rating;
 				rb.partial_cmp(&ra).unwrap()
 			});
 			let n_pairs = n / 2;
@@ -432,8 +432,8 @@ where
 	fn apply_result(&mut self, result: &MatchResult, live_ratings: &DashMap<Ustr, Rating>) {
 		// Swiss score: winner gets +1
 		match result.p1_score.cmp(&result.p2_score) {
-			std::cmp::Ordering::Greater => *self.scores.entry(result.p1_id).or_default() += 1,
-			std::cmp::Ordering::Less => *self.scores.entry(result.p2_id).or_default() += 1,
+			std::cmp::Ordering::Greater => *self.scores.get_mut(&result.p1_id).expect("player always in scores") += 1,
+			std::cmp::Ordering::Less => *self.scores.get_mut(&result.p2_id).expect("player always in scores") += 1,
 			std::cmp::Ordering::Equal => {}
 		}
 
@@ -476,7 +476,7 @@ impl Elimination {
 	}
 
 	fn reset_bracket(&mut self, player_ids: &[Ustr], live_ratings: &DashMap<Ustr, Rating>) {
-		let mut v: Vec<(Ustr, f64)> = player_ids.iter().map(|&id| (id, live_ratings.get(&id).map(|r| r.rating).unwrap_or(1500.0))).collect();
+		let mut v: Vec<(Ustr, f64)> = player_ids.iter().map(|&id| (id, live_ratings.get(&id).expect("player always in live_ratings").rating)).collect();
 		v.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 		self.active = v.into_iter().map(|(id, _)| id).collect();
 		self.next_active.clear();
@@ -484,8 +484,8 @@ impl Elimination {
 
 	fn resort_active(&mut self, live_ratings: &DashMap<Ustr, Rating>) {
 		self.active.sort_by(|a, b| {
-			let ra = live_ratings.get(a).map(|r| r.rating).unwrap_or(1500.0);
-			let rb = live_ratings.get(b).map(|r| r.rating).unwrap_or(1500.0);
+			let ra = live_ratings.get(a).expect("player always in live_ratings").rating;
+			let rb = live_ratings.get(b).expect("player always in live_ratings").rating;
 			ra.partial_cmp(&rb).unwrap()
 		});
 	}
@@ -688,7 +688,7 @@ fn fide_pair_by_score(player_ids: &[Ustr], scores: &HashMap<Ustr, u32>, live_rat
 		.map(|i| {
 			let id = player_ids[i];
 			let score = scores[&id];
-			let rating = live_ratings.get(&id).map(|r| r.rating).unwrap_or(1500.0);
+			let rating = live_ratings.get(&id).expect("player always in live_ratings").rating;
 			(i, score, rating)
 		})
 		.collect();
@@ -736,8 +736,8 @@ where
 }
 
 fn glicko_update_single(result: &MatchResult, live_ratings: &DashMap<Ustr, Rating>) {
-	let r1 = live_ratings.get(&result.p1_id).map(|r| r.clone()).unwrap_or_default();
-	let r2 = live_ratings.get(&result.p2_id).map(|r| r.clone()).unwrap_or_default();
+	let r1 = live_ratings.get(&result.p1_id).expect("player always in live_ratings").clone();
+	let r2 = live_ratings.get(&result.p2_id).expect("player always in live_ratings").clone();
 	let s1 = score_f64(result.p1_score, result.p2_score);
 	let s2 = score_f64(result.p2_score, result.p1_score);
 	live_ratings.insert(result.p1_id, glicko_update_batch(&r1, &[(&r2, s1)]));
