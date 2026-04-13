@@ -18,21 +18,38 @@ too_many_arguments = "allow"
 type_complexity = "allow"
 
 [workspace.dependencies]
+axum = "0.8"
 bevy = "0.18"
 bevy_lunex = "0.6"
+bevy_simple_text_input = "0.14"
 board-game = "0.8"
 bon = "3"
+bytemuck = "1"
 clap = { version = "4.6", features = ["derive"] }
+clickhouse = "0.14"
+console_error_panic_hook = "0.1"
+dashmap = "6"
 derive-new = "^0.7.0"
 derive_more = { version = "2", features = ["display", "from"] }
+fuzzy-matcher = "0.3"
+getrandom = "0.4"
 insta = "1"
 internal-iterator = "0.2"
+leptos = "0.8"
+leptos_axum = "0.8"
+leptos_meta = "0.8"
+leptos_router = "0.8"
 miette = { version = "7", features = ["fancy"] }
+ort = "=2.0.0-rc.12"
 pyo3 = { version = "0.28", features = ["extension-module"] }
 rand = "0.10"
 rand_distr = "0.6"
 rayon = "1"
 regex = "1"
+robot_master_arena = { path = "robot_master_arena" }
+robot_master_core = { path = "robot_master_core" }
+robot_master_game = { path = "robot_master_game" }
+robot_master_train = { path = "robot_master_train" }
 secrecy = "^0.10.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -40,27 +57,10 @@ smart-default = "0.7"
 strum = { version = "0.28", features = ["derive"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+tower-http = "0.6"
 ustr = { version = "1", features = ["serde"] }
 uuid = { version = "^1.23.0", features = ["v4"] }
 v_utils = { version = "^2.15", features = ["macros", "cli"] }
-axum = "0.8"
-bevy_simple_text_input = "0.14"
-bytemuck = "1"
-clickhouse = "0.14"
-console_error_panic_hook = "0.1"
-dashmap = "6"
-fuzzy-matcher = "0.3"
-getrandom = "0.4"
-leptos = "0.8"
-leptos_axum = "0.8"
-leptos_meta = "0.8"
-leptos_router = "0.8"
-ort = "=2.0.0-rc.12"
-robot_master_arena = { path = "robot_master_arena" }
-robot_master_core = { path = "robot_master_core" }
-robot_master_game = { path = "robot_master_game" }
-robot_master_train = { path = "robot_master_train" }
-tower-http = "0.6"
 wasm-bindgen = "0.2.106"
 
 [profile.wasm-release]
