@@ -27,7 +27,7 @@ pub fn run(arch: TrainArch) {
 	// MSE magnitude at init is small and no action-count calibration is needed.
 	let value_weight = 1.0f64;
 	let hide_label = if args.hide { "hide" } else { "show" };
-	let run_id = format!("{}:g{}:s{}/{}x{}_{}", args.generation, args.games, args.sims, args.size, args.size, hide_label);
+	let run_id = format!("{}:g{}:s{}/{}x{}_{hide_label}", args.generation, args.games, args.sims, args.size, args.size);
 	let data_dir = xdg_cache_dir(&format!("{run_id}/training_data"));
 	fs::create_dir_all(&data_dir).unwrap_or_else(|e| panic!("failed to create {}: {e}", data_dir.display()));
 	let models_out = xdg_cache_dir(&format!("{run_id}/models"));
@@ -111,7 +111,7 @@ pub fn run(arch: TrainArch) {
 		eprintln!("  [1/3] Self-play ({} games, {} sims): done ({:.1}s)", args.games, args.sims, sp_start.elapsed().as_secs_f64());
 
 		// 2. Train
-		eprint!("  [2/3] Training ({} steps)... ", train_steps);
+		eprint!("  [2/3] Training ({train_steps} steps)... ");
 		let train_start = Instant::now();
 		// Resume from the previous iteration's checkpoint to preserve SGD momentum across
 		// iterations. AlphaZero and MiniZero train continuously — cold-restarting the optimizer
@@ -178,8 +178,8 @@ pub fn run(arch: TrainArch) {
 		if version % 10 == 0 {
 			if let Some(ref spec) = supervise {
 				let hide_flag = if args.hide { "h" } else { "v" };
-				let model_id = format!("onnx:model_v{}|g{}|s{}|h{}", version, args.sims, args.size, hide_flag);
-				let no_priors_spec = format!("{},{}", spec, model_id);
+				let model_id = format!("onnx:model_v{version}|g{}|s{}|h{hide_flag}", args.sims, args.size);
+				let no_priors_spec = format!("{spec},{model_id}");
 
 				eprint!("  [eval] model_v{version} vs {spec} (32 games)... ");
 				let eval_start = Instant::now();
@@ -308,7 +308,7 @@ fn latest_checkpoint(models_out: &Path) -> Option<PathBuf> {
 /// Parse the JSON array from `arena tourney --json` and extract wins/games for `id`.
 /// JSON format: `[{"id":"rollout","wins":10,"games":32},{"id":"onnx:...","wins":22,"games":32}]`
 fn parse_eval_json(json: &str, id: &str) -> Option<(u32, u32)> {
-	let needle = format!(r#""id":"{}""#, id);
+	let needle = format!(r#""id":"{id}""#);
 	// Find the object containing our id — search from the right to handle any prefix matches
 	let id_pos = json.rfind(&needle)?;
 	// Walk back to find the opening `{` of this object
