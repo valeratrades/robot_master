@@ -23,15 +23,15 @@ Run the full loop:
 
 **Options:**
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `generation` | *(required)* | Label scoping all data/checkpoints/models (e.g. `v1`, `transformer_big`) |
-| `--iterations` | `20` | Number of selfplay → train → export cycles |
-| `--games` | `200` | Self-play games per iteration |
-| `--sims` | `25` | Gumbel simulations per move (MiniZero benchmarks n=2 and n=16) |
-| `--size` | `5` | Board size (must match model architecture) |
-| `--hide` | off | Train in information-hidden mode (opponent's hand not visible) |
-| `--force-cpu` | off | Skip GPU for selfplay (faster at 5×5/7×7) |
+| Flag | Description |
+|------|-------------|
+| `generation` | *(required)* Label scoping all data/checkpoints/models (e.g. `v1`, `transformer_big`) |
+| `--iterations` | Number of selfplay → train → export cycles |
+| `--games` | Self-play games per iteration |
+| `--sims` | Gumbel simulations per move (MiniZero benchmarks n=2 and n=16) |
+| `--size` | Board size (must match model architecture) |
+| `--hide` | Train in information-hidden mode (opponent's hand not visible) |
+| `--force-cpu` | Skip GPU for selfplay (faster at 5×5/7×7) |
 
 Training steps per iteration are derived automatically as `max(games/2, 1)`.
 
