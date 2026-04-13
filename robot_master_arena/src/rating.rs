@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-
 /// Lichess-derived Glicko-2 parameters.
 const TAU: f64 = 0.75;
 const CONVERGENCE_TOLERANCE: f64 = 1e-6;
@@ -13,7 +11,7 @@ const MIN_DEVIATION: f64 = 45.0;
 const MAX_DEVIATION: f64 = 500.0;
 const MAX_VOLATILITY: f64 = 0.1;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Rating {
 	pub rating: f64 = 1500.0,
 	pub deviation: f64 = MAX_DEVIATION,
