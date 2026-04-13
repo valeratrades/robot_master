@@ -15,16 +15,15 @@ python = ["dep:pyo3", "robot_master_core/python"]
 clap.workspace = true
 
 [dependencies]
-robot_master_arena = { workspace = true }
-robot_master_core = { workspace = true }
-robot_master_game = { workspace = true }
-robot_master_train = { workspace = true }
-
 derive-new.workspace = true
 miette.workspace = true
 pyo3 = { workspace = true, optional = true }
 rand.workspace = true
 regex.workspace = true
+robot_master_arena.workspace = true
+robot_master_core.workspace = true
+robot_master_game.workspace = true
+robot_master_train.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

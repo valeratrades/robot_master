@@ -36,28 +36,26 @@ ssr = [
     "dep:tower-http",
 ]
 
-[dependencies]
-robot_master_arena = { workspace = true }
-robot_master_game = { workspace = true }
-
-axum = { workspace = true, optional = true }
-console_error_panic_hook = { workspace = true, optional = true }
-getrandom = { workspace = true, features = ["wasm_js"] }
-leptos = { workspace = true }
-leptos_axum = { workspace = true, optional = true }
-leptos_meta = { workspace = true }
-leptos_router = { workspace = true }
-tower-http = { workspace = true, features = ["fs"], optional = true }
-wasm-bindgen = { workspace = true, optional = true }
-
-tokio = { workspace = true, optional = true }
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 clap.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.108"
 web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement"] }
+
+[dependencies]
+axum = { workspace = true, optional = true }
+console_error_panic_hook = { workspace = true, optional = true }
+getrandom = { workspace = true, features = ["wasm_js"] }
+leptos.workspace = true
+leptos_axum = { workspace = true, optional = true }
+leptos_meta.workspace = true
+leptos_router.workspace = true
+robot_master_arena.workspace = true
+robot_master_game.workspace = true
+tokio = { workspace = true, optional = true }
+tower-http = { workspace = true, features = ["fs"], optional = true }
+wasm-bindgen = { workspace = true, optional = true }
 
 [lints]
 workspace = true
