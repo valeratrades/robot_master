@@ -32,8 +32,9 @@ pub struct PlayerArgs {
 }
 #[derive(Clone, Debug, Parser)]
 pub struct TrainArgs {
-	/// Generation name — all data/checkpoints/models are scoped under this label (e.g. "v1", "cnn_big")
-	pub generation: String,
+	/// Include the git hash in the run ID (fully pins to exact build; fragments cache across commits)
+	#[arg(long)]
+	pub exact_generation: bool,
 	/// Number of selfplay → train → export iterations
 	#[arg(long, default_value = "20")]
 	pub iterations: u32,

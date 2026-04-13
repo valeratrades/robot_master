@@ -27,10 +27,18 @@ pub fn run(arch: TrainArch) {
 	// MSE magnitude at init is small and no action-count calibration is needed.
 	let value_weight = 1.0f64;
 	let hide_label = if args.hide { "hide" } else { "show" };
-	let run_id = format!("{}:g{}:s{}/{}x{}_{hide_label}", args.generation, args.games, args.sims, args.size, args.size);
+	let generation = if args.exact_generation {
+		concat!(env!("CARGO_PKG_VERSION"), "-", env!("GIT_HASH"))
+	} else {
+		env!("CARGO_PKG_VERSION")
+	};
+	let run_id = format!("{generation}_-_g{}:s{}/{}x{}_{hide_label}", args.games, args.sims, args.size, args.size);
 	let data_dir = xdg_cache_dir(&format!("{run_id}/training_data"));
 	fs::create_dir_all(&data_dir).unwrap_or_else(|e| panic!("failed to create {}: {e}", data_dir.display()));
 	let models_out = xdg_cache_dir(&format!("{run_id}/models"));
+	eprintln!("run: {run_id}");
+	eprintln!("data: {}", data_dir.display());
+	eprintln!("models: {}", models_out.display());
 
 	// Detect the zlib path once (needed for Python/numpy on NixOS)
 	let zlib_path = zlib_ld_path();
