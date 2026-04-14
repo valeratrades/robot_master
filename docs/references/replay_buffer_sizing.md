@@ -10,10 +10,10 @@ Buffer capacity not specified in the paper. Reimplementations (ELF OpenGo, Light
 
 ## Reimplementations & Scale-Down Studies
 
-### ELF OpenGo (Facebook, 2019) — arxiv 1902.04522
+### ELF OpenGo (Facebook, 2019) - arxiv 1902.04522
 Explicitly confirmed: 500,000-game buffer in a split architecture of 50 queues × 10,000 games each. Added a **minimum floor of 200 games per queue** before training begins to prevent early overfitting. This floor heuristic is useful for small-scale runs.
 
-### MiniZero (IEEE ToG 2023/2024) — arxiv 2310.11305
+### MiniZero (IEEE ToG 2023/2024) - arxiv 2310.11305
 **Most directly applicable reference for low-compute regimes.**
 - 300 iterations × 2,000 games/iter → 40,000-game buffer = exactly 20× games_per_iteration
 - Independently reproduces the ~20× ratio at modest scale
@@ -21,10 +21,10 @@ Explicitly confirmed: 500,000-game buffer in a split architecture of 50 queues �
 
 ## Experience Replay Theory
 
-### Revisiting Fundamentals of Experience Replay (Fedus et al., ICML 2020) — arxiv 2007.06700
+### Revisiting Fundamentals of Experience Replay (Fedus et al., ICML 2020) - arxiv 2007.06700
 Buffer size interacts nonlinearly with algorithm choice and n-step returns. "Larger buffer generally helps" when paired with appropriate algorithmic choices. No universal formula exists, but confirms that aggressive pruning (< ~10 iterations of history) causes variance spikes and slower convergence.
 
-## Low-Compute / Sample Efficiency (2022–2025)
+## Low-Compute / Sample Efficiency (2022-2025)
 
 ### Gumbel AlphaZero / Gumbel MuZero (Danihelka et al., ICLR 2022)
 https://openreview.net/forum?id=bERaNdoegnO
@@ -39,6 +39,6 @@ Removes MCTS from training entirely; uses it only at evaluation. Reached superhu
 ## Key Takeaways for This Project
 
 - The **~20× games_per_iteration** buffer cap is the empirical consensus, reproduced independently at both DeepMind scale and MiniZero's modest 300-iteration scale.
-- `ln(N_iterations)` grows far too slowly — `ceil(ln(100)) = 5` iterations of history is more aggressive than any published implementation and risks policy divergence.
+- `ln(N_iterations)` grows far too slowly - `ceil(ln(100)) = 5` iterations of history is more aggressive than any published implementation and risks policy divergence.
 - Don't start gradient updates until the buffer has a meaningful floor (~500+ game records).
 - If not already using Gumbel AlphaZero for MCTS, that is the highest-leverage algorithmic change for limited iteration budgets.

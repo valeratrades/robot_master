@@ -27,7 +27,7 @@ pub enum SearchKind {
 /// An ONNX model file exposed as a player. Carries only the stem; path resolution
 /// happens in the binary crate against the user-specified models dir.
 ///
-/// Does not implement `Bot<N>` — the binary crate constructs the actual GumbelBot+NnEval.
+/// Does not implement `Bot<N>` - the binary crate constructs the actual GumbelBot+NnEval.
 #[derive(Clone, Debug, Default, derive_more::Display, Eq, PartialEq)]
 #[display("onnx:{stem}")]
 pub struct OnnxPlayer {
@@ -55,7 +55,7 @@ pub enum InnerKind {
 	GreedyForScocre(GreedyForScore),
 	Sadist(Sadist),
 	Rollout(Rollout),
-	/// ONNX model. `into_bot` cannot construct this — the binary crate must handle it.
+	/// ONNX model. `into_bot` cannot construct this - the binary crate must handle it.
 	OnnxPlayer(OnnxPlayer),
 }
 
@@ -71,7 +71,7 @@ impl InnerKind {
 	/// Construct a direct (non-Gumbel) `Bot<N>`.
 	///
 	/// # Panics
-	/// Panics for `OnnxPlayer` — the binary crate must construct `GumbelBot<NnEval>`.
+	/// Panics for `OnnxPlayer` - the binary crate must construct `GumbelBot<NnEval>`.
 	pub fn into_bot<const N: usize>(self) -> Box<dyn Bot<N>>
 	where
 		[(); N * N]:,

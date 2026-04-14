@@ -7,9 +7,9 @@ use robot_master_core::{
 /// Number of input channels for an N×N board.
 ///
 /// Layout:
-///   [0:N+1]         card value presence — plane `v` is 1.0 where card value v is placed
-///   [N+1:2N+2]      current player hand — one plane per value, count/(N+1) normalized
-///   [2N+2:3N+3]     opponent hand       — same encoding
+///   [0:N+1]         card value presence - plane `v` is 1.0 where card value v is placed
+///   [N+1:2N+2]      current player hand - one plane per value, count/(N+1) normalized
+///   [2N+2:3N+3]     opponent hand       - same encoding
 ///   [3N+3]          current player total score (min line score), normalized /100
 ///   [3N+4:4N+4]     current player per-line scores (line 0..N-1), normalized /100
 ///   [4N+4]          opponent total score, normalized /100
@@ -86,7 +86,7 @@ where
 		}
 	}
 
-	// Score planes — each scalar broadcast across all N² spatial cells, normalized /100.
+	// Score planes - each scalar broadcast across all N² spatial cells, normalized /100.
 	// board.line(player, i) returns column i for Player A, row i for Player B, so
 	// score plane i corresponds exactly to spatial column i in the NN's transposed view.
 	let ch_score_cur = 3 * N + 3;
@@ -130,7 +130,7 @@ pub fn action_index(card: u8, row: usize, col: usize, n: usize, player_b: bool) 
 /// Serialize one training sample to raw bytes (little-endian f32s).
 ///
 /// Layout: `state_planes || policy || [value]`
-/// — matches `SelfPlayDataset` in `training/train.py`.
+/// - matches `SelfPlayDataset` in `training/train.py`.
 pub fn encode_sample(state_planes: &[f32], policy: &[f32], value: f32) -> Vec<u8> {
 	let total = state_planes.len() + policy.len() + 1;
 	let mut out = Vec::with_capacity(total * 4);

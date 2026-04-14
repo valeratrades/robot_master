@@ -31,7 +31,7 @@ pub fn score_line(counts: &LineCounts) -> u16 {
 }
 
 /// Analytic score delta when card v is added to a line with the given counts.
-/// 0→1: +v; 1→2: +9v; 2→3: +(100−10v); 3+: 0
+/// 0→1: +v; 1→2: +9v; 2→3: +(100-10v); 3+: 0
 pub fn score_delta(counts: &LineCounts, v: CardValue) -> i16 {
 	let vv = v.0 as i16;
 	match counts[v.0 as usize] {

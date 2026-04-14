@@ -8,7 +8,7 @@ pub const MAX_BOARD_SIZE: usize = 15;
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct CardValue(pub u8);
 
-/// Fixed-size count array — O(1) lookup, no allocation, Copy.
+/// Fixed-size count array - O(1) lookup, no allocation, Copy.
 /// N is the board size; card values run 0..=N, so the array is N+1 slots.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Hand<const N: usize>
@@ -25,7 +25,7 @@ where
 		self.counts[v.0 as usize]
 	}
 
-	/// Panics if the card is not in hand — caller must verify first.
+	/// Panics if the card is not in hand - caller must verify first.
 	#[inline]
 	pub fn take(&mut self, v: CardValue) {
 		let c = &mut self.counts[v.0 as usize];

@@ -28,7 +28,7 @@ pub fn from_config(config: &ArenaConfig) -> Box<dyn RatingDb> {
 		#[cfg(feature = "clickhouse")]
 		DbBackend::Clickhouse { url } => Box::new(clickhouse_db::ClickhouseDb::new(url)),
 		#[cfg(not(feature = "clickhouse"))]
-		DbBackend::Clickhouse { .. } => panic!("compiled without `clickhouse` feature — enable it in robot_master_arena/Cargo.toml"),
+		DbBackend::Clickhouse { .. } => panic!("compiled without `clickhouse` feature - enable it in robot_master_arena/Cargo.toml"),
 	}
 }
 /// In-memory database: ratings are saved and loaded from memory, never persisted to disk.

@@ -155,7 +155,7 @@ impl Node {
 
 pub(crate) struct Tree {
 	pub(crate) nodes: Vec<Node>,
-	/// Live sorted multiset of Q values across all nodes — mirrors MiniZero's `tree_value_bound_`.
+	/// Live sorted multiset of Q values across all nodes - mirrors MiniZero's `tree_value_bound_`.
 	/// Key = Q value, value = ref count. Min/max are always exact (never stale).
 	value_bound: BTreeMap<OrdF32, u32>,
 }
@@ -253,7 +253,7 @@ impl Tree {
 			.expect("root must have at least one edge")
 	}
 
-	/// Normalized Q for root edge `action_idx` — mirrors MiniZero `getNormalizedMean`.
+	/// Normalized Q for root edge `action_idx` - mirrors MiniZero `getNormalizedMean`.
 	/// When bounds are degenerate (< 2 distinct values), returns 1.0 per MiniZero convention.
 	pub(crate) fn root_q_normalized(&self, action_idx: usize) -> f32 {
 		let (q_min, q_max) = self.q_bounds();
@@ -307,7 +307,7 @@ pub(crate) enum PuctVariant {
 	MiniZero,
 }
 
-/// Selection phase only — walks the tree from `node_idx` following PUCT/forced action.
+/// Selection phase only - walks the tree from `node_idx` following PUCT/forced action.
 /// Returns either a leaf needing NN evaluation, or a terminal with its value.
 pub(crate) fn select<const N: usize>(
 	tree: &Tree,
@@ -355,7 +355,7 @@ where
 		current = child;
 	}
 
-	// Terminal node (no edges) — sim_state must have a known outcome here.
+	// Terminal node (no edges) - sim_state must have a known outcome here.
 	let value = outcome_value(sim_state.outcome().expect("node with no edges must be terminal"), sim_state.turn);
 	SelectResult::Terminal { path, value: value as f64 }
 }

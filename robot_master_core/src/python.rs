@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyAny};
-use rand::{rngs::SmallRng, seq::IteratorRandom};
+use rand::{
+	rngs::SmallRng,
+	seq::{IteratorRandom, SliceRandom},
+};
 
 use crate::{
 	board::{Board, Pos},
@@ -60,7 +63,7 @@ pub fn plateau_to_string(plateau: Vec<Vec<Option<u8>>>, vide: &str) -> String {
 	let bar: String = "-".repeat(9 + 4 * n);
 	let mut lines = Vec::default();
 	lines.push(bar.clone());
-	// header row — matches Python: " " * 10 + "".join(f"{j}   " for j in range(n)).rstrip()
+	// header row - matches Python: " " * 10 + "".join(f"{j}   " for j in range(n)).rstrip()
 	let cols: String = (0..n).map(|c| format!("{c}   ")).collect();
 	let header = format!("          {}", cols.trim_end());
 	lines.push(header);
@@ -122,15 +125,23 @@ pub fn place_carte(mut plateau: Vec<Vec<Option<u8>>>, pos_l: i64, pos_c: i64, ca
 	}
 	plateau
 }
-/// Create a shuffled deck for an N×N board: values 0..=(N-1), N copies each.
-/// `taille` (board side length, default 5) determines the deck.
+/// Create a shuffled deck.
+/// Accepts either `maxC`/`nbC` (direct card parameters) or `taille` (board side length).
+/// With `maxC`/`nbC`: values 0..=maxC, nbC copies each.
+/// With `taille` (default 5): values 0..=(taille), (taille+1) copies each.
 #[pyfunction]
 #[pyo3(signature = (dico_options = None))]
 pub fn new_pile_cartes(dico_options: Option<HashMap<String, i64>>) -> Vec<u8> {
 	let opts = dico_options.unwrap_or_default();
-	let n = opts.get("taille").copied().unwrap_or(5) as usize;
 	let mut rng: SmallRng = rand::make_rng();
-	crate::cards::new_deck(n, &mut rng).into_iter().map(|c| c.0).collect()
+	if let (Some(&max_c), Some(&nb_c)) = (opts.get("maxC"), opts.get("nbC")) {
+		let mut deck: Vec<u8> = (0..=max_c as u8).flat_map(|v| std::iter::repeat_n(v, nb_c as usize)).collect();
+		deck.shuffle(&mut rng);
+		deck
+	} else {
+		let n = opts.get("taille").copied().unwrap_or(5) as usize;
+		crate::cards::new_deck(n, &mut rng).into_iter().map(|c| c.0).collect()
+	}
 }
 /// Distribute cards: returns [center_card, hand1_list, hand2_list, ...].
 #[pyfunction]

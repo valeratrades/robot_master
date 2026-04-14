@@ -107,8 +107,8 @@ where
 /// Single-elimination tournament, repeated for `cycles` full brackets.
 ///
 /// Each bracket:
-/// 1. Sort all players by rating; pair adjacent players (rank 0 vs 1, rank 2 vs 3, …)
-///    so each matchup is between players of closest ELO — under-valued players beat their
+/// 1. Sort all players by rating; pair adjacent players (rank 0 vs 1, rank 2 vs 3, ...)
+///    so each matchup is between players of closest ELO - under-valued players beat their
 ///    near-peers and advance to play more games.
 /// 2. Winners advance to the next round; losers are eliminated for this bracket.
 ///    Draws are resolved deterministically on player id ordering so there are no byes.
@@ -324,7 +324,7 @@ where
 
 	fn apply_result(&mut self, result: &MatchResult, live_ratings: &DashMap<Ustr, Rating>) {
 		let (a_id, b_id) = self.current_pair.expect("apply_result called before pairs_for_cycle");
-		// Get opponent snapshot for Glicko-2 — we read current value (not yet updated this cycle).
+		// Get opponent snapshot for Glicko-2 - we read current value (not yet updated this cycle).
 		let r_a = live_ratings.get(&a_id).expect("player always in live_ratings").clone();
 		let r_b = live_ratings.get(&b_id).expect("player always in live_ratings").clone();
 
@@ -350,7 +350,7 @@ where
 		let r_a = live_ratings.get(&a_id).expect("player always in live_ratings").clone();
 		let r_b = live_ratings.get(&b_id).expect("player always in live_ratings").clone();
 
-		// Build slices of (&Rating, score) — the opponent snapshot stored in pending is used.
+		// Build slices of (&Rating, score) - the opponent snapshot stored in pending is used.
 		let a_games: Vec<(&Rating, f64)> = self.pending_a.iter().map(|(opp, s)| (opp as &Rating, *s)).collect();
 		let b_games: Vec<(&Rating, f64)> = self.pending_b.iter().map(|(opp, s)| (opp as &Rating, *s)).collect();
 
@@ -509,7 +509,7 @@ where
 
 	fn pairs_for_cycle(&mut self, cycle: usize, _player_ids: &[Ustr], _live_ratings: &DashMap<Ustr, Rating>, rng: &mut dyn Rng) -> Vec<(Ustr, Ustr, u64)> {
 		if self.active.len() <= 1 {
-			// Bracket already collapsed — padding cycle.
+			// Bracket already collapsed - padding cycle.
 			return Vec::new();
 		}
 
@@ -573,7 +573,7 @@ where
 		if self.active.len() == 1 {
 			let inner_round = cycle % self.max_inner_rounds;
 			if inner_round == self.max_inner_rounds - 1 {
-				// Happened to finish exactly on the last inner slot — start next bracket now.
+				// Happened to finish exactly on the last inner slot - start next bracket now.
 				self.current_bracket += 1;
 				if self.current_bracket < self.brackets {
 					self.reset_bracket(player_ids, live_ratings);

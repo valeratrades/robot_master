@@ -5,7 +5,7 @@
 ///
 /// - Guarantees policy improvement: E[q(A_{n+1})] >= E_{a~π}[q(a)]
 /// - Works reliably with n=2..32 simulations (vs 400+ for standard MCTS)
-/// - No Dirichlet noise, no temperature schedule — exploration comes from Gumbel sampling
+/// - No Dirichlet noise, no temperature schedule - exploration comes from Gumbel sampling
 /// - Policy target = softmax(logits + σ(completedQ)), not visit counts
 ///
 /// Reference: "Policy Improvement by Planning with Gumbel", Danihelka et al., ICLR 2022.
@@ -83,7 +83,7 @@ where
 	// Log-probabilities (logits = log π) for Gumbel scoring
 	let logits: Vec<f32> = priors.iter().map(|&p| p.max(1e-8).ln()).collect();
 
-	// Step 1: sample k Gumbel(0,1) variables once — reused throughout
+	// Step 1: sample k Gumbel(0,1) variables once - reused throughout
 	let gumbel_dist = Gumbel::new(0.0f32, 1.0).expect("valid Gumbel params");
 	let g: Vec<f32> = (0..k).map(|_| gumbel_dist.sample(rng)).collect();
 
@@ -92,7 +92,7 @@ where
 	let gumbel_scores: Vec<f32> = (0..k).map(|i| g[i] + logits[i]).collect();
 	let top_m: Vec<usize> = argtop_m(&gumbel_scores, m);
 
-	// Step 3: Sequential Halving — allocate n simulations over top_m
+	// Step 3: Sequential Halving - allocate n simulations over top_m
 	let mut tree = Tree::new_with_root(root_value, &moves, &priors);
 	let root_idx = 0u32;
 
@@ -141,7 +141,7 @@ where
 		sims_used += 1;
 	}
 
-	// Step 4: select A_{n+1} — argmax of g + logits + σ(q̂) among survivors
+	// Step 4: select A_{n+1} - argmax of g + logits + σ(q̂) among survivors
 	let max_visits = tree.max_root_visits();
 	let best_idx = *survivors
 		.iter()
@@ -170,7 +170,7 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Resumable Gumbel search — for vectorized (GPU-batched) self-play
+// Resumable Gumbel search - for vectorized (GPU-batched) self-play
 // ---------------------------------------------------------------------------
 
 /// A Gumbel search that can be paused at each NN evaluation point and resumed
@@ -216,7 +216,7 @@ where
 	[(); N * N]:,
 	[(); N + 1]:,
 {
-	/// Start a new search. `root_eval` is the NN evaluation of `state` — the
+	/// Start a new search. `root_eval` is the NN evaluation of `state` - the
 	/// caller is responsible for batching root evaluations across games.
 	pub fn new(state: &GameState<N>, root_eval: Evaluation, config: GumbelConfig, gumbel_scores: Vec<f32>, moves: Vec<Move>, priors: Vec<f32>) -> Self {
 		let root_value = root_eval.value;
@@ -312,7 +312,7 @@ where
 		}
 
 		if self.pending.is_empty() {
-			// All sims resolved as terminals — no evals needed, so halve now.
+			// All sims resolved as terminals - no evals needed, so halve now.
 			self.halve_survivors_if_needed();
 			if self.sims_used >= self.n {
 				self.done = true;
@@ -400,7 +400,7 @@ where
 	pub(crate) leaf_state: GameState<N>,
 }
 
-/// Sample Gumbel scores and normalize priors for a state — shared setup for both
+/// Sample Gumbel scores and normalize priors for a state - shared setup for both
 /// blocking `gumbel_search` and the resumable `GumbelSearch`.
 pub fn gumbel_setup<const N: usize, R: Rng>(root_eval: &Evaluation, rng: &mut R) -> (Vec<f32>, Vec<Move>, Vec<f32>)
 where
@@ -498,12 +498,12 @@ where
 /// Within a phase, all simulations that need NN evaluation are batched together.
 /// The trick: each forced root action leads to a distinct child of the root that is
 /// unexpanded at first visit. Once expanded, deeper sims may hit already-expanded
-/// nodes and fall through to terminal/re-visit — those are handled individually.
+/// nodes and fall through to terminal/re-visit - those are handled individually.
 ///
 /// Because each `action_idx` in `survivors` is a distinct root edge, multiple sims
 /// for the same action within a phase can share the same evaluation result for the
 /// first expansion (the direct child). Subsequent sims on an already-expanded action
-/// descend deeper into its subtree — those may or may not hit new leaves.
+/// descend deeper into its subtree - those may or may not hit new leaves.
 ///
 /// Strategy: collect all `(action_idx, sim)` selections that return NeedsEval into a
 /// batch, evaluate once, then expand+backprop. Sims that hit terminals are handled
@@ -537,7 +537,7 @@ fn run_phase_batched<const N: usize, E>(
 	// terminal nodes are handled eagerly via `simulate` (no NN needed).
 	//
 	// We run selection against the *current* tree state, which means each sim sees
-	// the expansions from previous iterations/phases — this is correct. Within a
+	// the expansions from previous iterations/phases - this is correct. Within a
 	// single phase batch, we collect leaves without yet expanding them, so subsequent
 	// selections in the same batch may select the same unexpanded edge. We deduplicate
 	// by (parent, edge_idx): if an edge is already in the pending list we fall back to
@@ -602,7 +602,7 @@ fn sigma(q_normalized: f32, max_visits: u32, config: &GumbelConfig) -> f32 {
 
 /// v_mix: interpolation between v̂_π and prior-weighted sum of observed normalized Q-values.
 /// All quantities are in normalized [-1,1] space, matching MiniZero's getMCTSPolicy.
-/// MiniZero formula: v_mix = (v̂_π_norm + (N / π_sum) * Σ_{a:N(a)>0} π(a)·q̂_norm(a)) / (1 + N)
+/// MiniZero formula: v_mix = (v̂_π_norm + (N / π_sum) * Σ_{a:N(a)>0} π(a)*q̂_norm(a)) / (1 + N)
 /// where N = total simulation budget and π_sum = Σ_{a:N(a)>0} π(a).
 fn compute_v_mix(v_pi: f32, priors: &[f32], tree: &Tree, k: usize, n_simulations: u32) -> f32 {
 	let (q_min, q_max) = tree.q_bounds();

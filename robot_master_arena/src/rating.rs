@@ -156,7 +156,7 @@ fn e(mu: f64, g_j: f64, mu_j: f64) -> f64 {
 	1.0 / (1.0 + (-g_j * (mu - mu_j)).exp())
 }
 
-/// Step 5.1–5.4: compute new volatility using the Illinois variant of the
+/// Step 5.1-5.4: compute new volatility using the Illinois variant of the
 /// Brent/regula-falsi method (same as Lichess).
 fn new_volatility(sigma: f64, phi: f64, v: f64, delta: f64) -> f64 {
 	let a = (sigma * sigma).ln();
@@ -254,11 +254,11 @@ mod tests {
 			deviation: 60.0,
 			volatility: 0.06,
 		};
-		// Weak player wins — upset
+		// Weak player wins - upset
 		let (new_strong, _) = glicko_update(&strong, &weak, Outcome::P2Win);
 		let strong_loss = strong.rating - new_strong.rating;
 
-		// Strong wins — expected
+		// Strong wins - expected
 		let (new_strong2, _) = glicko_update(&strong, &weak, Outcome::P1Win);
 		let strong_gain = new_strong2.rating - strong.rating;
 

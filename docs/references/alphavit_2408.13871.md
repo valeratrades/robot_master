@@ -4,7 +4,7 @@
 
 ## Core Idea
 
-Replaces AlphaZero's ResNet residual blocks with Vision Transformer (ViT) components. Handles variable board sizes with a single model — AlphaZero's ResNet requires fixed input size, ViT doesn't.
+Replaces AlphaZero's ResNet residual blocks with Vision Transformer (ViT) components. Handles variable board sizes with a single model - AlphaZero's ResNet requires fixed input size, ViT doesn't.
 
 ## Three Variants
 
@@ -18,7 +18,7 @@ Patch-based: `n_patches = f(H, W, patch_size, stride, padding)`. Position embedd
 
 ## Search
 
-Standard AlphaZero MCTS with UCT. Identical to AlphaZero's MCTS — no modifications.
+Standard AlphaZero MCTS with UCT. Identical to AlphaZero's MCTS - no modifications.
 
 ## Training
 
@@ -30,7 +30,7 @@ Tested on Connect 4, Gomoku, Othello. AlphaViT L4 approaches AlphaZero within ~2
 
 ## Relevance to us
 
-- Directly relevant: we already have a transformer model (model_transformer.py) — AlphaViT validates this direction
+- Directly relevant: we already have a transformer model (model_transformer.py) - AlphaViT validates this direction
 - Variable board size via patch embeddings is cleaner than our current fixed-size approach
 - Multitask / variable-N training is something we haven't explored
-- No NNUE or incremental eval discussion — pure NN + MCTS stack
+- No NNUE or incremental eval discussion - pure NN + MCTS stack

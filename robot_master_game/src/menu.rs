@@ -285,7 +285,7 @@ fn spawn_search_modal(commands: &mut Commands, player_idx: usize, candidates: Ve
 						},
 						TextInputInactive(false),
 						TextInputPlaceholder {
-							value: "Search player…".to_string(),
+							value: "Search player...".to_string(),
 							..default()
 						},
 						Node {
@@ -368,7 +368,7 @@ fn button_system(
 				if start.is_some() {
 					// Guard: hide mode forbids two manual players.
 					if init.hide && init.p1.is_manual() && init.p2.is_manual() {
-						// do nothing — sync_start_button keeps it visually disabled
+						// do nothing - sync_start_button keeps it visually disabled
 					} else {
 						next_state.set(AppState::Playing);
 					}
@@ -492,7 +492,7 @@ fn search_system(
 		let kind: Option<PlayerKind> = if let Some((_, k)) = filtered.get(state.highlighted) {
 			Some(k.clone())
 		} else if !query_str.is_empty() && !(hide && player_idx == 1) {
-			// No matches — treat raw input as a manual player name.
+			// No matches - treat raw input as a manual player name.
 			// Not allowed for player 2 in hidden-hand mode.
 			Some(PlayerKind {
 				inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: query_str.clone() }),
