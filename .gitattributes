@@ -1,0 +1,22 @@
+# Audio formats
+*.mp3 -filter -diff -merge text
+*.flac -filter -diff -merge text
+*.wav -filter -diff -merge text
+*.ogg -filter -diff -merge text
+*.m4a -filter -diff -merge text
+*.aac -filter -diff -merge text
+*.opus -filter -diff -merge text
+*.wma -filter -diff -merge text
+
+# Image formats
+*.jpg -filter -diff -merge text
+*.jpeg -filter -diff -merge text
+*.png -filter -diff -merge text
+*.gif -filter -diff -merge text
+*.bmp -filter -diff -merge text
+*.tiff -filter -diff -merge text
+*.webp -filter -diff -merge text
+*.svg -filter -diff -merge text
+
+# Documents
+*.pdf -filter -diff -merge text

@@ -4,16 +4,12 @@
     rust-overlay.url = "github:oxalica/rust-overlay";
     flake-parts.url = "github:hercules-ci/flake-parts";
     devenv.url = "github:cachix/devenv/v1.6.1";
-    devenv-root = {
-      url = "file+file:///dev/null";
-      flake = false;
-    };
     pre-commit-hooks.url = "github:cachix/git-hooks.nix";
     v_flakes.url = "path:/home/v/s/v_flakes"; #dbg
     #v_flakes.url = "github:valeratrades/v_flakes?ref=v1.6";
   };
 
-  outputs = inputs@{ self, nixpkgs, rust-overlay, flake-parts, devenv, devenv-root, pre-commit-hooks, v_flakes }:
+  outputs = inputs@{ self, nixpkgs, rust-overlay, flake-parts, devenv, pre-commit-hooks, v_flakes }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [
         devenv.flakeModule
@@ -162,10 +158,6 @@
             };
 
           devenv.shells.default = {
-            devenv.root =
-              let rootFile = builtins.readFile devenv-root.outPath;
-              in if rootFile == "" then throw "devenv-root not set; run: echo -n $PWD > .devenv/root && nix develop --override-input devenv-root file+file://.devenv/root"
-              else rootFile;
             languages.python = {
               enable = true;
               package = python;
@@ -177,8 +169,9 @@
 
             scripts = {
               run.exec = ''python -m py_src "$@"'';
-              uv_sync.exec = "uv sync --prerelease=allow --no-install-project --dev";
               maturin_build.exec = "maturin develop --features python -m robot_master/Cargo.toml";
+              uv_sync.exec = "maturin_build && uv sync --prerelease=allow --no-install-project --inexact --dev";
+              pytest.exec = "maturin_build && pytest \"$@\"";
             };
 
             packages = [
@@ -202,6 +195,7 @@
               + combined.shellHook
               + ''
                 cp -f ${(v_flakes.files.treefmt) { inherit pkgs; }} ./.treefmt.toml
+                cp -f ${(v_flakes.files.gitattributes) { inherit pkgs; lfs = false; }} ./.gitattributes
 
                 export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath nativeLibs}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
