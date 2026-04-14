@@ -34,11 +34,11 @@ where
 }
 
 enum Mode {
-	/// No finished lines — play pure greedy.
+	/// No finished lines - play pure greedy.
 	GreedyMax,
-	/// At least one finished line, but unfinished lines exist below finished_min — target those.
+	/// At least one finished line, but unfinished lines exist below finished_min - target those.
 	TargetWeak,
-	/// All unfinished lines >= finished_min — can't improve, harass opponent.
+	/// All unfinished lines >= finished_min - can't improve, harass opponent.
 	Averse,
 }
 

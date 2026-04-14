@@ -9,7 +9,8 @@
       flake = false;
     };
     pre-commit-hooks.url = "github:cachix/git-hooks.nix";
-    v_flakes.url = "path:/home/v/s/v_flakes";
+    v_flakes.url = "path:/home/v/s/v_flakes"; #dbg
+    #v_flakes.url = "github:valeratrades/v_flakes?ref=v1.6";
   };
 
   outputs = inputs@{ self, nixpkgs, rust-overlay, flake-parts, devenv, devenv-root, pre-commit-hooks, v_flakes }:
@@ -177,11 +178,7 @@
             scripts = {
               run.exec = ''python -m py_src "$@"'';
               uv_sync.exec = "uv sync --prerelease=allow --no-install-project --dev";
-              test_a.exec = ''pytest py_src/partie_guidee/a_test.py "$@"'';
-              test_b.exec = ''pytest py_src/partie_guidee/b_test.py "$@"'';
-              test_c.exec = ''pytest py_src/partie_guidee/c_test.py "$@"'';
-              test_d.exec = ''pytest py_src/partie_guidee/d_test.py "$@"'';
-              test_e.exec = ''pytest py_src/partie_guidee/e_test.py "$@"'';
+              maturin_build.exec = "maturin develop --features python -m robot_master/Cargo.toml";
             };
 
             packages = [
@@ -208,10 +205,9 @@
 
                 export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath nativeLibs}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-                if [ ! -d ".devenv/state/venv" ]; then
-                  uv venv .devenv/state/venv
+                if ! python -c "import robot_master" 2>/dev/null; then
+                  echo "⚠ robot_master not built — run: maturin build"
                 fi
-                source .devenv/state/venv/bin/activate
               '';
           };
         };

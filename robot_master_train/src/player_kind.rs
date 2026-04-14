@@ -62,13 +62,12 @@ where
 }
 
 /// Wrap a rule-based `PlayerKind`'s inner bot in `RolloutEval`.
-/// Sims in the spec are ignored — the bot is used directly as the rollout policy.
+/// Sims in the spec are ignored - the bot is used directly as the rollout policy.
 /// Panics on `OnnxPlayer` or `ManualPlayer`.
 pub fn kind_into_rollout_evaluator<const N: usize>(kind: &PlayerKind) -> Box<dyn Evaluator<N>>
 where
 	[(); N * N]:,
-	[(); N + 1]:,
-{
+	[(); N + 1]:, {
 	match &kind.inner {
 		InnerKind::OnnxPlayer(_) => panic!("--supervise-bot cannot be an onnx model"),
 		InnerKind::ManualPlayer(_) => panic!("--supervise-bot cannot be a manual player"),

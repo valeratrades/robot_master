@@ -9,7 +9,7 @@ use crate::algos::validate_manual_name;
 /// # Contract
 /// - `choose_move` must return a legal move. If it doesn't, `Match` will panic (fail-fast).
 /// - For bots that don't make autonomous decisions (e.g. manual/human input), `choose_move`
-///   should panic — the interface must provide moves externally via `Match::next(Some(m))`.
+///   should panic - the interface must provide moves externally via `Match::next(Some(m))`.
 pub trait Bot<const N: usize>: Send + Sync
 where
 	[(); N * N]:,
@@ -32,7 +32,7 @@ where
 
 /// Placeholder for human-controlled players.
 ///
-/// `choose_move` panics — the caller must always supply moves via `Match::next(Some(m))`.
+/// `choose_move` panics - the caller must always supply moves via `Match::next(Some(m))`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ManualPlayer {
 	pub name: String,
@@ -41,7 +41,8 @@ impl Default for ManualPlayer {
 	fn default() -> Self {
 		Self { name: "Player".to_string() }
 	}
-}impl std::fmt::Display for ManualPlayer {
+}
+impl std::fmt::Display for ManualPlayer {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "manual:{}", self.name)
 	}
@@ -68,7 +69,7 @@ where
 	[(); N + 1]:,
 {
 	fn choose_move(&mut self, _game: &GameState<N>) -> Move {
-		panic!("ManualPlayer::choose_move called — caller must supply moves via Match::next(Some(m))")
+		panic!("ManualPlayer::choose_move called - caller must supply moves via Match::next(Some(m))")
 	}
 }
 

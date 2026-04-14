@@ -2,7 +2,7 @@
 
 The main binary is `robot_master`. It takes two players (`-a`, `-b`), an optional board size (`-s`), and a subcommand for the interface.
 
-Players: `manual`, `random`, `greedy`, `sadist`, `rollout`. Search wrapping: append `|v<N>` (vanilla UCT-MCTS) or `|g<N>` (Gumbel) sims — `rollout|v800`, `rollout|g800`, `sadist|v200`. Unrecognized names prompt registration as a named manual player (with Elo tracking), or fall back to `fzf` selection.
+Players: `manual`, `random`, `greedy`, `sadist`, `rollout`. Search wrapping: append `|v<N>` (vanilla UCT-MCTS) or `|g<N>` (Gumbel) sims - `rollout|v800`, `rollout|g800`, `sadist|v200`. Unrecognized names prompt registration as a named manual player (with Elo tracking), or fall back to `fzf` selection.
 
 Board sizes: `5`, `7`, `9`, `11`.
 
@@ -63,7 +63,7 @@ robot_master arena players reset-ratings         # reset all ratings to default
 robot_master arena players nuke                  # remove players from DB entirely
 ```
 
-**ONNX models in the arena** — after training, register a model then include it in tourneys:
+**ONNX models in the arena** - after training, register a model then include it in tourneys:
 ```sh
 # bare: runs policy head directly (greedy argmax, no search)
 robot_master arena players new 'onnx:model_v15'
@@ -79,7 +79,7 @@ robot_master arena -s 'onnx:model_v15,rollout$,sadist' tourney swiss 20
 ```
 
 Player spec constraint suffixes (encoded in the ID, used for filtering):
-- `|s5` or `|s5,7` — restrict to specific board size(s)
-- `|hh` — hidden-hand mode only; `|hv` — visible-hand only
+- `|s5` or `|s5,7` - restrict to specific board size(s)
+- `|hh` - hidden-hand mode only; `|hv` - visible-hand only
 
 Models are looked up in `./models` by default. Override with `--models-dir`.

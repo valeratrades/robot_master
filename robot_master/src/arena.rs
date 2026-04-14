@@ -367,7 +367,7 @@ fn run_players(players_filter: Vec<String>, command: PlayersCommands, models_dir
 		for spec in &players {
 			let mut kind: PlayerKind = spec.parse().unwrap_or_else(|_| die(UnknownPlayerSpec { spec: spec.clone() }));
 			if kind.is_manual() {
-				die(miette::miette!("cannot register manual players in arena — manual players participate via the TUI/GUI only"));
+				die(miette::miette!("cannot register manual players in arena - manual players participate via the TUI/GUI only"));
 			}
 			if kind.is_onnx() {
 				kind.constrain_sizes = constrain_sizes.clone();

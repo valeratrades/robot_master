@@ -487,7 +487,7 @@ fn rebuild_modal_tree(game: Res<Game>, selected: Res<SelectedCard>, slots: Res<P
 	let new_keys: Vec<char> = root.children.keys().copied().collect();
 	if old_keys != new_keys {
 		modal.root = root;
-		// Don't reset sequence — if user is mid-`:q`, keep it alive.
+		// Don't reset sequence - if user is mid-`:q`, keep it alive.
 		// Only reset if the active sequence is no longer valid.
 		if modal.active {
 			if modal.current_node().is_none() {
@@ -809,7 +809,7 @@ fn handle_escape(
 	let modal_active_now = modal.active;
 	if keys.just_pressed(KeyCode::Escape) {
 		if *was_modal_active {
-			// Modal just got reset by update_modal_state — don't also deselect
+			// Modal just got reset by update_modal_state - don't also deselect
 		} else if selected.0.is_some() {
 			selected.0 = None;
 		} else {
@@ -824,5 +824,5 @@ fn cleanup_gameplay(mut commands: Commands, query: Query<Entity, With<GameScene>
 		commands.entity(entity).despawn();
 	}
 	commands.remove_resource::<SelectedCard>();
-	// Game and PlayerSlots survive into Result state — cleaned up there.
+	// Game and PlayerSlots survive into Result state - cleaned up there.
 }

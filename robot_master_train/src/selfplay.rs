@@ -62,7 +62,7 @@ where
 /// single `evaluate_batch` call per step, keeping GPU utilization high.
 ///
 /// Yields completed game sample batches as each game finishes. Games are
-/// independent — `rng` is used to seed per-game Gumbel noise, but each game's
+/// independent - `rng` is used to seed per-game Gumbel noise, but each game's
 /// tree state is isolated.
 ///
 /// # Invariants
@@ -70,7 +70,7 @@ where
 ///   driven one at a time; tree state is consistent before each selection run).
 /// - `evaluate_batch` is called at most once per loop iteration.
 /// - The total number of NN calls equals (root evals + leaf evals) × total_games,
-///   same as the sequential path — just batched differently.
+///   same as the sequential path - just batched differently.
 pub fn play_games_batched<const N: usize, E, R>(total_games: usize, evaluator: &E, config: &GumbelConfig, rng: &mut R, batch_size: usize, game_config: GameConfig) -> Vec<Vec<Sample>>
 where
 	E: Evaluator<N>,

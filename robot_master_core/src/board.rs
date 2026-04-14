@@ -97,10 +97,10 @@ where
 	}
 
 	/// Diff display against another board state.
-	/// - `+v` — cell added (was empty in `other`, filled here)
-	/// - `-v` — cell removed (filled in `other`, empty here)
-	/// - `~v` — cell changed value
-	/// - ` v` — unchanged
+	/// - `+v` - cell added (was empty in `other`, filled here)
+	/// - `-v` - cell removed (filled in `other`, empty here)
+	/// - `~v` - cell changed value
+	/// - ` v` - unchanged
 	pub fn display_diff(&self, other: &Board<N>) -> String {
 		use fmt::Write;
 		let mut out = String::default();

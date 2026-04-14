@@ -12,7 +12,7 @@ use crate::player::Bot;
 ///
 /// For each candidate move, simulates placing the card, computes every line's
 /// score, sorts them, and picks the move whose sorted vector is lexicographically
-/// largest. This raises the weakest line first — matching the project spec's
+/// largest. This raises the weakest line first - matching the project spec's
 /// `choix_carte_greedy` which maximizes `score_complet_joueuse`.
 ///
 /// Tiebreak: lexicographically largest score vector, then lowest card value,

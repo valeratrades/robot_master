@@ -1,8 +1,8 @@
 # AlphaZero/AlphaGo Zero: Temperature Sampling & Dirichlet Noise
 
 Sources:
-- **AlphaGo Zero**: Silver et al., Nature 2017 — authoritative source for all formulas
-- **AlphaZero**: Silver et al., arXiv 1712.01815 — explicitly says "training and search algorithm and parameters are identical to AlphaGo Zero", adds only per-game Dirichlet α values
+- **AlphaGo Zero**: Silver et al., Nature 2017 - authoritative source for all formulas
+- **AlphaZero**: Silver et al., arXiv 1712.01815 - explicitly says "training and search algorithm and parameters are identical to AlphaGo Zero", adds only per-game Dirichlet α values
 
 ---
 
@@ -19,7 +19,7 @@ Then sample a move from distribution π.
 **Schedule (AlphaGo Zero, "Self-Play" section, p. 24):**
 > "For the first 30 moves of each game, the temperature is set to τ = 1; this selects moves proportionally to their visit count in MCTS, and ensures a diverse set of positions are encountered. For the remainder of the game, an infinitesimal temperature is used, τ → 0."
 
-- τ = 1 for moves 0–29: sample ∝ visit counts (reduces to direct proportional sampling)
+- τ = 1 for moves 0-29: sample ∝ visit counts (reduces to direct proportional sampling)
 - τ → 0 for move 30+: argmax (greedy)
 
 Note: at τ = 1 the formula simplifies to just normalizing visit counts directly (N / ΣN), no need to exponentiate.
@@ -36,7 +36,7 @@ where η ~ Dir(α)
 ```
 
 **AlphaGo Zero ("Self-Play" section, p. 24):**
-> "P(s, a) = (1 − ε)pₐ + εηₐ, where η ∼ Dir(0.03) and ε = 0.25; this noise ensures that all moves may be tried, but the search may still overrule bad moves."
+> "P(s, a) = (1 - ε)pₐ + εηₐ, where η ∼ Dir(0.03) and ε = 0.25; this noise ensures that all moves may be tried, but the search may still overrule bad moves."
 
 ### α values by game (AlphaZero, "Configuration" section, p. 14):
 > "Dirichlet noise Dir(α) was added to the prior probabilities in the root node; this was scaled in inverse proportion to the approximate number of legal moves in a typical position, to a value of α = {0.3, 0.15, 0.03} for chess, shogi and Go respectively."
@@ -56,7 +56,7 @@ where η ~ Dir(α)
 
 ```
 a = argmax_a [ Q(s, a) + U(s, a) ]
-U(s, a) = c_puct · P(s, a) · √(Σ_b N(s, b)) / (1 + N(s, a))
+U(s, a) = c_puct * P(s, a) * √(Σ_b N(s, b)) / (1 + N(s, a))
 ```
 
 ---

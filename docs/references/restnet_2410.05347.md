@@ -4,7 +4,7 @@
 
 ## Architecture
 
-CNN + Transformer hybrid. Interleaves residual blocks (conv) with Transformer blocks. Optimal config: **R3(RRT)** — two residual blocks then one Transformer block, repeated. Residual blocks: standard AlphaZero (two conv layers, 256 filters). Transformer blocks: relative position encoding, 4 attention heads.
+CNN + Transformer hybrid. Interleaves residual blocks (conv) with Transformer blocks. Optimal config: **R3(RRT)** - two residual blocks then one Transformer block, repeated. Residual blocks: standard AlphaZero (two conv layers, 256 filters). Transformer blocks: relative position encoding, 4 attention heads.
 
 **Feature conversion:** 2D feature maps → 1D tokens via one-to-one positional mapping (row-major or column-major), preserving spatial correspondence.
 
@@ -33,8 +33,8 @@ Gumbel AlphaZero MCTS. 64 sims for 9×9 Go, 32 sims for 19×19 Hex.
 ## Relevance to us
 
 - **Most directly relevant to our architecture**: we already have a CNN stem + transformer body (model_transformer.py) which is the same hybrid idea
-- The R3(RRT) interleaving pattern is different from our "full stem then full transformer" — worth considering
+- The R3(RRT) interleaving pattern is different from our "full stem then full transformer" - worth considering
 - Attention learning game concepts (lines, threats) mirrors what we'd want for Robot Master's scoring lines
-- Gumbel AlphaZero MCTS — same framework we're using
+- Gumbel AlphaZero MCTS - same framework we're using
 - No NNUE/incremental eval
 - No explicit activation function details reported

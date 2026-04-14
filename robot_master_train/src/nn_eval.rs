@@ -13,8 +13,8 @@ use crate::{
 ///
 /// The ONNX model interface (see training/export_onnx.py):
 ///   input  "state":  f32[batch, 33, N, N]
-///   output "policy": f32[batch, 6*N²]  — raw logits
-///   output "value":  f32[batch, 3]      — raw WDL logits (Win, Draw, Loss)
+///   output "policy": f32[batch, 6*N²]  - raw logits
+///   output "value":  f32[batch, 3]      - raw WDL logits (Win, Draw, Loss)
 pub struct NnEval {
 	session: Mutex<Session>,
 	board_size: usize,

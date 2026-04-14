@@ -1,6 +1,6 @@
 # Open Attention Residuals
 
-An open-source implementation of [Attention Residuals](https://arxiv.org/abs/2603.15031) (Kimi Team, 2025) — replacing standard additive residual connections with learned softmax attention over previous sublayer outputs.
+An open-source implementation of [Attention Residuals](https://arxiv.org/abs/2603.15031) (Kimi Team, 2025) - replacing standard additive residual connections with learned softmax attention over previous sublayer outputs.
 
 <p align="center">
   <img src="figures/training_loss_0.6b.png" width="700">
@@ -27,7 +27,7 @@ h_l = h_{l-1} + f_{l-1}(h_{l-1})
 **Attention Residuals** (Eq. 1 of the paper) replace this with learned depth-wise attention over previous representations:
 
 ```
-h_l = Σ α_{i→l} · s_i
+h_l = Σ α_{i→l} * s_i
 ```
 
 where `s_i` are source representations (block-level sums or cumulative states), and `α_{i→l}` are softmax attention weights computed with a per-layer learned query vector.
@@ -44,7 +44,7 @@ def block_attn_res(blocks, partial_block, proj, norm, recency_bias):
     return einsum("n b t, n b t d -> b t d", weights, V)
 ```
 
-Each layer selectively attends over previous block representations — "which block's information should I re-use?"
+Each layer selectively attends over previous block representations - "which block's information should I re-use?"
 
 ### Modes
 
@@ -58,7 +58,7 @@ Each layer selectively attends over previous block representations — "which bl
   <img src="figures/attnres_deps.png" width="600">
 </p>
 
-The visualization shows each sublayer's attention weights over previous sublayer outputs. The model learns genuine cross-layer routing patterns — selectively attending to specific earlier layers, not just the most recent one.
+The visualization shows each sublayer's attention weights over previous sublayer outputs. The model learns genuine cross-layer routing patterns - selectively attending to specific earlier layers, not just the most recent one.
 
 ## Quick Start
 
@@ -106,9 +106,9 @@ Total overhead: **0.03% parameters**, **<2% latency**.
 
 | Model | Mode | Link |
 |-------|------|------|
-| 100M Baseline | — | [wdlctc/open-attnres-baseline](https://huggingface.co/wdlctc/open-attnres-baseline) |
+| 100M Baseline | - | [wdlctc/open-attnres-baseline](https://huggingface.co/wdlctc/open-attnres-baseline) |
 | 100M Block AttnRes | 4 blocks | [wdlctc/open-attnres-block](https://huggingface.co/wdlctc/open-attnres-block) |
-| 0.6B Baseline | — | [wdlctc/open-attnres-0.6b-baseline](https://huggingface.co/wdlctc/open-attnres-0.6b-baseline) |
+| 0.6B Baseline | - | [wdlctc/open-attnres-0.6b-baseline](https://huggingface.co/wdlctc/open-attnres-0.6b-baseline) |
 | 0.6B Block AttnRes | 8 blocks | [wdlctc/open-attnres-0.6b-block](https://huggingface.co/wdlctc/open-attnres-0.6b-block) |
 
 ## Findings
@@ -141,5 +141,5 @@ Total overhead: **0.03% parameters**, **<2% latency**.
 
 ## Acknowledgments
 
-- [Attention Residuals](https://arxiv.org/abs/2603.15031) — Kimi Team (original paper)
-- [Qwen3](https://arxiv.org/abs/2505.09388) — Qwen Team (base architecture)
+- [Attention Residuals](https://arxiv.org/abs/2603.15031) - Kimi Team (original paper)
+- [Qwen3](https://arxiv.org/abs/2505.09388) - Qwen Team (base architecture)

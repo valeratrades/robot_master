@@ -60,7 +60,7 @@ struct Args {
 	#[arg(long)]
 	hide: bool,
 	/// Bot spec to use as the rollout policy instead of the default `Rollout` bot.
-	/// Sims in the spec are ignored — the bot drives `RolloutEval` directly.
+	/// Sims in the spec are ignored - the bot drives `RolloutEval` directly.
 	/// Mutually exclusive with --model.
 	#[arg(long)]
 	supervise_bot: Option<String>,
@@ -139,7 +139,7 @@ fn run_nn(args: &Args, config: &GumbelConfig, model_path: &str, timestamp: u64) 
 }
 
 /// Sequential (non-batched) NN self-play via rayon threads. One `evaluate`
-/// call per MCTS leaf per game — the pre-batching baseline. Benchmarking only.
+/// call per MCTS leaf per game - the pre-batching baseline. Benchmarking only.
 fn run_nn_sequential(args: &Args, config: &GumbelConfig, model_path: &str, timestamp: u64) -> (u32, f64, f64) {
 	let init_start = Instant::now();
 
