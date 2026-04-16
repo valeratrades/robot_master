@@ -170,7 +170,7 @@
             scripts = {
               run.exec = ''python -m py_src "$@"'';
               maturin_build.exec = "maturin develop --features python -m robot_master/Cargo.toml";
-              uv_sync.exec = "maturin_build && uv sync --prerelease=allow --no-install-project --inexact --dev";
+              uv_sync.exec = "maturin_build && uv sync --prerelease=allow --no-install-project --inexact --dev --group train";
               pytest.exec = "maturin_build && pytest \"$@\"";
             };
 

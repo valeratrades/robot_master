@@ -22,7 +22,6 @@ pub fn run(arch: TrainArch) {
 	// But empirically, 200 steps on 50k samples gives <0.1 value correlation; need ~1000
 	// steps for meaningful learning. Use games/2 ≈ 1000 steps for 2000 games.
 	let train_steps = (args.games / 2).max(1);
-	let total_steps = train_steps * args.iterations;
 	// value_weight = 1.0: AlphaZero default. With MCTS-mean targets (not ±1 outcomes),
 	// MSE magnitude at init is small and no action-count calibration is needed.
 	let value_weight = 1.0f64;
@@ -36,6 +35,12 @@ pub fn run(arch: TrainArch) {
 	let data_dir = xdg_cache_dir(&format!("{run_id}/training_data"));
 	fs::create_dir_all(&data_dir).unwrap_or_else(|e| panic!("failed to create {}: {e}", data_dir.display()));
 	let models_out = xdg_cache_dir(&format!("{run_id}/models"));
+	// Count .bin files already on disk — each represents one completed selfplay iteration.
+	// Buffer size and total_steps must be based on lifetime iteration count so that
+	// resuming doesn't reset the replay window to a value inconsistent with training depth.
+	let prior_iters = count_bin_files(&data_dir);
+	let lifetime_iters = prior_iters + args.iterations;
+	let total_steps = train_steps * lifetime_iters;
 	eprintln!("run: {run_id}");
 	eprintln!("data: {}", data_dir.display());
 	eprintln!("models: {}", models_out.display());
@@ -127,14 +132,14 @@ pub fn run(arch: TrainArch) {
 		// usable LR and slowing convergence. See docs/references/MiniZero/final.tex §IV-A.
 		let resume_checkpoint = latest_checkpoint(&models_out);
 		let output = retry_on_clock_error(|| {
-			let mut cmd = Command::new("python");
-			cmd.args([train_py.to_str().unwrap()])
+			let mut cmd = Command::new("uv");
+			cmd.args(["run", "--group", "train", "--no-sync", "python", train_py.to_str().unwrap()])
 				.args(["--data-dir", data_dir.to_str().unwrap()])
 				.args(["--output-dir", models_out.to_str().unwrap()])
 				.args(["--board-size", &args.size.to_string()])
 				.args(["--steps", &train_steps.to_string()])
 				.args(["--total-steps", &total_steps.to_string()])
-				.args(["--max-iters", &replay_buffer_iters(args.iterations).to_string()])
+				.args(["--max-iters", &replay_buffer_iters(lifetime_iters).to_string()])
 				.args(["--value-weight", &format!("{value_weight:.4}")])
 				.env("LD_LIBRARY_PATH", &zlib_path)
 				.current_dir(&repo_root);
@@ -163,8 +168,8 @@ pub fn run(arch: TrainArch) {
 		eprint!("  [3/3] Exporting {} → model_v{version}.onnx... ", checkpoint.file_name().unwrap().to_str().unwrap());
 		let export_start = Instant::now();
 		let export_out = retry_on_clock_error(|| {
-			Command::new("python")
-				.args([export_py.to_str().unwrap()])
+			Command::new("uv")
+				.args(["run", "--group", "train", "--no-sync", "python", export_py.to_str().unwrap()])
 				.args(["--checkpoint", checkpoint.to_str().unwrap()])
 				.args(["--output", onnx_path.to_str().unwrap()])
 				.args(["--board-size", &args.size.to_string()])
