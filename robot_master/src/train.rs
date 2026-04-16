@@ -242,6 +242,12 @@ pub fn run(arch: TrainArch) {
 	eprintln!("To run in the arena:  robot_master arena --models-dir {} tourney rating 200", models_out.display());
 }
 
+fn count_bin_files(dir: &Path) -> u32 {
+	fs::read_dir(dir)
+		.map(|entries| entries.flatten().filter(|e| e.file_name().to_str().map(|s| s.ends_with(".bin")).unwrap_or(false)).count() as u32)
+		.unwrap_or(0)
+}
+
 /// How many of the most-recent iteration files to feed into training (replay buffer window).
 ///
 /// Formula: 3 * ceil(ln(total_iterations))
