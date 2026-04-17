@@ -29,6 +29,7 @@ def create_parser() -> argparse.ArgumentParser:
 	naive_mode.add_argument("-a", "--agressif", action="store_const", const="a", dest="mode", help="Agressif AI")
 	naive_mode.add_argument("-i", "--meilleur", action="store_const", const="i", dest="mode", help="Meilleur IA")
 	naive_mode.add_argument("-p", "--prof", action="store_const", const="p", dest="mode", help="Prof AI")
+	naive.add_argument("--let-it-burn", type=int, metavar="SIMS", help="MCTS simulation count for meilleur IA (default: 800)")
 
 	return parser
 
@@ -43,6 +44,8 @@ def main() -> None:
 			subprocess.run(cmd, cwd=Path(__file__).parent, check=True) #noqa: S603
 		case Cmd.naive:
 			cmd = [sys.executable, "-m", "IA", f"-{args.mode}"]
+			if getattr(args, "let_it_burn", None) is not None:
+				cmd += ["--let-it-burn", str(args.let_it_burn)]
 			subprocess.run(cmd, cwd=Path(__file__).parent, check=True) #noqa: S603
 
 

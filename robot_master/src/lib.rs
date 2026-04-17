@@ -30,6 +30,7 @@ fn robot_master(m: &Bound<'_, PyModule>) -> PyResult<()> {
 	m.add_function(wrap_pyfunction!(robot_master_core::python::display_diff_py, m)?)?;
 	m.add_function(wrap_pyfunction!(greedy_move_py, m)?)?;
 	m.add_function(wrap_pyfunction!(sadist_move_py, m)?)?;
+	m.add_function(wrap_pyfunction!(rollout_move_py, m)?)?;
 	Ok(())
 }
 
@@ -82,4 +83,16 @@ fn greedy_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: std::collections::Ha
 #[pyfunction]
 fn sadist_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: std::collections::HashMap<u8, u8>, joueuse_active: u8) -> PyResult<(u8, u8, u8)> {
 	algo_move_dispatch!(plateau, dico_main, joueuse_active, robot_master_arena::algos::sadist::Sadist {})
+}
+
+#[cfg(feature = "python")]
+#[pyfunction]
+fn rollout_move_py(plateau: Vec<Vec<Option<u8>>>, dico_main: std::collections::HashMap<u8, u8>, joueuse_active: u8, sims: u32) -> PyResult<(u8, u8, u8)> {
+	use robot_master_train::mcts::{RolloutEval, VanillaMcts};
+	algo_move_dispatch!(
+		plateau,
+		dico_main,
+		joueuse_active,
+		VanillaMcts::new(RolloutEval::new(robot_master_arena::algos::Rollout {}), sims)
+	)
 }
