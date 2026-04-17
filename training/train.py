@@ -5,19 +5,20 @@ Reads self-play data from training_data/, trains the network, saves checkpoints.
 Usage:
     python training/train.py --data-dir training_data/ --output-dir models/
 """
+from __future__ import annotations
 
 import argparse
+import math
 import struct
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
-from torch.utils.tensorboard import SummaryWriter
-
 from model_resnet import RobotMasterResNet, action_size, in_channels
 from model_transformer import RobotMasterTransformer
+from torch.utils.data import DataLoader, Dataset
+from torch.utils.tensorboard import SummaryWriter
 
 
 class SelfPlayDataset(Dataset):
@@ -80,7 +81,7 @@ def value_to_wdl_target(v: torch.Tensor) -> torch.Tensor:
     Terminal outcomes (v in {-1, 0, 1}) map to one-hot vectors.
     MCTS soft values between -1 and 1 produce soft targets.
     """
-    win  = v.clamp(0.0, 1.0)
+    win = v.clamp(0.0, 1.0)
     loss = (-v).clamp(0.0, 1.0)
     draw = 1.0 - win - loss
     return torch.stack([win, draw, loss], dim=-1)  # [B, 3]
@@ -111,7 +112,7 @@ def alpha_zero_loss(
     policy_loss = F.kl_div(
         F.log_softmax(policy_logits, dim=1),
         policy_target,
-        reduction='none',
+        reduction="none",
     ).sum(dim=1).mean()
     # Soft target: raise each prob to (1/T), renormalize
     soft_target = policy_target ** (1.0 / soft_policy_temperature)
@@ -119,7 +120,7 @@ def alpha_zero_loss(
     policy_soft_loss = F.kl_div(
         F.log_softmax(policy_soft_logits, dim=1),
         soft_target,
-        reduction='none',
+        reduction="none",
     ).sum(dim=1).mean()
     total = value_weight * value_loss + policy_loss + soft_policy_weight * policy_soft_loss
     return total, value_loss, policy_loss, policy_soft_loss
@@ -150,7 +151,6 @@ def train(args: argparse.Namespace) -> None:
         optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
     # Cosine schedule spans the full training run (steps_per_iter * total_iters), not just
     # one iteration. MiniZero trains with a single continuous schedule over 60k total steps.
-    # We restore last_epoch so the scheduler resumes at the right position after each call.
     global_step_offset = 0
     if args.resume:
         ckpt = torch.load(args.resume, map_location="cpu", weights_only=True)
@@ -166,7 +166,15 @@ def train(args: argparse.Namespace) -> None:
             optimizer.load_state_dict(ckpt["optimizer"])
             global_step_offset = ckpt.get("global_step", 0)
     # Cosine schedule spans the full training run, not just one iteration call.
-    # last_epoch restores the scheduler's position so LR continues from where it left off.
+    # CosineAnnealingLR uses an incremental multiplier formula, not the closed-form cosine.
+    # Restoring last_epoch alone doesn't work: the ratio (1+cos(t/T))/(1+cos((t-1)/T)) != 1
+    # when starting at t != T (nadir), so the stored lr_old is perpetuated unchanged.
+    # Fix: explicitly set the optimizer lr to the correct closed-form value for global_step_offset
+    # before constructing the scheduler, so the incremental formula steps from the right base.
+    if global_step_offset > 0:
+        correct_lr = args.lr * (1 + math.cos(math.pi * global_step_offset / args.total_steps)) / 2
+        for group in optimizer.param_groups:
+            group["lr"] = correct_lr
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.total_steps, last_epoch=global_step_offset if global_step_offset > 0 else -1)
 
     writer = SummaryWriter(log_dir=str(Path(args.output_dir) / "tb"))

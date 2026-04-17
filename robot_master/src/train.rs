@@ -90,12 +90,14 @@ pub fn run(arch: TrainArch) {
 
 	let total_start = Instant::now();
 
-	let bar = ProgressBar::new(args.iterations as u64);
+	let bar = ProgressBar::new(lifetime_iters as u64);
 	bar.set_style(ProgressStyle::with_template("{bar:40.cyan/blue} {pos}/{len} iterations  elapsed {elapsed_precise}  eta {eta_precise}").unwrap());
+	bar.set_position(prior_iters as u64);
 
 	for i in 1..=args.iterations {
 		let iter_start = Instant::now();
-		eprintln!("\n━━━ Iteration {i}/{} ━━━", args.iterations);
+		let abs_iter = prior_iters + i;
+		eprintln!("\n━━━ Iteration {abs_iter}/{lifetime_iters} ━━━");
 
 		// 1. Self-play
 		let mut selfplay_cmd = Command::new(&selfplay_bin);
@@ -230,7 +232,7 @@ pub fn run(arch: TrainArch) {
 		}
 
 		eprintln!(
-			"  iteration {i} complete in {:.1}s  (total elapsed: {:.0}s)",
+			"  iteration {abs_iter} complete in {:.1}s  (total elapsed: {:.0}s)",
 			iter_start.elapsed().as_secs_f64(),
 			total_start.elapsed().as_secs_f64(),
 		);
