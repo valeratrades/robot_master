@@ -11,7 +11,7 @@ use ustr::Ustr;
 
 use crate::{
 	db::RatingDb,
-	player::Bot,
+	player::{Bot, StateEval},
 	rating::{self, Outcome, Rating},
 };
 
@@ -28,6 +28,9 @@ pub trait DynMatch {
 	fn next(&mut self, external_move: Option<Move>) -> ControlFlow<MatchResult>;
 	/// (p1_score, p1_weak_line, p2_score, p2_weak_line)
 	fn scores(&self) -> (u16, usize, u16, usize);
+	/// Value in [-1, 1] from the perspective of the player to move, or `None` if no eval model
+	/// is attached.
+	fn position_value(&self) -> Option<f32>;
 }
 #[derive(Clone, Debug)]
 pub struct RatingUpdate {
@@ -165,6 +168,7 @@ where
 	p2_id: Ustr,
 	moves: Vec<Move>,
 	rating_db: Option<Arc<dyn RatingDb>>,
+	eval: Option<Box<dyn StateEval<N>>>,
 }
 
 impl<const N: usize, P1: Bot<N>, P2: Bot<N>> Match<N, P1, P2>
@@ -181,7 +185,13 @@ where
 			p2_id,
 			moves: Vec::default(),
 			rating_db: None,
+			eval: None,
 		}
+	}
+
+	pub fn with_eval(mut self, eval: Box<dyn StateEval<N>>) -> Self {
+		self.eval = Some(eval);
+		self
 	}
 
 	pub fn with_rating_db(mut self, db: Arc<dyn RatingDb>) -> Self {
@@ -293,6 +303,10 @@ where
 
 	fn scores(&self) -> (u16, usize, u16, usize) {
 		victoire(&self.game.board)
+	}
+
+	fn position_value(&self) -> Option<f32> {
+		self.eval.as_ref().map(|e| e.eval(&self.game))
 	}
 }
 

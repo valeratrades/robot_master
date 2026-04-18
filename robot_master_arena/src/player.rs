@@ -30,6 +30,14 @@ where
 	}
 }
 
+/// Evaluates a board position and returns a scalar in `[-1, 1]` from the perspective of the
+/// player to move. +1 means the current player is winning, -1 means losing.
+pub trait StateEval<const N: usize>: Send + Sync
+where
+	[(); N * N]:,
+	[(); N + 1]:, {
+	fn eval(&self, state: &GameState<N>) -> f32;
+}
 /// Placeholder for human-controlled players.
 ///
 /// `choose_move` panics - the caller must always supply moves via `Match::next(Some(m))`.

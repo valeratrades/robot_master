@@ -54,6 +54,14 @@ struct SizeDropdownOption(BoardSize);
 #[derive(Component)]
 struct HideSegment(bool);
 
+/// Button in the settings modal that opens the eval model search (player_idx == 2).
+#[derive(Component)]
+struct EvalModelButton;
+
+/// Button in the settings modal that clears the selected eval model.
+#[derive(Component)]
+struct EvalModelClearButton;
+
 /// The full-screen search modal overlay.
 #[derive(Component)]
 struct SearchModal;
@@ -351,6 +359,8 @@ fn button_system(
 			Option<&SizeDropdownOption>,
 			Option<&HideSegment>,
 			Option<&SearchResultItem>,
+			Option<&EvalModelButton>,
+			Option<&EvalModelClearButton>,
 		),
 		Changed<Interaction>,
 	>,
@@ -362,7 +372,7 @@ fn button_system(
 	mut label_query: Query<(&PlayerLabel, &mut Text), Without<SizeLabel>>,
 	ratings: Res<Ratings>,
 ) {
-	for (interaction, mut color, start, player_btn, settings_btn, size_opt, hide_seg, result_item) in &mut interaction_query {
+	for (interaction, mut color, start, player_btn, settings_btn, size_opt, hide_seg, result_item, eval_model_btn, eval_model_clear_btn) in &mut interaction_query {
 		match *interaction {
 			Interaction::Pressed => {
 				if start.is_some() {
@@ -388,7 +398,7 @@ fn button_system(
 						commands.entity(entity).despawn();
 					}
 					if !has_modal {
-						spawn_settings_modal(&mut commands, init.size, init.hide);
+						spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref());
 					}
 				} else if let Some(opt) = size_opt {
 					init.size = opt.0;
@@ -396,7 +406,7 @@ fn button_system(
 					for entity in &settings_modals {
 						commands.entity(entity).despawn();
 					}
-					spawn_settings_modal(&mut commands, init.size, init.hide);
+					spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref());
 				} else if let Some(seg) = hide_seg {
 					if seg.0 != init.hide {
 						init.hide = seg.0;
@@ -419,20 +429,40 @@ fn button_system(
 						for entity in &settings_modals {
 							commands.entity(entity).despawn();
 						}
-						spawn_settings_modal(&mut commands, init.size, init.hide);
+						spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref());
 					}
-				} else if let Some(item) = result_item {
-					match item.player_idx {
-						0 => init.p1 = item.kind.clone(),
-						_ => init.p2 = item.kind.clone(),
-					}
-					for (label, mut text) in &mut label_query {
-						if label.0 == item.player_idx {
-							**text = format_player_label(&item.kind, &ratings.0);
-						}
-					}
+				} else if eval_model_btn.is_some() {
 					for entity in &search_modals {
 						commands.entity(entity).despawn();
+					}
+					let candidates = build_candidates(&ratings.0).into_iter().filter(|(_, k)| k.is_onnx()).collect();
+					spawn_search_modal(&mut commands, 2, candidates);
+				} else if eval_model_clear_btn.is_some() {
+					init.eval_model = None;
+					for entity in &settings_modals {
+						commands.entity(entity).despawn();
+					}
+					spawn_settings_modal(&mut commands, init.size, init.hide, None);
+				} else if let Some(item) = result_item {
+					if item.player_idx == 2 {
+						init.eval_model = Some(item.kind.clone());
+						for entity in &search_modals {
+							commands.entity(entity).despawn();
+						}
+						spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref());
+					} else {
+						match item.player_idx {
+							0 => init.p1 = item.kind.clone(),
+							_ => init.p2 = item.kind.clone(),
+						}
+						for (label, mut text) in &mut label_query {
+							if label.0 == item.player_idx {
+								**text = format_player_label(&item.kind, &ratings.0);
+							}
+						}
+						for entity in &search_modals {
+							commands.entity(entity).despawn();
+						}
 					}
 				}
 				*color = theme::BTN_PRESSED.into();
@@ -466,6 +496,7 @@ fn search_system(
 	mut init: ResMut<InitialPlayers>,
 	mut label_query: Query<(&PlayerLabel, &mut Text), Without<SizeLabel>>,
 	ratings: Res<Ratings>,
+	settings_modals: Query<Entity, With<SettingsModal>>,
 ) {
 	let Ok((modal_entity, mut state)) = modal_query.single_mut() else {
 		return;
@@ -491,9 +522,9 @@ fn search_system(
 		let player_idx = state.player_idx;
 		let kind: Option<PlayerKind> = if let Some((_, k)) = filtered.get(state.highlighted) {
 			Some(k.clone())
-		} else if !query_str.is_empty() && !(hide && player_idx == 1) {
+		} else if !query_str.is_empty() && !(hide && player_idx == 1) && player_idx != 2 {
 			// No matches - treat raw input as a manual player name.
-			// Not allowed for player 2 in hidden-hand mode.
+			// Not allowed for player 2 in hidden-hand mode, or for eval model slot (idx 2).
 			Some(PlayerKind {
 				inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: query_str.clone() }),
 				sims: None,
@@ -504,16 +535,25 @@ fn search_system(
 			None
 		};
 		if let Some(kind) = kind {
-			match player_idx {
-				0 => init.p1 = kind.clone(),
-				_ => init.p2 = kind.clone(),
-			}
-			for (label, mut text) in &mut label_query {
-				if label.0 == player_idx {
-					**text = format_player_label(&kind, &ratings.0);
+			if player_idx == 2 {
+				init.eval_model = Some(kind);
+				commands.entity(modal_entity).despawn();
+				for entity in &settings_modals {
+					commands.entity(entity).despawn();
 				}
+				spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref());
+			} else {
+				match player_idx {
+					0 => init.p1 = kind.clone(),
+					_ => init.p2 = kind.clone(),
+				}
+				for (label, mut text) in &mut label_query {
+					if label.0 == player_idx {
+						**text = format_player_label(&kind, &ratings.0);
+					}
+				}
+				commands.entity(modal_entity).despawn();
 			}
-			commands.entity(modal_entity).despawn();
 		}
 		return;
 	}
@@ -567,7 +607,7 @@ fn filter_candidates(candidates: &[(String, PlayerKind)], query: &str) -> Vec<(S
 
 // ── settings modal ────────────────────────────────────────────────────────────
 
-fn spawn_settings_modal(commands: &mut Commands, current_size: BoardSize, hide: bool) {
+fn spawn_settings_modal(commands: &mut Commands, current_size: BoardSize, hide: bool, eval_model: Option<&PlayerKind>) {
 	commands
 		.spawn((
 			SettingsModal,
@@ -663,6 +703,49 @@ fn spawn_settings_modal(commands: &mut Commands, current_size: BoardSize, hide: 
 										TextFont { font_size: 18.0, ..default() },
 										TextColor(if active { theme::TEXT_PRIMARY } else { theme::TEXT_MUTED })
 									)],
+								));
+							}
+						});
+
+					// Eval model selector
+					modal.spawn((Text::new("Eval Model"), TextFont { font_size: 18.0, ..default() }, TextColor(theme::TEXT_LABEL)));
+					modal
+						.spawn(Node {
+							flex_direction: FlexDirection::Row,
+							width: Val::Percent(100.0),
+							column_gap: Val::Px(6.0),
+							..default()
+						})
+						.with_children(|row| {
+							let label = eval_model.map(|k: &PlayerKind| k.to_string()).unwrap_or_else(|| "None".to_string());
+							row.spawn((
+								EvalModelButton,
+								Button,
+								Node {
+									flex_grow: 1.0,
+									height: Val::Px(44.0),
+									justify_content: JustifyContent::Center,
+									align_items: AlignItems::Center,
+									border_radius: BorderRadius::all(Val::Px(8.0)),
+									..default()
+								},
+								BackgroundColor(theme::BTN_NORMAL),
+								children![(Text::new(label), TextFont { font_size: 16.0, ..default() }, TextColor(theme::TEXT_PRIMARY))],
+							));
+							if eval_model.is_some() {
+								row.spawn((
+									EvalModelClearButton,
+									Button,
+									Node {
+										width: Val::Px(36.0),
+										height: Val::Px(44.0),
+										justify_content: JustifyContent::Center,
+										align_items: AlignItems::Center,
+										border_radius: BorderRadius::all(Val::Px(8.0)),
+										..default()
+									},
+									BackgroundColor(theme::BTN_NORMAL),
+									children![(Text::new("×"), TextFont { font_size: 20.0, ..default() }, TextColor(theme::TEXT_MUTED))],
 								));
 							}
 						});
