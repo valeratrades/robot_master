@@ -204,29 +204,39 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 				if has_eval {
 					row.spawn(Node {
 						flex_direction: FlexDirection::Column,
-						width: Val::Px(16.0),
-						height: Val::Px(420.0),
+						align_items: AlignItems::Center,
+						row_gap: Val::Px(4.0),
 						..default()
 					})
-					.with_children(|bar| {
-						bar.spawn((
-							EvalBarSegment(Player::A),
-							Node {
-								width: Val::Percent(100.0),
-								height: Val::Percent(50.0),
+					.with_children(|wrapper| {
+						wrapper
+							.spawn(Node {
+								flex_direction: FlexDirection::Column,
+								width: Val::Px(16.0),
+								height: Val::Px(420.0),
 								..default()
-							},
-							BackgroundColor(theme::EVAL_BAR_P1),
-						));
-						bar.spawn((
-							EvalBarSegment(Player::B),
-							Node {
-								width: Val::Percent(100.0),
-								height: Val::Percent(50.0),
-								..default()
-							},
-							BackgroundColor(theme::EVAL_BAR_P2),
-						));
+							})
+							.with_children(|bar| {
+								bar.spawn((
+									EvalBarSegment(Player::A),
+									Node {
+										width: Val::Percent(100.0),
+										height: Val::Percent(50.0),
+										..default()
+									},
+									BackgroundColor(theme::EVAL_BAR_P1),
+								));
+								bar.spawn((
+									EvalBarSegment(Player::B),
+									Node {
+										width: Val::Percent(100.0),
+										height: Val::Percent(50.0),
+										..default()
+									},
+									BackgroundColor(theme::EVAL_BAR_P2),
+								));
+							});
+						wrapper.spawn((EvalBarLabel, Text::new("50%"), TextFont { font_size: 11.0, ..default() }, TextColor(theme::TEXT_MUTED)));
 					});
 				}
 				spawn_hand(row, &snap.hands, Player::A, false, &tex);
@@ -861,7 +871,10 @@ fn handle_escape(
 #[derive(Component)]
 struct EvalBarSegment(Player);
 
-fn update_eval_bar(game: Res<Game>, mut segments: Query<(&EvalBarSegment, &mut Node)>) {
+#[derive(Component)]
+struct EvalBarLabel;
+
+fn update_eval_bar(game: Res<Game>, mut segments: Query<(&EvalBarSegment, &mut Node)>, mut labels: Query<&mut Text, With<EvalBarLabel>>) {
 	let Some(value) = game.0.position_value() else { return };
 	let turn = game.0.turn();
 	// value ∈ [-1,1] is from the perspective of the player to move.
@@ -875,6 +888,9 @@ fn update_eval_bar(game: Res<Game>, mut segments: Query<(&EvalBarSegment, &mut N
 			Player::A => Val::Percent(p1_win * 100.0),
 			Player::B => Val::Percent((1.0 - p1_win) * 100.0),
 		};
+	}
+	for mut text in &mut labels {
+		**text = format!("{:.0}%", p1_win * 100.0);
 	}
 }
 
