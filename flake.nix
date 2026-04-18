@@ -183,6 +183,7 @@
               pkgs.simple-http-server
               pkgs.cargo-leptos
               pkgs.fzf
+              pkgs.nerd-fonts.symbols-only
             ] ++ nativeLibs ++ pre-commit-check.enabledPackages ++ combined.enabledPackages;
 
             env = {
@@ -198,6 +199,10 @@
                 cp -f ${(v_flakes.files.gitattributes) { inherit pkgs; lfs = false; }} ./.gitattributes
 
                 export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath nativeLibs}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+                mkdir -p robot_master_game/assets/fonts
+                cp -f ${pkgs.nerd-fonts.symbols-only}/share/fonts/truetype/NerdFonts/Symbols/SymbolsNerdFontMono-Regular.ttf \
+                  robot_master_game/assets/fonts/SymbolsNerdFontMono-Regular.ttf
 
                 if ! python -c "import robot_master" 2>/dev/null; then
                   echo "⚠ robot_master not built — run: maturin build"

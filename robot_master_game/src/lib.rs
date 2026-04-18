@@ -1,3 +1,4 @@
+#![feature(default_field_values)]
 #![feature(generic_const_exprs)]
 #![allow(incomplete_features)]
 
@@ -91,6 +92,10 @@ impl Textures {
 	}
 }
 
+/// Symbols Nerd Font Mono handle, used for icon glyphs (e.g. trash icon in settings).
+#[derive(Resource)]
+pub(crate) struct NerdFont(pub Handle<Font>);
+
 fn configure_app(app: &mut App, file_path: String) {
 	app.add_plugins(
 		DefaultPlugins
@@ -124,6 +129,8 @@ fn configure_app(app: &mut App, file_path: String) {
 		let card_back = asset_server.load("cards/card_back.png");
 		let card_faces = (0..6).map(|i| asset_server.load(format!("cards/card_{i}.png"))).collect();
 		app.insert_resource(Textures { card_faces, card_back });
+		let nerd_font = asset_server.load("fonts/SymbolsNerdFontMono-Regular.ttf");
+		app.insert_resource(NerdFont(nerd_font));
 	}
 
 	app.init_resource::<PressedChars>()

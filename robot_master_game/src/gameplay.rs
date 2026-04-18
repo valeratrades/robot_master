@@ -29,7 +29,7 @@ impl Plugin for GameplayPlugin {
 				Update,
 				((
 					ai_turn, hand_click, keyboard_card_select, rebuild_modal_tree, process_modal_input, handle_modal_action, board_click, sync_visuals, sync_command_line,
-					reject_flash_system, check_terminal, handle_escape, update_eval_bar,
+					reject_flash_system, check_terminal, handle_escape, update_eval_bar, record_eval,
 				)
 					.chain(),)
 					.run_if(in_state(AppState::Playing)),
@@ -91,6 +91,10 @@ struct Warning {
 	text: String,
 	timer: f32,
 }
+
+/// P1 win probability recorded once per position (one entry per move played, plus initial).
+#[derive(Default, Resource)]
+pub(crate) struct EvalHistory(pub Vec<f32>);
 
 /// Helper: create a `Box<dyn DynMatch>` for the given board size.
 fn make_match(size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, models_dir: &std::path::Path, eval_kind: Option<&PlayerKind>) -> Box<dyn DynMatch + Send + Sync> {
@@ -165,6 +169,9 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 	commands.insert_resource(Game(m));
 	commands.insert_resource(SelectedCard::default());
 	commands.insert_resource(PlayerSlots([p1_kind, p2_kind]));
+	if has_eval {
+		commands.insert_resource(EvalHistory::default());
+	}
 
 	let cell_px = 420.0 / n as f32;
 	let img_px = cell_px - 10.0;
@@ -180,14 +187,14 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 				justify_content: JustifyContent::Center,
 				..default()
 			},
-			BackgroundColor(theme::BG_DARK),
+			BackgroundColor(theme::bg::DARK),
 		))
 		.with_children(|root| {
 			root.spawn((
 				TurnIndicator,
 				Text::new(""),
 				TextFont { font_size: 24.0, ..default() },
-				TextColor(theme::TEXT_PRIMARY),
+				TextColor(theme::text::PRIMARY),
 				Node {
 					margin: UiRect::bottom(Val::Px(10.0)),
 					..default()
@@ -224,7 +231,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 										height: Val::Percent(50.0),
 										..default()
 									},
-									BackgroundColor(theme::EVAL_BAR_P1),
+									BackgroundColor(theme::text::P1),
 								));
 								bar.spawn((
 									EvalBarSegment(Player::B),
@@ -233,10 +240,10 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 										height: Val::Percent(50.0),
 										..default()
 									},
-									BackgroundColor(theme::EVAL_BAR_P2),
+									BackgroundColor(theme::text::P2),
 								));
 							});
-						wrapper.spawn((EvalBarLabel, Text::new("50%"), TextFont { font_size: 11.0, ..default() }, TextColor(theme::TEXT_MUTED)));
+						wrapper.spawn((EvalBarLabel, Text::new("50%"), TextFont { font_size: 11.0, ..default() }, TextColor(theme::text::MUTED)));
 					});
 				}
 				spawn_hand(row, &snap.hands, Player::A, false, &tex);
@@ -267,7 +274,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 												align_items: AlignItems::Center,
 												..default()
 											},
-											BackgroundColor(if val != EMPTY { theme::CELL_OCCUPIED } else { theme::CELL_EMPTY }),
+											BackgroundColor(if val != EMPTY { theme::cell::OCCUPIED } else { theme::cell::EMPTY }),
 										))
 										.with_children(|cell| {
 											cell.spawn((
@@ -293,7 +300,7 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 				CommandLine,
 				Text::new(""),
 				TextFont { font_size: 18.0, ..default() },
-				TextColor(theme::TEXT_SELECTION),
+				TextColor(theme::text::SELECTION),
 				Node {
 					position_type: PositionType::Absolute,
 					bottom: Val::Px(16.0),
@@ -320,8 +327,8 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[Vec<u8>; 2], player: P
 				Text::new(title),
 				TextFont { font_size: 18.0, ..default() },
 				TextColor(match player {
-					Player::A => theme::TEXT_P1,
-					Player::B => theme::TEXT_P2,
+					Player::A => theme::text::P1,
+					Player::B => theme::text::P2,
 				}),
 			));
 
@@ -337,7 +344,7 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[Vec<u8>; 2], player: P
 						align_items: AlignItems::Center,
 						..default()
 					},
-					BackgroundColor(if hidden || count == 0 { theme::HAND_CARD_EMPTY } else { theme::HAND_CARD }),
+					BackgroundColor(if hidden || count == 0 { theme::hand::CARD_EMPTY } else { theme::hand::CARD }),
 				))
 				.with_children(|card| {
 					card.spawn((
@@ -353,7 +360,7 @@ fn spawn_hand(parent: &mut ChildSpawnerCommands, hands: &[Vec<u8>; 2], player: P
 						HandCountLabel { player, value: CardValue(v) },
 						Text::new(if hidden { String::default() } else { format!("x{count}") }),
 						TextFont { font_size: 14.0, ..default() },
-						TextColor(if count == 0 { theme::TEXT_MUTED } else { theme::TEXT_PRIMARY }),
+						TextColor(if count == 0 { theme::text::MUTED } else { theme::text::PRIMARY }),
 					));
 				});
 			}
@@ -511,8 +518,10 @@ fn rebuild_modal_tree(game: Res<Game>, selected: Res<SelectedCard>, slots: Res<P
 					);
 				} else {
 					// Multiple rows → need second key for row
-					let mut col_node = ModalNode::<GameAction>::default();
-					col_node.label = Some("col");
+					let mut col_node = ModalNode::<GameAction> {
+						label: Some("col"),
+						..Default::default()
+					};
 					for row in playable_rows {
 						let row_char = (b'1' + row) as char;
 						col_node.children.insert(
@@ -538,10 +547,8 @@ fn rebuild_modal_tree(game: Res<Game>, selected: Res<SelectedCard>, slots: Res<P
 		modal.root = root;
 		// Don't reset sequence - if user is mid-`:q`, keep it alive.
 		// Only reset if the active sequence is no longer valid.
-		if modal.active {
-			if modal.current_node().is_none() {
-				modal.reset();
-			}
+		if modal.active && modal.current_node().is_none() {
+			modal.reset();
 		}
 	} else {
 		modal.root = root;
@@ -667,7 +674,7 @@ fn sync_command_line(modal: Res<ModalState<GameAction>>, warning: Res<Warning>, 
 		if modal.active {
 			let seq: String = modal.sequence.iter().collect();
 			**text = seq;
-			*color = TextColor(theme::TEXT_SELECTION);
+			*color = TextColor(theme::text::SELECTION);
 		} else if !warning.text.is_empty() {
 			**text = warning.text.clone();
 			let alpha = (warning.timer / WARNING_DURATION).clamp(0.0, 1.0);
@@ -717,11 +724,11 @@ fn sync_visuals(
 			};
 
 		*bg = if value != EMPTY {
-			BackgroundColor(theme::CELL_OCCUPIED)
+			BackgroundColor(theme::cell::OCCUPIED)
 		} else if highlighted {
-			BackgroundColor(theme::CELL_HIGHLIGHT)
+			BackgroundColor(theme::cell::HIGHLIGHT)
 		} else {
-			BackgroundColor(theme::CELL_EMPTY)
+			BackgroundColor(theme::cell::EMPTY)
 		};
 
 		for child in children.iter() {
@@ -740,17 +747,17 @@ fn sync_visuals(
 	for (hc, mut text, mut color) in &mut hand_counts {
 		if hide && hc.player == Player::B {
 			**text = String::default();
-			*color = TextColor(theme::TEXT_MUTED);
+			*color = TextColor(theme::text::MUTED);
 			continue;
 		}
 		let count = hands[hc.player.index() as usize][hc.value.0 as usize];
 		**text = format!("x{count}");
 		*color = if count == 0 {
-			TextColor(theme::TEXT_MUTED)
+			TextColor(theme::text::MUTED)
 		} else if selected.0 == Some(hc.value) && hc.player == turn {
-			TextColor(theme::TEXT_SELECTION)
+			TextColor(theme::text::SELECTION)
 		} else {
-			TextColor(theme::TEXT_PRIMARY)
+			TextColor(theme::text::PRIMARY)
 		};
 	}
 
@@ -760,7 +767,7 @@ fn sync_visuals(
 			continue;
 		}
 		if hide && hc.player == Player::B {
-			*bg = BackgroundColor(theme::HAND_CARD_EMPTY);
+			*bg = BackgroundColor(theme::hand::CARD_EMPTY);
 			continue;
 		}
 		let count = hands[hc.player.index() as usize][hc.value.0 as usize];
@@ -769,15 +776,15 @@ fn sync_visuals(
 		let is_hovered = *interaction == Interaction::Hovered && is_own && count > 0;
 
 		*bg = if count == 0 {
-			BackgroundColor(theme::HAND_CARD_EMPTY)
+			BackgroundColor(theme::hand::CARD_EMPTY)
 		} else if is_selected {
-			BackgroundColor(theme::HAND_CARD_SELECTED)
+			BackgroundColor(theme::hand::CARD_SELECTED)
 		} else if is_hovered {
-			BackgroundColor(theme::HAND_CARD_HOVER)
+			BackgroundColor(theme::hand::CARD_HOVER)
 		} else if !is_own {
-			BackgroundColor(theme::HAND_CARD_OPPONENT)
+			BackgroundColor(theme::hand::CARD_OPPONENT)
 		} else {
-			BackgroundColor(theme::HAND_CARD)
+			BackgroundColor(theme::hand::CARD)
 		};
 	}
 
@@ -785,10 +792,10 @@ fn sync_visuals(
 	for (mut text, mut color) in &mut turn_indicator {
 		if game.0.is_done() {
 			**text = "Game Over!".into();
-			*color = TextColor(theme::TEXT_GAME_OVER);
+			*color = TextColor(theme::text::GAME_OVER);
 		} else {
 			**text = format!("{}'s turn", PlayerDisplay(turn));
-			*color = TextColor(theme::TEXT_PRIMARY);
+			*color = TextColor(theme::text::PRIMARY);
 		}
 	}
 }
@@ -891,6 +898,25 @@ fn update_eval_bar(game: Res<Game>, mut segments: Query<(&EvalBarSegment, &mut N
 	}
 	for mut text in &mut labels {
 		**text = format!("{:.0}%", p1_win * 100.0);
+	}
+}
+
+fn record_eval(game: Res<Game>, history: Option<ResMut<EvalHistory>>, mut prev_turn: Local<Option<Player>>) {
+	let Some(mut history) = history else { return };
+	if game.0.is_done() {
+		return;
+	}
+	let turn = game.0.turn();
+	if *prev_turn == Some(turn) {
+		return;
+	}
+	*prev_turn = Some(turn);
+	if let Some(value) = game.0.position_value() {
+		let p1_win = match turn {
+			Player::A => (value + 1.0) / 2.0,
+			Player::B => (1.0 - value) / 2.0,
+		};
+		history.0.push(p1_win);
 	}
 }
 

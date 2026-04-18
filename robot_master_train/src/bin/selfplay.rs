@@ -156,7 +156,7 @@ fn run_nn_sequential(args: &Args, config: &GumbelConfig, model_path: &str, times
 			let threads = args.threads.min(args.games);
 			(0..threads).into_par_iter().for_each(|thread_id| {
 				let evaluator = NnEval::try_new(model_path, $N, args.force_cpu).expect("failed to load ONNX model");
-				let games_per_thread = (args.games + threads - 1) / threads;
+				let games_per_thread = args.games.div_ceil(threads);
 				let mut rng = SmallRng::seed_from_u64(42 + thread_id as u64);
 				let mut thread_samples = 0u32;
 
@@ -207,7 +207,7 @@ fn run_rollout(args: &Args, config: &GumbelConfig, timestamp: u64, start: &Insta
 
 	let threads = args.threads.min(args.games);
 	(0..threads).into_par_iter().for_each(|thread_id| {
-		let games_per_thread = (args.games + threads - 1) / threads;
+		let games_per_thread = args.games.div_ceil(threads);
 
 		let mut rng = SmallRng::seed_from_u64(42 + thread_id as u64);
 		let mut thread_samples = 0u32;

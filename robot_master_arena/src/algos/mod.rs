@@ -119,7 +119,7 @@ impl PlayerKind {
 	}
 
 	pub fn supports(&self, config: &robot_master_core::game::GameConfig) -> bool {
-		self.constrain_sizes.as_ref().map_or(true, |s| s.contains(&config.size)) && self.constrain_hide.map_or(true, |h| h == config.hide)
+		self.constrain_sizes.as_ref().is_none_or(|s| s.contains(&config.size)) && self.constrain_hide.is_none_or(|h| h == config.hide)
 	}
 
 	/// All non-Manual inner variants unwrapped, plus common vanilla-MCTS-wrapped rollout sims.

@@ -304,14 +304,8 @@ where
 
 		// Snapshot ratings for the batch update (ratings may change mid-cycle for other tourneys,
 		// but for rating_based each cycle is one isolated pair so we snapshot once here).
-		let r_a = live_ratings.get(&a_id).expect("player always in live_ratings").clone();
-		let r_b = live_ratings.get(&b_id).expect("player always in live_ratings").clone();
 		self.pending_a.clear();
 		self.pending_b.clear();
-		// Store the opponent snapshot; scores filled in apply_result.
-		// We need n_games slots, so reserve by stashing sentinel values that apply_result replaces.
-		// Simpler: just let apply_result push; we pass the snapshot via fields.
-		drop((r_a, r_b)); // will re-read in end_cycle before any update happens
 
 		(0..self.threads)
 			.map(|game_n| {
@@ -702,7 +696,7 @@ fn fide_pair_by_score(player_ids: &[Ustr], scores: &HashMap<Ustr, u32>, live_rat
 
 	while i < players.len() {
 		let group_score = players[i].1;
-		let mut group: Vec<(usize, u32, f64)> = unpaired.drain(..).collect();
+		let mut group: Vec<(usize, u32, f64)> = std::mem::take(&mut unpaired);
 		while i < players.len() && players[i].1 == group_score {
 			group.push(players[i]);
 			i += 1;

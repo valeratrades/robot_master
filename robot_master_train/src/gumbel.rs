@@ -123,7 +123,7 @@ where
 			let sb = gumbel_scores[b] + sigma(tree.root_q_normalized(b), max_visits, config);
 			sb.partial_cmp(&sa).expect("NaN in Gumbel score")
 		});
-		survivors.truncate((survivors.len() + 1) / 2);
+		survivors.truncate(survivors.len().div_ceil(2));
 	}
 
 	// Spend any remaining budget on the last survivor(s)
@@ -335,7 +335,7 @@ where
 			let sb = self.gumbel_scores[b] + sigma(self.tree.root_q_normalized(b), max_visits, &self.config);
 			sb.partial_cmp(&sa).expect("NaN in Gumbel score")
 		});
-		self.survivors.truncate((self.survivors.len() + 1) / 2);
+		self.survivors.truncate(self.survivors.len().div_ceil(2));
 	}
 
 	/// Expand and backpropagate results from the last `collect_pending_selections`.
@@ -609,10 +609,10 @@ fn compute_v_mix(v_pi: f32, priors: &[f32], tree: &Tree, k: usize, n_simulations
 	let v_pi_norm = normalize_q(v_pi, q_min, q_max);
 	let mut visited_prior_sum = 0.0f32;
 	let mut weighted_q_sum = 0.0f32;
-	for i in 0..k {
+	for (i, &prior) in priors.iter().enumerate().take(k) {
 		if tree.root_visited(i) {
-			visited_prior_sum += priors[i];
-			weighted_q_sum += priors[i] * tree.root_q_normalized(i);
+			visited_prior_sum += prior;
+			weighted_q_sum += prior * tree.root_q_normalized(i);
 		}
 	}
 	if visited_prior_sum < 1e-8 {

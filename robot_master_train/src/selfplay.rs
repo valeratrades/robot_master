@@ -239,7 +239,7 @@ where
 	}
 
 	fn search_done(&self) -> bool {
-		self.search.as_ref().map_or(true, |s| s.is_done())
+		self.search.as_ref().is_none_or(|s| s.is_done())
 	}
 
 	fn is_terminal(&self) -> bool {
@@ -271,7 +271,7 @@ where
 
 	/// If the current search just finished, record the move and set up for the next one.
 	fn try_advance_move(&mut self) {
-		let search_done = self.search.as_ref().map_or(false, |s| s.is_done());
+		let search_done = self.search.as_ref().is_some_and(|s| s.is_done());
 		if !search_done {
 			return;
 		}

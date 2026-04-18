@@ -101,12 +101,12 @@ where
 	let opp_total = opp_line_scores.iter().cloned().fold(f32::INFINITY, f32::min);
 
 	fill_plane(&mut planes, ch_score_cur, cur_total / 100.0);
-	for i in 0..N {
-		fill_plane(&mut planes, ch_score_cur + 1 + i, cur_line_scores[i] / 100.0);
+	for (i, &score) in cur_line_scores.iter().enumerate().take(N) {
+		fill_plane(&mut planes, ch_score_cur + 1 + i, score / 100.0);
 	}
 	fill_plane(&mut planes, ch_score_opp, opp_total / 100.0);
-	for i in 0..N {
-		fill_plane(&mut planes, ch_score_opp + 1 + i, opp_line_scores[i] / 100.0);
+	for (i, &score) in opp_line_scores.iter().enumerate().take(N) {
+		fill_plane(&mut planes, ch_score_opp + 1 + i, score / 100.0);
 	}
 
 	planes
