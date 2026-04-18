@@ -11,7 +11,7 @@ use robot_master_core::{
 	cards::CardValue,
 	game::{GameConfig, GameState, Move, Player, PlayerDisplay, PlayerSigned},
 };
-use robot_master_train::player_kind::kind_into_bot;
+use robot_master_train::player_kind::{kind_into_bot, kind_into_eval};
 use v_utils::bevy::{ModalActionFired, ModalState, PressedChars};
 
 use crate::{AppState, InitialPlayers, Textures, theme};
@@ -29,7 +29,7 @@ impl Plugin for GameplayPlugin {
 				Update,
 				((
 					ai_turn, hand_click, keyboard_card_select, rebuild_modal_tree, process_modal_input, handle_modal_action, board_click, sync_visuals, sync_command_line,
-					reject_flash_system, check_terminal, handle_escape,
+					reject_flash_system, check_terminal, handle_escape, update_eval_bar,
 				)
 					.chain(),)
 					.run_if(in_state(AppState::Playing)),
@@ -93,7 +93,7 @@ struct Warning {
 }
 
 /// Helper: create a `Box<dyn DynMatch>` for the given board size.
-fn make_match(size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, models_dir: &std::path::Path) -> Box<dyn DynMatch + Send + Sync> {
+fn make_match(size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, models_dir: &std::path::Path, eval_kind: Option<&PlayerKind>) -> Box<dyn DynMatch + Send + Sync> {
 	let mut rng: rand::rngs::SmallRng = rand::make_rng();
 	let config = GameConfig { size: size.into(), hide };
 	let p1_id = p1.id();
@@ -104,7 +104,14 @@ fn make_match(size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, model
 			let game = GameState::<$N>::new(config, &mut rng, [PlayerSigned::new(Player::A), PlayerSigned::new(Player::B)]);
 			let p1 = kind_into_bot::<$N>(&p1, models_dir).unwrap_or_else(|e| panic!("{e}"));
 			let p2 = kind_into_bot::<$N>(&p2, models_dir).unwrap_or_else(|e| panic!("{e}"));
-			Box::new(Match::new(game, p1, p2, p1_id, p2_id))
+			let mut m = Match::new(game, p1, p2, p1_id, p2_id);
+			if let Some(ek) = eval_kind {
+				match kind_into_eval::<$N>(ek, models_dir) {
+					Ok(eval) => m = m.with_eval(eval),
+					Err(e) => warn!("failed to load eval model: {e}"),
+				}
+			}
+			Box::new(m)
 		}};
 	}
 
@@ -137,8 +144,9 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 	let p1_kind = init.p1.clone();
 	let p2_kind = init.p2.clone();
 	let models_dir = init.models_dir.clone();
+	let eval_kind = init.eval_model.clone();
 
-	let m = make_match(size, hide, p1_kind.clone(), p2_kind.clone(), &models_dir);
+	let m = make_match(size, hide, p1_kind.clone(), p2_kind.clone(), &models_dir, eval_kind.as_ref());
 
 	// Snapshot initial state before handing ownership to the resource.
 	// In hidden mode Player B's hand is never shown, so use an empty placeholder for B.
@@ -150,6 +158,9 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 		}
 	}
 	let snap = InitialBoard { n, cells, hands };
+
+	// Check if eval bar should be shown (only for visible games with a loaded eval model).
+	let has_eval = !hide && m.position_value().is_some();
 
 	commands.insert_resource(Game(m));
 	commands.insert_resource(SelectedCard::default());
@@ -190,6 +201,34 @@ fn setup_gameplay(mut commands: Commands, init: Res<InitialPlayers>, tex: Res<Te
 				..default()
 			})
 			.with_children(|row| {
+				if has_eval {
+					row.spawn(Node {
+						flex_direction: FlexDirection::Column,
+						width: Val::Px(16.0),
+						height: Val::Px(420.0),
+						..default()
+					})
+					.with_children(|bar| {
+						bar.spawn((
+							EvalBarSegment(Player::A),
+							Node {
+								width: Val::Percent(100.0),
+								height: Val::Percent(50.0),
+								..default()
+							},
+							BackgroundColor(theme::EVAL_BAR_P1),
+						));
+						bar.spawn((
+							EvalBarSegment(Player::B),
+							Node {
+								width: Val::Percent(100.0),
+								height: Val::Percent(50.0),
+								..default()
+							},
+							BackgroundColor(theme::EVAL_BAR_P2),
+						));
+					});
+				}
 				spawn_hand(row, &snap.hands, Player::A, false, &tex);
 
 				row.spawn(Node {
@@ -817,6 +856,26 @@ fn handle_escape(
 		}
 	}
 	*was_modal_active = modal_active_now;
+}
+
+#[derive(Component)]
+struct EvalBarSegment(Player);
+
+fn update_eval_bar(game: Res<Game>, mut segments: Query<(&EvalBarSegment, &mut Node)>) {
+	let Some(value) = game.0.position_value() else { return };
+	let turn = game.0.turn();
+	// value ∈ [-1,1] is from the perspective of the player to move.
+	// Convert to P1 (Player::A) win probability.
+	let p1_win = match turn {
+		Player::A => (value + 1.0) / 2.0,
+		Player::B => (1.0 - value) / 2.0,
+	};
+	for (seg, mut node) in &mut segments {
+		node.height = match seg.0 {
+			Player::A => Val::Percent(p1_win * 100.0),
+			Player::B => Val::Percent((1.0 - p1_win) * 100.0),
+		};
+	}
 }
 
 fn cleanup_gameplay(mut commands: Commands, query: Query<Entity, With<GameScene>>) {

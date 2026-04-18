@@ -1,6 +1,6 @@
 use robot_master_arena::{
 	algos::{InnerKind, PlayerKind, SearchKind},
-	player::Bot,
+	player::{Bot, StateEval},
 };
 
 use crate::{
@@ -59,6 +59,19 @@ where
 		});
 	}
 	Ok(kind.clone().into_bot())
+}
+
+/// Load an ONNX model as a `StateEval<N>`. `kind` must be an `OnnxPlayer`.
+pub fn kind_into_eval<const N: usize>(kind: &PlayerKind, models_dir: &std::path::Path) -> Result<Box<dyn StateEval<N>>, String>
+where
+	[(); N * N]:,
+	[(); N + 1]:, {
+	let InnerKind::OnnxPlayer(p) = &kind.inner else {
+		return Err(format!("eval model must be an OnnxPlayer, got: {kind}"));
+	};
+	let path = models_dir.join(format!("{}.onnx", p.stem));
+	let evaluator = NnEval::try_new(path.to_str().ok_or_else(|| format!("non-UTF8 model path: {path:?}"))?, N, false).map_err(|e| format!("failed to load {path:?}: {e}"))?;
+	Ok(Box::new(evaluator))
 }
 
 /// Wrap a rule-based `PlayerKind`'s inner bot in `RolloutEval`.

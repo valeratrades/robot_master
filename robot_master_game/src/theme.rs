@@ -35,3 +35,7 @@ pub const TEXT_MUTED: Color = Color::oklcha(0.50, 0.0, 0.0, 0.5);
 pub const TEXT_SELECTION: Color = Color::oklcha(0.85, 0.18, 90.0, 1.0); // bright yellow
 pub const TEXT_GAME_OVER: Color = Color::oklcha(0.65, 0.18, 25.0, 1.0); // red
 pub const TEXT_ELO: Color = Color::oklcha(0.75, 0.10, 90.0, 0.9);
+
+// Eval bar segments
+pub const EVAL_BAR_P1: Color = Color::oklcha(0.55, 0.18, 250.0, 0.9); // blue
+pub const EVAL_BAR_P2: Color = Color::oklcha(0.55, 0.18, 25.0, 0.9); // red

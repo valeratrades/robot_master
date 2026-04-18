@@ -27,12 +27,20 @@ pub struct InitialPlayers {
 	pub size: BoardSize,
 	pub hide: bool,
 	pub models_dir: std::path::PathBuf,
+	pub eval_model: Option<PlayerKind>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn create_app(asset_dir: &str, size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, sound: bool, models_dir: std::path::PathBuf) -> App {
 	let mut app = App::default();
-	app.insert_resource(InitialPlayers { p1, p2, size, hide, models_dir });
+	app.insert_resource(InitialPlayers {
+		p1,
+		p2,
+		size,
+		hide,
+		models_dir,
+		eval_model: None,
+	});
 	app.insert_resource(SoundEnabled(sound));
 	configure_app(&mut app, asset_dir.to_string());
 	app
@@ -62,6 +70,7 @@ pub fn create_app() -> App {
 		size: BoardSize::DEFAULT,
 		hide: false,
 		models_dir: std::path::PathBuf::default(),
+		eval_model: None,
 	});
 	app.insert_resource(SoundEnabled(true));
 	configure_app(&mut app, String::default());
