@@ -16,6 +16,7 @@ tabs_in_doc_comments = "allow"
 undocumented_unsafe_blocks = "warn"
 too_many_arguments = "allow"
 type_complexity = "allow"
+manual_is_multiple_of = "allow"
 
 [workspace.dependencies]
 axum = "0.8"
@@ -26,14 +27,14 @@ board-game = "0.8"
 bon = "3"
 bytemuck = "1"
 clap = { version = "4.6", features = ["derive"] }
-clickhouse = "0.14"
+clickhouse = "0.15"
 console_error_panic_hook = "0.1"
 dashmap = "6"
 derive-new = "^0.7.0"
 derive_more = { version = "2", features = ["display", "from"] }
 fuzzy-matcher = "0.3"
 getrandom = "0.4"
-indicatif = "0.17"
+indicatif = "0.18"
 insta = "1"
 internal-iterator = "0.2"
 leptos = "0.8"
@@ -60,9 +61,9 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 tower-http = "0.6"
 ustr = { version = "1", features = ["serde"] }
-uuid = { version = "^1.23.0", features = ["v4"] }
+uuid = { version = "^1.23.1", features = ["v4"] }
 v_utils = { version = "^2.15", features = ["macros", "cli"] }
-wasm-bindgen = "0.2.106"
+wasm-bindgen = "=0.2.108"
 
 [profile.wasm-release]
 inherits = "release"
@@ -70,6 +71,3 @@ opt-level = 'z'
 lto = true
 codegen-units = 1
 panic = "abort"
-
-[patch.crates-io]
-v_utils = { path = "/home/v/s/v_utils/v_utils" }

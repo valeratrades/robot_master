@@ -144,7 +144,7 @@ fn setup_menu(mut commands: Commands, init: Res<InitialPlayers>, asset_server: R
 						BackgroundColor(Color::oklcha(0.12, 0.02, 260.0, 0.75)),
 					))
 					.with_children(|panel| {
-						panel.spawn((Text::new("ROBOT MASTER"), TextFont { font_size: 64.0, ..default() }, TextColor(theme::TEXT_TITLE)));
+						panel.spawn((Text::new("ROBOT MASTER"), TextFont { font_size: 64.0, ..default() }, TextColor(theme::text::TITLE)));
 						panel.spawn(player_button(0, format_player_label(&p1_kind, &ratings)));
 						panel.spawn(player_button(1, format_player_label(&p2_kind, &ratings)));
 						panel.spawn(settings_button());
@@ -160,8 +160,8 @@ fn setup_menu(mut commands: Commands, init: Res<InitialPlayers>, asset_server: R
 								border_radius: BorderRadius::all(Val::Px(12.0)),
 								..default()
 							},
-							BackgroundColor(theme::BTN_START),
-							children![(Text::new("START"), TextFont { font_size: 36.0, ..default() }, TextColor(theme::TEXT_PRIMARY))],
+							BackgroundColor(theme::btn::START),
+							children![(Text::new("START"), TextFont { font_size: 36.0, ..default() }, TextColor(theme::text::PRIMARY))],
 						));
 					});
 			});
@@ -187,10 +187,15 @@ fn player_button(idx: usize, display: String) -> impl Bundle {
 			border_radius: BorderRadius::all(Val::Px(10.0)),
 			..default()
 		},
-		BackgroundColor(theme::BTN_NORMAL),
+		BackgroundColor(theme::btn::NORMAL),
 		children![
-			(Text::new(label), TextFont { font_size: 24.0, ..default() }, TextColor(theme::TEXT_PRIMARY)),
-			(PlayerLabel(idx), Text::new(display), TextFont { font_size: 22.0, ..default() }, TextColor(theme::TEXT_LABEL)),
+			(Text::new(label), TextFont { font_size: 24.0, ..default() }, TextColor(theme::text::PRIMARY)),
+			(
+				PlayerLabel(idx),
+				Text::new(display),
+				TextFont { font_size: 22.0, ..default() },
+				TextColor(theme::Catppuccin::color(theme::Palette::Overlay2))
+			),
 		],
 	)
 }
@@ -207,8 +212,8 @@ fn settings_button() -> impl Bundle {
 			border_radius: BorderRadius::all(Val::Px(10.0)),
 			..default()
 		},
-		BackgroundColor(theme::BTN_NORMAL),
-		children![(Text::new("Settings"), TextFont { font_size: 24.0, ..default() }, TextColor(theme::TEXT_PRIMARY))],
+		BackgroundColor(theme::btn::NORMAL),
+		children![(Text::new("Settings"), TextFont { font_size: 24.0, ..default() }, TextColor(theme::text::PRIMARY))],
 	)
 }
 
@@ -267,7 +272,7 @@ fn spawn_search_modal(commands: &mut Commands, player_idx: usize, candidates: Ve
 				..default()
 			},
 			BackgroundColor(Color::oklcha(0.0, 0.0, 0.0, 0.6)),
-			GlobalZIndex(20),
+			GlobalZIndex(theme::layer::MODAL_SEARCH),
 		))
 		.with_children(|overlay| {
 			overlay
@@ -329,7 +334,7 @@ fn spawn_search_modal(commands: &mut Commands, player_idx: usize, candidates: Ve
 }
 
 fn result_item_bundle(label: String, kind: PlayerKind, player_idx: usize, highlighted: bool) -> impl Bundle {
-	let bg = if highlighted { theme::BTN_HOVERED } else { theme::BTN_NORMAL };
+	let bg = if highlighted { theme::btn::HOVERED } else { theme::btn::NORMAL };
 	(
 		SearchResultItem { kind, player_idx },
 		Button,
@@ -342,7 +347,7 @@ fn result_item_bundle(label: String, kind: PlayerKind, player_idx: usize, highli
 			..default()
 		},
 		BackgroundColor(bg),
-		children![(Text::new(label), TextFont { font_size: 20.0, ..default() }, TextColor(theme::TEXT_PRIMARY))],
+		children![(Text::new(label), TextFont { font_size: 20.0, ..default() }, TextColor(theme::text::PRIMARY))],
 	)
 }
 
@@ -371,6 +376,7 @@ fn button_system(
 	mut init: ResMut<InitialPlayers>,
 	mut label_query: Query<(&PlayerLabel, &mut Text), Without<SizeLabel>>,
 	ratings: Res<Ratings>,
+	nerd_font: Res<crate::NerdFont>,
 ) {
 	for (interaction, mut color, start, player_btn, settings_btn, size_opt, hide_seg, result_item, eval_model_btn, eval_model_clear_btn) in &mut interaction_query {
 		match *interaction {
@@ -398,7 +404,7 @@ fn button_system(
 						commands.entity(entity).despawn();
 					}
 					if !has_modal {
-						spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref());
+						spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref(), &nerd_font.0);
 					}
 				} else if let Some(opt) = size_opt {
 					init.size = opt.0;
@@ -406,7 +412,7 @@ fn button_system(
 					for entity in &settings_modals {
 						commands.entity(entity).despawn();
 					}
-					spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref());
+					spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref(), &nerd_font.0);
 				} else if let Some(seg) = hide_seg {
 					if seg.0 != init.hide {
 						init.hide = seg.0;
@@ -429,7 +435,7 @@ fn button_system(
 						for entity in &settings_modals {
 							commands.entity(entity).despawn();
 						}
-						spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref());
+						spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref(), &nerd_font.0);
 					}
 				} else if eval_model_btn.is_some() {
 					for entity in &search_modals {
@@ -442,14 +448,14 @@ fn button_system(
 					for entity in &settings_modals {
 						commands.entity(entity).despawn();
 					}
-					spawn_settings_modal(&mut commands, init.size, init.hide, None);
+					spawn_settings_modal(&mut commands, init.size, init.hide, None, &nerd_font.0);
 				} else if let Some(item) = result_item {
 					if item.player_idx == 2 {
 						init.eval_model = Some(item.kind.clone());
 						for entity in &search_modals {
 							commands.entity(entity).despawn();
 						}
-						spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref());
+						spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref(), &nerd_font.0);
 					} else {
 						match item.player_idx {
 							0 => init.p1 = item.kind.clone(),
@@ -465,21 +471,26 @@ fn button_system(
 						}
 					}
 				}
-				*color = theme::BTN_PRESSED.into();
+				*color = theme::btn::PRESSED.into();
 			}
 			Interaction::Hovered =>
 				if result_item.is_none() {
-					*color = if start.is_some() { theme::BTN_START_HOVER.into() } else { theme::BTN_HOVERED.into() };
+					*color = if start.is_some() {
+						theme::btn::START.lighter(0.1).into()
+					} else {
+						theme::btn::HOVERED.into()
+					};
 				},
 			Interaction::None =>
 				if start.is_some() {
-					// sync_start_button handles the disabled color, leave it alone here
+					let blocked = init.hide && init.p1.is_manual() && init.p2.is_manual();
+					*color = if blocked { theme::btn::NORMAL.into() } else { theme::btn::START.into() };
 				} else if let Some(opt) = size_opt {
-					*color = if opt.0 == init.size { theme::BTN_HOVERED.into() } else { theme::BTN_NORMAL.into() };
+					*color = if opt.0 == init.size { theme::btn::HOVERED.into() } else { theme::btn::NORMAL.into() };
 				} else if let Some(seg) = hide_seg {
-					*color = if seg.0 == init.hide { theme::BTN_HOVERED.into() } else { theme::BTN_NORMAL.into() };
+					*color = if seg.0 == init.hide { theme::btn::HOVERED.into() } else { theme::btn::NORMAL.into() };
 				} else if result_item.is_none() {
-					*color = theme::BTN_NORMAL.into();
+					*color = theme::btn::NORMAL.into();
 				},
 		}
 	}
@@ -497,6 +508,7 @@ fn search_system(
 	mut label_query: Query<(&PlayerLabel, &mut Text), Without<SizeLabel>>,
 	ratings: Res<Ratings>,
 	settings_modals: Query<Entity, With<SettingsModal>>,
+	nerd_font: Res<crate::NerdFont>,
 ) {
 	let Ok((modal_entity, mut state)) = modal_query.single_mut() else {
 		return;
@@ -522,7 +534,7 @@ fn search_system(
 		let player_idx = state.player_idx;
 		let kind: Option<PlayerKind> = if let Some((_, k)) = filtered.get(state.highlighted) {
 			Some(k.clone())
-		} else if !query_str.is_empty() && !(hide && player_idx == 1) && player_idx != 2 {
+		} else if !(query_str.is_empty() || hide && player_idx == 1) && player_idx != 2 {
 			// No matches - treat raw input as a manual player name.
 			// Not allowed for player 2 in hidden-hand mode, or for eval model slot (idx 2).
 			Some(PlayerKind {
@@ -541,7 +553,7 @@ fn search_system(
 				for entity in &settings_modals {
 					commands.entity(entity).despawn();
 				}
-				spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref());
+				spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref(), &nerd_font.0);
 			} else {
 				match player_idx {
 					0 => init.p1 = kind.clone(),
@@ -586,7 +598,7 @@ fn search_system(
 					padding: UiRect::horizontal(Val::Px(12.0)),
 					..default()
 				},
-				children![(Text::new("no matches"), TextFont { font_size: 18.0, ..default() }, TextColor(theme::TEXT_MUTED))],
+				children![(Text::new("no matches"), TextFont { font_size: 18.0, ..default() }, TextColor(theme::text::MUTED))],
 			));
 		}
 	});
@@ -601,13 +613,13 @@ fn filter_candidates(candidates: &[(String, PlayerKind)], query: &str) -> Vec<(S
 		.iter()
 		.filter_map(|(label, kind)| matcher.fuzzy_match(label, query).map(|score| (score, label.clone(), kind.clone())))
 		.collect();
-	scored.sort_by(|a, b| b.0.cmp(&a.0));
+	scored.sort_by_key(|b| std::cmp::Reverse(b.0));
 	scored.into_iter().map(|(_, label, kind)| (label, kind)).collect()
 }
 
 // ── settings modal ────────────────────────────────────────────────────────────
 
-fn spawn_settings_modal(commands: &mut Commands, current_size: BoardSize, hide: bool, eval_model: Option<&PlayerKind>) {
+fn spawn_settings_modal(commands: &mut Commands, current_size: BoardSize, hide: bool, eval_model: Option<&PlayerKind>, nerd_font: &Handle<Font>) {
 	commands
 		.spawn((
 			SettingsModal,
@@ -620,7 +632,7 @@ fn spawn_settings_modal(commands: &mut Commands, current_size: BoardSize, hide: 
 				..default()
 			},
 			BackgroundColor(Color::oklcha(0.0, 0.0, 0.0, 0.6)),
-			GlobalZIndex(20),
+			GlobalZIndex(theme::layer::MODAL),
 		))
 		.with_children(|overlay| {
 			overlay
@@ -637,10 +649,14 @@ fn spawn_settings_modal(commands: &mut Commands, current_size: BoardSize, hide: 
 				))
 				.with_children(|modal| {
 					// Header
-					modal.spawn((Text::new("Settings"), TextFont { font_size: 26.0, ..default() }, TextColor(theme::TEXT_TITLE)));
+					modal.spawn((Text::new("Settings"), TextFont { font_size: 26.0, ..default() }, TextColor(theme::text::TITLE)));
 
 					// Board size section label
-					modal.spawn((Text::new("Board Size"), TextFont { font_size: 18.0, ..default() }, TextColor(theme::TEXT_LABEL)));
+					modal.spawn((
+						Text::new("Board Size"),
+						TextFont { font_size: 18.0, ..default() },
+						TextColor(theme::Catppuccin::color(theme::Palette::Overlay2)),
+					));
 
 					// Size options row
 					modal
@@ -664,19 +680,23 @@ fn spawn_settings_modal(commands: &mut Commands, current_size: BoardSize, hide: 
 										border_radius: BorderRadius::all(Val::Px(8.0)),
 										..default()
 									},
-									BackgroundColor(if is_current { theme::BTN_HOVERED } else { theme::BTN_NORMAL }),
+									BackgroundColor(if is_current { theme::btn::HOVERED } else { theme::btn::NORMAL }),
 									children![(
 										SizeLabel,
 										Text::new(format!("{n}x{n}")),
 										TextFont { font_size: 18.0, ..default() },
-										TextColor(theme::TEXT_PRIMARY)
+										TextColor(theme::text::PRIMARY)
 									)],
 								));
 							}
 						});
 
 					// Opponent cards segmented toggle
-					modal.spawn((Text::new("Opponent Cards"), TextFont { font_size: 18.0, ..default() }, TextColor(theme::TEXT_LABEL)));
+					modal.spawn((
+						Text::new("Opponent Cards"),
+						TextFont { font_size: 18.0, ..default() },
+						TextColor(theme::Catppuccin::color(theme::Palette::Overlay2)),
+					));
 					modal
 						.spawn(Node {
 							flex_direction: FlexDirection::Row,
@@ -697,18 +717,22 @@ fn spawn_settings_modal(commands: &mut Commands, current_size: BoardSize, hide: 
 										border_radius: if value { BorderRadius::right(Val::Px(8.0)) } else { BorderRadius::left(Val::Px(8.0)) },
 										..default()
 									},
-									BackgroundColor(if active { theme::BTN_HOVERED } else { theme::BTN_NORMAL }),
+									BackgroundColor(if active { theme::btn::HOVERED } else { theme::btn::NORMAL }),
 									children![(
 										Text::new(label),
 										TextFont { font_size: 18.0, ..default() },
-										TextColor(if active { theme::TEXT_PRIMARY } else { theme::TEXT_MUTED })
+										TextColor(if active { theme::text::PRIMARY } else { theme::text::MUTED })
 									)],
 								));
 							}
 						});
 
 					// Eval model selector
-					modal.spawn((Text::new("Eval Model"), TextFont { font_size: 18.0, ..default() }, TextColor(theme::TEXT_LABEL)));
+					modal.spawn((
+						Text::new("Eval Model"),
+						TextFont { font_size: 18.0, ..default() },
+						TextColor(theme::Catppuccin::color(theme::Palette::Overlay2)),
+					));
 					modal
 						.spawn(Node {
 							flex_direction: FlexDirection::Row,
@@ -729,8 +753,8 @@ fn spawn_settings_modal(commands: &mut Commands, current_size: BoardSize, hide: 
 									border_radius: BorderRadius::all(Val::Px(8.0)),
 									..default()
 								},
-								BackgroundColor(theme::BTN_NORMAL),
-								children![(Text::new(label), TextFont { font_size: 16.0, ..default() }, TextColor(theme::TEXT_PRIMARY))],
+								BackgroundColor(theme::btn::NORMAL),
+								children![(Text::new(label), TextFont { font_size: 16.0, ..default() }, TextColor(theme::text::PRIMARY))],
 							));
 							if eval_model.is_some() {
 								row.spawn((
@@ -744,8 +768,16 @@ fn spawn_settings_modal(commands: &mut Commands, current_size: BoardSize, hide: 
 										border_radius: BorderRadius::all(Val::Px(8.0)),
 										..default()
 									},
-									BackgroundColor(theme::BTN_NORMAL),
-									children![(Text::new("×"), TextFont { font_size: 20.0, ..default() }, TextColor(theme::TEXT_MUTED))],
+									BackgroundColor(theme::btn::NORMAL),
+									children![(
+										Text::new("\u{eab8}"),
+										TextFont {
+											font: nerd_font.clone(),
+											font_size: 16.0,
+											..default()
+										},
+										TextColor(theme::text::DANGER)
+									)],
 								));
 							}
 						});
@@ -781,7 +813,7 @@ fn sync_start_button(init: Res<InitialPlayers>, mut query: Query<&mut Background
 	}
 	let blocked = init.hide && init.p1.is_manual() && init.p2.is_manual();
 	for mut color in &mut query {
-		*color = if blocked { BackgroundColor(theme::BTN_NORMAL) } else { BackgroundColor(theme::BTN_START) };
+		*color = if blocked { BackgroundColor(theme::btn::NORMAL) } else { BackgroundColor(theme::btn::START) };
 	}
 }
 

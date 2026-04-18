@@ -153,6 +153,7 @@ impl Node {
 	}
 }
 
+#[derive(Default)]
 pub(crate) struct Tree {
 	pub(crate) nodes: Vec<Node>,
 	/// Live sorted multiset of Q values across all nodes - mirrors MiniZero's `tree_value_bound_`.
@@ -258,15 +259,6 @@ impl Tree {
 	pub(crate) fn root_q_normalized(&self, action_idx: usize) -> f32 {
 		let (q_min, q_max) = self.q_bounds();
 		normalize_q(self.root_q_raw(action_idx), q_min, q_max)
-	}
-}
-
-impl Default for Tree {
-	fn default() -> Self {
-		Self {
-			nodes: Vec::new(),
-			value_bound: BTreeMap::new(),
-		}
 	}
 }
 

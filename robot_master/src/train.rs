@@ -108,7 +108,7 @@ pub fn run(arch: TrainArch) {
 			.args(["--output", data_dir.to_str().unwrap()])
 			.current_dir(&repo_root);
 		if let Some(ref model) = current_model {
-			selfplay_cmd.args(["--model".as_ref(), model.to_str().unwrap()]);
+			selfplay_cmd.args(["--model", model.to_str().unwrap()]);
 		}
 		if args.force_cpu {
 			selfplay_cmd.arg("--force-cpu");
@@ -116,10 +116,11 @@ pub fn run(arch: TrainArch) {
 		if args.hide {
 			selfplay_cmd.arg("--hide");
 		}
-		if use_supervise_bot && current_model.is_none() {
-			if let Some(ref spec) = supervise {
-				selfplay_cmd.args(["--supervise-bot", spec]);
-			}
+		if use_supervise_bot
+			&& current_model.is_none()
+			&& let Some(ref spec) = supervise
+		{
+			selfplay_cmd.args(["--supervise-bot", spec]);
 		}
 		let sp_start = Instant::now();
 		run_or_die(&mut selfplay_cmd, "selfplay");
@@ -160,7 +161,7 @@ pub fn run(arch: TrainArch) {
 		}
 		// Extract last loss line from stdout
 		let stdout = String::from_utf8_lossy(&output.stdout);
-		let train_summary = stdout.lines().filter(|l| l.starts_with("Steps")).last().unwrap_or("(no output)");
+		let train_summary = stdout.lines().rfind(|l| l.starts_with("Steps")).unwrap_or("(no output)");
 		eprintln!("done ({:.1}s)  {train_summary}", train_start.elapsed().as_secs_f64());
 
 		// 3. Export ONNX — always promote, AlphaZero-style (no separate evaluation step)
@@ -190,44 +191,44 @@ pub fn run(arch: TrainArch) {
 		current_model = Some(onnx_path);
 
 		// Eval every 10 versions against the supervised baseline (CNN only)
-		if version % 10 == 0 {
-			if let Some(ref spec) = supervise {
-				let hide_flag = if args.hide { "h" } else { "v" };
-				let model_id = format!("onnx:model_v{version}|g{}|s{}|h{hide_flag}", args.sims, args.size);
-				let no_priors_spec = format!("{spec},{model_id}");
+		if version.is_multiple_of(10)
+			&& let Some(ref spec) = supervise
+		{
+			let hide_flag = if args.hide { "h" } else { "v" };
+			let model_id = format!("onnx:model_v{version}|g{}|s{}|h{hide_flag}", args.sims, args.size);
+			let no_priors_spec = format!("{spec},{model_id}");
 
-				eprint!("  [eval] model_v{version} vs {spec} (32 games)... ");
-				let eval_start = Instant::now();
-				let output = Command::new(&robot_master_bin)
-					.args(["--models-dir", models_out.to_str().unwrap()])
-					.args(["arena", "--no-priors", &no_priors_spec])
-					.args(["tourney", "--json", "swiss", "32"])
-					.current_dir(&repo_root)
-					.output()
-					.expect("failed to run arena eval");
+			eprint!("  [eval] model_v{version} vs {spec} (32 games)... ");
+			let eval_start = Instant::now();
+			let output = Command::new(&robot_master_bin)
+				.args(["--models-dir", models_out.to_str().unwrap()])
+				.args(["arena", "--no-priors", &no_priors_spec])
+				.args(["tourney", "--json", "swiss", "32"])
+				.current_dir(&repo_root)
+				.output()
+				.expect("failed to run arena eval");
 
-				if output.status.success() {
-					let json = String::from_utf8_lossy(&output.stdout);
-					if let Some((wins, total)) = parse_eval_json(&json, &model_id) {
-						let pct = wins as f64 / total as f64 * 100.0;
-						let threshold_note = if pct > 68.0 {
-							if use_supervise_bot {
-								use_supervise_bot = false;
-								" ✓ above threshold — switching to NN selfplay"
-							} else {
-								" ✓ above threshold"
-							}
+			if output.status.success() {
+				let json = String::from_utf8_lossy(&output.stdout);
+				if let Some((wins, total)) = parse_eval_json(&json, &model_id) {
+					let pct = wins as f64 / total as f64 * 100.0;
+					let threshold_note = if pct > 68.0 {
+						if use_supervise_bot {
+							use_supervise_bot = false;
+							" ✓ above threshold — switching to NN selfplay"
 						} else {
-							""
-						};
-						eprintln!("done ({:.1}s)  {wins}/{total} ({pct:.0}%){threshold_note}", eval_start.elapsed().as_secs_f64());
+							" ✓ above threshold"
+						}
 					} else {
-						eprintln!("done ({:.1}s)  (could not parse result)", eval_start.elapsed().as_secs_f64());
-					}
+						""
+					};
+					eprintln!("done ({:.1}s)  {wins}/{total} ({pct:.0}%){threshold_note}", eval_start.elapsed().as_secs_f64());
 				} else {
-					eprintln!("FAILED");
-					eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+					eprintln!("done ({:.1}s)  (could not parse result)", eval_start.elapsed().as_secs_f64());
 				}
+			} else {
+				eprintln!("FAILED");
+				eprintln!("{}", String::from_utf8_lossy(&output.stderr));
 			}
 		}
 

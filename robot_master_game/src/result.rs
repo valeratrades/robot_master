@@ -3,7 +3,7 @@ use robot_master_core::{board::Pos, cards::CardValue};
 
 use crate::{
 	AppState, Textures,
-	gameplay::{Game, PlayerSlots},
+	gameplay::{EvalHistory, Game, PlayerSlots},
 	theme,
 };
 
@@ -12,7 +12,7 @@ pub struct ResultPlugin;
 impl Plugin for ResultPlugin {
 	fn build(&self, app: &mut App) {
 		app.add_systems(OnEnter(AppState::Result), setup_result)
-			.add_systems(Update, (play_again_button, keyboard_shortcuts).run_if(in_state(AppState::Result)))
+			.add_systems(Update, (play_again_button, keyboard_shortcuts, eval_graph_hover).run_if(in_state(AppState::Result)))
 			.add_systems(OnExit(AppState::Result), cleanup_result);
 	}
 }
@@ -23,7 +23,13 @@ struct ResultScene;
 #[derive(Component)]
 struct PlayAgainButton;
 
-fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>, tex: Res<Textures>) {
+#[derive(Component)]
+struct EvalGraphColumn(usize);
+
+#[derive(Component)]
+struct EvalGraphTooltip;
+
+fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>, tex: Res<Textures>, eval_history: Option<Res<EvalHistory>>) {
 	let n = game.0.size() as usize;
 	let (s0, i0, s1, i1) = game.0.scores();
 
@@ -58,10 +64,10 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 				row_gap: Val::Px(15.0),
 				..default()
 			},
-			BackgroundColor(theme::BG_RESULT),
+			BackgroundColor(theme::bg::RESULT),
 		))
 		.with_children(|root| {
-			root.spawn((Text::new(&verdict), TextFont { font_size: 48.0, ..default() }, TextColor(theme::TEXT_TITLE)));
+			root.spawn((Text::new(&verdict), TextFont { font_size: 48.0, ..default() }, TextColor(theme::text::TITLE)));
 
 			root.spawn(Node {
 				flex_direction: FlexDirection::Column,
@@ -87,7 +93,7 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 										align_items: AlignItems::Center,
 										..default()
 									},
-									BackgroundColor(if val != robot_master_core::board::EMPTY { theme::CELL_OCCUPIED } else { theme::CELL_EMPTY }),
+									BackgroundColor(if val != robot_master_core::board::EMPTY { theme::cell::OCCUPIED } else { theme::cell::EMPTY }),
 								))
 								.with_children(|cell| {
 									if val != robot_master_core::board::EMPTY {
@@ -106,10 +112,63 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 				}
 			});
 
-			root.spawn((Text::new(&scores), TextFont { font_size: 22.0, ..default() }, TextColor(theme::TEXT_PRIMARY)));
+			root.spawn((Text::new(&scores), TextFont { font_size: 22.0, ..default() }, TextColor(theme::text::PRIMARY)));
 
 			if !elo_text.is_empty() {
-				root.spawn((Text::new(&elo_text), TextFont { font_size: 18.0, ..default() }, TextColor(theme::TEXT_ELO)));
+				root.spawn((Text::new(&elo_text), TextFont { font_size: 18.0, ..default() }, TextColor(theme::text::ELO)));
+			}
+
+			if let Some(history) = eval_history.as_ref().filter(|h| h.0.len() > 1) {
+				root.spawn((
+					Node {
+						width: Val::Px(500.0),
+						height: Val::Px(80.0),
+						flex_direction: FlexDirection::Row,
+						overflow: Overflow::clip(),
+						..default()
+					},
+					BackgroundColor(theme::bg::DARK),
+				))
+				.with_children(|bar| {
+					for (i, &p1_win) in history.0.iter().enumerate() {
+						bar.spawn((
+							EvalGraphColumn(i),
+							Button,
+							Node {
+								flex_grow: 1.0,
+								height: Val::Percent(100.0),
+								flex_direction: FlexDirection::Column,
+								..default()
+							},
+						))
+						.with_children(|col| {
+							col.spawn((
+								Node {
+									width: Val::Percent(100.0),
+									height: Val::Percent(p1_win * 100.0),
+									..default()
+								},
+								BackgroundColor(theme::text::P1),
+							));
+							col.spawn((
+								Node {
+									width: Val::Percent(100.0),
+									height: Val::Percent((1.0 - p1_win) * 100.0),
+									..default()
+								},
+								BackgroundColor(theme::text::P2),
+							));
+						});
+					}
+				});
+
+				root.spawn((
+					EvalGraphTooltip,
+					Text::new(""),
+					TextFont { font_size: 13.0, ..default() },
+					TextColor(theme::text::MUTED),
+					Visibility::Hidden,
+				));
 			}
 
 			root.spawn((
@@ -123,10 +182,10 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 					margin: UiRect::top(Val::Px(15.0)),
 					..default()
 				},
-				BackgroundColor(theme::BTN_PLAY_AGAIN),
+				BackgroundColor(theme::btn::PLAY_AGAIN),
 			))
 			.with_children(|btn| {
-				btn.spawn((Text::new("Play Again"), TextFont { font_size: 28.0, ..default() }, TextColor(theme::TEXT_PRIMARY)));
+				btn.spawn((Text::new("Play Again"), TextFont { font_size: 28.0, ..default() }, TextColor(theme::text::PRIMARY)));
 			});
 		});
 }
@@ -138,10 +197,10 @@ fn play_again_button(mut interaction_query: Query<(&Interaction, &mut Background
 				next_state.set(AppState::Menu);
 			}
 			Interaction::Hovered => {
-				*color = BackgroundColor(theme::BTN_PLAY_AGAIN_HOVER);
+				*color = BackgroundColor(theme::btn::PLAY_AGAIN.lighter(0.1));
 			}
 			Interaction::None => {
-				*color = BackgroundColor(theme::BTN_PLAY_AGAIN);
+				*color = BackgroundColor(theme::btn::PLAY_AGAIN);
 			}
 		}
 	}
@@ -180,10 +239,40 @@ fn keyboard_shortcuts(keys: Res<ButtonInput<KeyCode>>, mut next_state: ResMut<Ne
 	}
 }
 
+fn eval_graph_hover(
+	columns: Query<(&Interaction, &EvalGraphColumn), Changed<Interaction>>,
+	history: Option<Res<EvalHistory>>,
+	mut tooltip_q: Query<(&mut Text, &mut Visibility), With<EvalGraphTooltip>>,
+) {
+	let Some(history) = history else { return };
+
+	let mut hovered: Option<usize> = None;
+	for (interaction, col) in &columns {
+		if *interaction == Interaction::Hovered {
+			hovered = Some(col.0);
+			break;
+		}
+	}
+
+	for (mut text, mut vis) in &mut tooltip_q {
+		match hovered {
+			Some(idx) => {
+				let prob = history.0[idx];
+				**text = format!("Move {idx}: P1 {:.0}%", prob * 100.0);
+				*vis = Visibility::Inherited;
+			}
+			None => {
+				*vis = Visibility::Hidden;
+			}
+		}
+	}
+}
+
 fn cleanup_result(mut commands: Commands, query: Query<Entity, With<ResultScene>>) {
 	for entity in &query {
 		commands.entity(entity).despawn();
 	}
 	commands.remove_resource::<Game>();
 	commands.remove_resource::<PlayerSlots>();
+	commands.remove_resource::<EvalHistory>();
 }

@@ -31,7 +31,7 @@ fn main() {
 
 	// Each "round" is a pair of games (challenger=A then challenger=B), played in parallel.
 	// Total games = args.rounds * 2.
-	let rounds = (args.games + 1) / 2; // round up so we get at least args.games
+	let rounds = args.games.div_ceil(2); // round up so we get at least args.games
 
 	(0..rounds).into_par_iter().for_each(|round_id| {
 		let mut rng = SmallRng::seed_from_u64(round_id as u64);
