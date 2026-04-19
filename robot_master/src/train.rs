@@ -15,6 +15,13 @@ pub fn run(arch: TrainArch) {
 		TrainArch::Transformer { args } => (args, None, true),
 	};
 
+	if args.sims % 64 != 0 {
+		eprintln!(
+			"warning: --sims {} is not a multiple of 64; Gumbel Sequential Halving with m=16 needs n≥64 and ideally n=64k for all 4 phases to be properly funded",
+			args.sims
+		);
+	}
+
 	// MiniZero uses ratio 1:10 (steps:games) calibrated for Go with batch_size=2048.
 	// Robot Master has ~25 moves/game vs ~250 in Go, and batch_size=256 (8x smaller).
 	// To get equivalent sample coverage: steps = games * moves_per_game / (batch * 10)
@@ -31,7 +38,7 @@ pub fn run(arch: TrainArch) {
 	} else {
 		env!("CARGO_PKG_VERSION")
 	};
-	let run_id = format!("{generation}_-_g{}:s{}/{}x{}_{hide_label}", args.games, args.sims, args.size, args.size);
+	let run_id = format!("{generation}_-_g{}/{}x{}_{hide_label}", args.games, args.size, args.size);
 	let data_dir = xdg_cache_dir(&format!("{run_id}/training_data"));
 	fs::create_dir_all(&data_dir).unwrap_or_else(|e| panic!("failed to create {}: {e}", data_dir.display()));
 	let models_out = xdg_cache_dir(&format!("{run_id}/models"));
@@ -90,9 +97,8 @@ pub fn run(arch: TrainArch) {
 
 	let total_start = Instant::now();
 
-	let bar = ProgressBar::new(lifetime_iters as u64);
+	let bar = ProgressBar::new(args.iterations as u64); // show progress over selected iterations range, not lifetime
 	bar.set_style(ProgressStyle::with_template("{bar:40.cyan/blue} {pos}/{len} iterations  elapsed {elapsed_precise}  eta {eta_precise}").unwrap());
-	bar.set_position(prior_iters as u64);
 
 	for i in 1..=args.iterations {
 		let iter_start = Instant::now();
