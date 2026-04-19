@@ -268,7 +268,7 @@ fn run_tournament_sized<const N: usize>(
 	let mut pb = ProgressBar::builder().total(estimated_total).prefix(pb_label.to_string()).build();
 	pb.init();
 
-	let results = match mode {
+	let (results, final_ratings) = match mode {
 		TourneyMode::Swiss { cycles, .. } => tournament::swiss::<N>(&player_ids, config, cycles, rating_db.as_ref(), &factory, &mut rng, threads, Some(&mut pb)),
 		TourneyMode::Rating { target_rounds, .. } => tournament::rating_based::<N>(&player_ids, config, target_rounds, rating_db.as_ref(), &factory, &mut rng, threads, Some(&mut pb)),
 		TourneyMode::Elimination { cycles, .. } => tournament::elimination::<N>(&player_ids, config, cycles, rating_db.as_ref(), &factory, &mut rng, threads, Some(&mut pb)),
@@ -289,8 +289,6 @@ fn run_tournament_sized<const N: usize>(
 		}
 	}
 
-	// Final ratings
-	let final_ratings = rating_db.load_ratings();
 	let mut standings: Vec<_> = final_ratings.iter().filter(|(id, _)| games.contains_key(id)).collect();
 	standings.sort_by(|a, b| {
 		let wa = wins.get(a.0).copied().unwrap_or(0);
@@ -336,6 +334,8 @@ fn run_tournament_sized<const N: usize>(
 			eprintln!("  {wins_col:<col0$}  {name:<col1$}  {rating_col:>col2$}  ({delta_col})");
 		}
 	}
+
+	rating_db.save_ratings(&final_ratings);
 }
 
 fn run_players(players_filter: Vec<String>, command: PlayersCommands, models_dir: &std::path::Path, rating_db: Arc<dyn RatingDb>, auto_yes: bool) {
