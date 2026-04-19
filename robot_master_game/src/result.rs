@@ -29,7 +29,7 @@ struct EvalGraphColumn(usize);
 #[derive(Component)]
 struct EvalGraphTooltip;
 
-fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>, tex: Res<Textures>, eval_history: Option<Res<EvalHistory>>) {
+fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>, tex: Res<Textures>, eval_history: Option<Res<EvalHistory>>, init: Res<crate::InitialPlayers>) {
 	let n = game.0.size() as usize;
 	let (s0, i0, s1, i1) = game.0.scores();
 
@@ -44,10 +44,18 @@ fn setup_result(mut commands: Commands, game: Res<Game>, slots: Res<PlayerSlots>
 
 	let scores = format!("{p1_name} (Cols): {s0} (weakest: col {i0})\n{p2_name} (Rows): {s1} (weakest: row {i1})");
 
-	#[cfg(not(target_arch = "wasm32"))]
-	let elo_text = format_elo(&slots, s0, s1, i0, i1);
-	#[cfg(target_arch = "wasm32")]
-	let elo_text = String::default();
+	let elo_text = if init.no_priors {
+		String::default()
+	} else {
+		#[cfg(not(target_arch = "wasm32"))]
+		{
+			format_elo(&slots, s0, s1, i0, i1)
+		}
+		#[cfg(target_arch = "wasm32")]
+		{
+			String::default()
+		}
+	};
 
 	let cell_px = 320.0 / n as f32;
 	let img_px = cell_px - 10.0;

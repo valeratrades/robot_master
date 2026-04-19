@@ -184,6 +184,7 @@
               pkgs.cargo-leptos
               pkgs.fzf
               pkgs.nerd-fonts.symbols-only
+              pkgs.noto-fonts
             ] ++ nativeLibs ++ pre-commit-check.enabledPackages ++ combined.enabledPackages;
 
             env = {
@@ -203,6 +204,8 @@
                 mkdir -p robot_master_game/assets/fonts
                 cp -f ${pkgs.nerd-fonts.symbols-only}/share/fonts/truetype/NerdFonts/Symbols/SymbolsNerdFontMono-Regular.ttf \
                   robot_master_game/assets/fonts/SymbolsNerdFontMono-Regular.ttf
+                cp -f ${pkgs.noto-fonts}/share/fonts/noto/NotoSansSymbols2-Regular.otf \
+                  robot_master_game/assets/fonts/NotoSansSymbols2-Regular.otf
 
                 if ! python -c "import robot_master" 2>/dev/null; then
                   echo "⚠ robot_master not built — run: maturin build"

@@ -29,6 +29,8 @@ pub struct InitialPlayers {
 	pub hide: bool,
 	pub models_dir: std::path::PathBuf,
 	pub eval_model: Option<PlayerKind>,
+	/// When true the match result is not committed to the ratings DB.
+	pub no_priors: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -41,6 +43,7 @@ pub fn create_app(asset_dir: &str, size: BoardSize, hide: bool, p1: PlayerKind, 
 		hide,
 		models_dir,
 		eval_model: None,
+		no_priors: false,
 	});
 	app.insert_resource(SoundEnabled(sound));
 	configure_app(&mut app, asset_dir.to_string());
@@ -72,6 +75,7 @@ pub fn create_app() -> App {
 		hide: false,
 		models_dir: std::path::PathBuf::default(),
 		eval_model: None,
+		no_priors: false,
 	});
 	app.insert_resource(SoundEnabled(true));
 	configure_app(&mut app, String::default());
@@ -95,6 +99,10 @@ impl Textures {
 /// Symbols Nerd Font Mono handle, used for icon glyphs (e.g. trash icon in settings).
 #[derive(Resource)]
 pub(crate) struct NerdFont(pub Handle<Font>);
+
+/// Noto Sans Symbols 2 handle, used for misc Unicode symbols (e.g. ⏎ U+23CE in shortcut hints).
+#[derive(Resource)]
+pub(crate) struct NotoSymbolsFont(pub Handle<Font>);
 
 fn configure_app(app: &mut App, file_path: String) {
 	app.add_plugins(
@@ -131,6 +139,8 @@ fn configure_app(app: &mut App, file_path: String) {
 		app.insert_resource(Textures { card_faces, card_back });
 		let nerd_font = asset_server.load("fonts/SymbolsNerdFontMono-Regular.ttf");
 		app.insert_resource(NerdFont(nerd_font));
+		let noto_symbols = asset_server.load("fonts/NotoSansSymbols2-Regular.otf");
+		app.insert_resource(NotoSymbolsFont(noto_symbols));
 	}
 
 	app.init_resource::<PressedChars>()
