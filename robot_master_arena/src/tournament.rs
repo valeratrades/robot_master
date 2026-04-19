@@ -53,7 +53,7 @@ pub fn rating_based<const N: usize>(
 	rng: &mut impl Rng,
 	threads: usize,
 	pb: Option<&mut ProgressBar>,
-) -> Vec<MatchResult>
+) -> (Vec<MatchResult>, HashMap<Ustr, Rating>)
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
@@ -78,7 +78,7 @@ pub fn swiss<const N: usize>(
 	rng: &mut impl Rng,
 	threads: usize,
 	pb: Option<&mut ProgressBar>,
-) -> Vec<MatchResult>
+) -> (Vec<MatchResult>, HashMap<Ustr, Rating>)
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
@@ -98,7 +98,7 @@ pub fn round_robin<const N: usize>(
 	rng: &mut impl Rng,
 	threads: usize,
 	pb: Option<&mut ProgressBar>,
-) -> Vec<MatchResult>
+) -> (Vec<MatchResult>, HashMap<Ustr, Rating>)
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
@@ -125,7 +125,7 @@ pub fn elimination<const N: usize>(
 	rng: &mut impl Rng,
 	threads: usize,
 	pb: Option<&mut ProgressBar>,
-) -> Vec<MatchResult>
+) -> (Vec<MatchResult>, HashMap<Ustr, Rating>)
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
@@ -172,7 +172,7 @@ fn run_tournament<const N: usize, T: Tournament<N>>(
 	rng: &mut impl Rng,
 	threads: usize,
 	mut pb: Option<&mut ProgressBar>,
-) -> Vec<MatchResult>
+) -> (Vec<MatchResult>, HashMap<Ustr, Rating>)
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
@@ -223,8 +223,7 @@ where
 	}
 
 	let final_ratings: HashMap<Ustr, Rating> = live_ratings.into_iter().collect();
-	rating_db.save_ratings(&final_ratings);
-	all_results
+	(all_results, final_ratings)
 }
 
 // ---------------------------------------------------------------------------
@@ -743,5 +742,118 @@ fn score_f64(my_score: u16, opp_score: u16) -> f64 {
 		std::cmp::Ordering::Greater => 1.0,
 		std::cmp::Ordering::Less => 0.0,
 		std::cmp::Ordering::Equal => 0.5,
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use ustr::ustr;
+
+	use super::*;
+	use crate::match_::MatchResult;
+
+	fn fake_result(p1_id: Ustr, p2_id: Ustr, p1_wins: bool) -> MatchResult {
+		let (p1_score, p2_score) = if p1_wins { (10, 5) } else { (5, 10) };
+		MatchResult::new(p1_id, p2_id, p1_score, p2_score, 0, 0, Vec::new(), None)
+	}
+
+	fn fake_draw(p1_id: Ustr, p2_id: Ustr) -> MatchResult {
+		MatchResult::new(p1_id, p2_id, 10, 10, 0, 0, Vec::new(), None)
+	}
+
+	/// Single game: winner should gain, loser should lose.
+	#[test]
+	fn glicko_single_one_game_direction() {
+		let winner = ustr("winner");
+		let loser = ustr("loser");
+		let live: DashMap<Ustr, Rating> = DashMap::new();
+		live.insert(winner, Rating::default());
+		live.insert(loser, Rating::default());
+
+		let r = fake_result(winner, loser, true); // winner=p1 wins
+		glicko_update_single(&r, &live);
+		r.forget();
+
+		let r_winner = live.get(&winner).unwrap().rating;
+		let r_loser = live.get(&loser).unwrap().rating;
+		eprintln!("after 1 win: winner={r_winner:.1}, loser={r_loser:.1}");
+		assert!(r_winner > 1500.0, "winner should gain: got {r_winner:.1}");
+		assert!(r_loser < 1500.0, "loser should drop: got {r_loser:.1}");
+	}
+
+	/// Verify that `glicko_update_single` correctly raises the winner's rating over 100 games.
+	/// Uses Bresenham interleaving: v296 wins 61, v265 wins 37, 2 draws, evenly distributed.
+	/// If this passes, the bug is in higher-level tournament machinery, not individual updates.
+	#[test]
+	fn glicko_single_winner_gains() {
+		let v296 = ustr("v296");
+		let v265 = ustr("v265");
+
+		let live: DashMap<Ustr, Rating> = DashMap::new();
+		live.insert(v296, Rating::default());
+		live.insert(v265, Rating::default());
+
+		// Bresenham interleaving: position i is a v296 win iff floor((i+1)*61/100) > floor(i*61/100).
+		// This spreads 61 v296 wins evenly across 100 positions (no consecutive runs).
+		let mut outcomes = vec![-1i8; 100]; // default: v265 win
+		let mut v296_count = 0;
+		for i in 0..100usize {
+			if (i + 1) * 61 / 100 > i * 61 / 100 {
+				outcomes[i] = 1; // v296 wins
+				v296_count += 1;
+			}
+		}
+		assert_eq!(v296_count, 61);
+		// Convert 2 v265-win positions to draws (verified these are not v296-win positions).
+		outcomes[0] = 0;
+		outcomes[5] = 0;
+		assert_eq!(outcomes.iter().filter(|&&o| o == 1).count(), 61);
+		assert_eq!(outcomes.iter().filter(|&&o| o == -1).count(), 37);
+		assert_eq!(outcomes.iter().filter(|&&o| o == 0).count(), 2);
+
+		for (i, &outcome) in outcomes.iter().enumerate() {
+			let r = match outcome {
+				1 =>
+					if i % 2 == 0 {
+						fake_result(v296, v265, true)
+					} else {
+						fake_result(v265, v296, false)
+					},
+				-1 =>
+					if i % 2 == 0 {
+						fake_result(v265, v296, true)
+					} else {
+						fake_result(v296, v265, false)
+					},
+				_ => fake_draw(v296, v265),
+			};
+			glicko_update_single(&r, &live);
+			r.forget();
+		}
+
+		let r296 = live.get(&v296).unwrap().rating;
+		let r265 = live.get(&v265).unwrap().rating;
+		assert!(r296 > r265, "v296 (61 wins) should have higher rating than v265 (37 wins), got {r296:.1} vs {r265:.1}");
+	}
+
+	/// Verify glicko_update_batch directly: 5-game batch where winner wins 3, loser wins 2.
+	/// This is what RatingBased uses per-cycle when threads=5.
+	#[test]
+	fn batch_update_winner_gains() {
+		use crate::rating::glicko_update_batch;
+
+		let r = Rating::default(); // both start at 1500, RD=500
+		// Simulate 5 games against the same 1500-rated opponent: winner scores 1, 1, 1, 0, 0.
+		let opp = Rating::default();
+		let winner_new = glicko_update_batch(&r, &[(&opp, 1.0), (&opp, 0.0), (&opp, 1.0), (&opp, 0.0), (&opp, 1.0)]);
+		let loser_new = glicko_update_batch(&r, &[(&opp, 0.0), (&opp, 1.0), (&opp, 0.0), (&opp, 1.0), (&opp, 0.0)]);
+		assert!(
+			winner_new.rating > loser_new.rating,
+			"batch: 3-win player should outrate 2-win player, got {:.1} vs {:.1}",
+			winner_new.rating,
+			loser_new.rating
+		);
+		assert!(winner_new.rating > 1500.0, "batch winner should gain: {:.1}", winner_new.rating);
+		assert!(loser_new.rating < 1500.0, "batch loser should drop: {:.1}", loser_new.rating);
 	}
 }

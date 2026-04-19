@@ -62,6 +62,13 @@ struct EvalModelButton;
 #[derive(Component)]
 struct EvalModelClearButton;
 
+/// Delete (nuke) button shown next to each item in the search results list.
+#[derive(Component)]
+struct SearchResultDeleteButton {
+	kind: PlayerKind,
+	player_idx: usize,
+}
+
 /// The full-screen search modal overlay.
 #[derive(Component)]
 struct SearchModal;
@@ -251,7 +258,7 @@ fn build_candidates(ratings: &HashMap<Ustr, Rating>) -> Vec<(String, PlayerKind)
 	kinds.iter().map(|k| (format_player_label(k, ratings), k.clone())).collect()
 }
 
-fn spawn_search_modal(commands: &mut Commands, player_idx: usize, candidates: Vec<(String, PlayerKind)>) {
+fn spawn_search_modal(commands: &mut Commands, player_idx: usize, candidates: Vec<(String, PlayerKind)>, nerd_font: &Handle<Font>) {
 	let initial_items: Vec<_> = candidates.clone();
 
 	commands
@@ -326,29 +333,62 @@ fn spawn_search_modal(commands: &mut Commands, player_idx: usize, candidates: Ve
 						))
 						.with_children(|list| {
 							for (i, (label, kind)) in initial_items.iter().enumerate() {
-								list.spawn(result_item_bundle(label.clone(), kind.clone(), player_idx, i == 0));
+								spawn_result_item(list, label.clone(), kind.clone(), player_idx, i == 0, nerd_font);
 							}
 						});
 				});
 		});
 }
 
-fn result_item_bundle(label: String, kind: PlayerKind, player_idx: usize, highlighted: bool) -> impl Bundle {
+fn spawn_result_item(parent: &mut ChildSpawnerCommands, label: String, kind: PlayerKind, player_idx: usize, highlighted: bool, nerd_font: &Handle<Font>) {
 	let bg = if highlighted { theme::btn::HOVERED } else { theme::btn::NORMAL };
-	(
-		SearchResultItem { kind, player_idx },
-		Button,
-		Node {
+	parent
+		.spawn(Node {
 			width: Val::Percent(100.0),
 			height: Val::Px(40.0),
+			flex_direction: FlexDirection::Row,
 			align_items: AlignItems::Center,
-			padding: UiRect::horizontal(Val::Px(12.0)),
-			border_radius: BorderRadius::all(Val::Px(6.0)),
+			column_gap: Val::Px(4.0),
 			..default()
-		},
-		BackgroundColor(bg),
-		children![(Text::new(label), TextFont { font_size: 20.0, ..default() }, TextColor(theme::text::PRIMARY))],
-	)
+		})
+		.with_children(|row| {
+			row.spawn((
+				SearchResultItem { kind: kind.clone(), player_idx },
+				Button,
+				Node {
+					flex_grow: 1.0,
+					height: Val::Percent(100.0),
+					align_items: AlignItems::Center,
+					padding: UiRect::horizontal(Val::Px(12.0)),
+					border_radius: BorderRadius::all(Val::Px(6.0)),
+					..default()
+				},
+				BackgroundColor(bg),
+				children![(Text::new(label), TextFont { font_size: 20.0, ..default() }, TextColor(theme::text::PRIMARY))],
+			));
+			row.spawn((
+				SearchResultDeleteButton { kind, player_idx },
+				Button,
+				Node {
+					width: Val::Px(36.0),
+					height: Val::Px(32.0),
+					justify_content: JustifyContent::Center,
+					align_items: AlignItems::Center,
+					border_radius: BorderRadius::all(Val::Px(6.0)),
+					..default()
+				},
+				BackgroundColor(theme::btn::NORMAL),
+				children![(
+					Text::new("\u{eab8}"),
+					TextFont {
+						font: nerd_font.clone(),
+						font_size: 14.0,
+						..default()
+					},
+					TextColor(theme::text::DANGER)
+				)],
+			));
+		});
 }
 
 // ── systems ───────────────────────────────────────────────────────────────────
@@ -366,6 +406,7 @@ fn button_system(
 			Option<&SearchResultItem>,
 			Option<&EvalModelButton>,
 			Option<&EvalModelClearButton>,
+			Option<&SearchResultDeleteButton>,
 		),
 		Changed<Interaction>,
 	>,
@@ -375,10 +416,10 @@ fn button_system(
 	settings_modals: Query<Entity, With<SettingsModal>>,
 	mut init: ResMut<InitialPlayers>,
 	mut label_query: Query<(&PlayerLabel, &mut Text), Without<SizeLabel>>,
-	ratings: Res<Ratings>,
+	mut ratings: ResMut<Ratings>,
 	nerd_font: Res<crate::NerdFont>,
 ) {
-	for (interaction, mut color, start, player_btn, settings_btn, size_opt, hide_seg, result_item, eval_model_btn, eval_model_clear_btn) in &mut interaction_query {
+	for (interaction, mut color, start, player_btn, settings_btn, size_opt, hide_seg, result_item, eval_model_btn, eval_model_clear_btn, search_result_delete) in &mut interaction_query {
 		match *interaction {
 			Interaction::Pressed => {
 				if start.is_some() {
@@ -397,7 +438,7 @@ fn button_system(
 					if init.hide && btn.0 == 1 {
 						candidates.retain(|(_, kind)| !kind.is_manual());
 					}
-					spawn_search_modal(&mut commands, btn.0, candidates);
+					spawn_search_modal(&mut commands, btn.0, candidates, &nerd_font.0);
 				} else if settings_btn.is_some() {
 					let has_modal = !settings_modals.is_empty();
 					for entity in &settings_modals {
@@ -442,7 +483,7 @@ fn button_system(
 						commands.entity(entity).despawn();
 					}
 					let candidates = build_candidates(&ratings.0).into_iter().filter(|(_, k)| k.is_onnx()).collect();
-					spawn_search_modal(&mut commands, 2, candidates);
+					spawn_search_modal(&mut commands, 2, candidates, &nerd_font.0);
 				} else if eval_model_clear_btn.is_some() {
 					init.eval_model = None;
 					for entity in &settings_modals {
@@ -470,6 +511,26 @@ fn button_system(
 							commands.entity(entity).despawn();
 						}
 					}
+				} else if let Some(del) = search_result_delete {
+					#[cfg(not(target_arch = "wasm32"))]
+					{
+						use robot_master_arena::db::{JsonRatingDb, RatingDb};
+						let db = JsonRatingDb::default();
+						let mut r = db.load_ratings();
+						r.remove(&del.kind.id());
+						db.save_ratings(&r);
+						ratings.0 = r;
+					}
+					let mut candidates = build_candidates(&ratings.0);
+					if del.player_idx == 2 {
+						candidates.retain(|(_, k)| k.is_onnx());
+					} else if init.hide && del.player_idx == 1 {
+						candidates.retain(|(_, kind)| !kind.is_manual());
+					}
+					for entity in &search_modals {
+						commands.entity(entity).despawn();
+					}
+					spawn_search_modal(&mut commands, del.player_idx, candidates, &nerd_font.0);
 				}
 				*color = theme::btn::PRESSED.into();
 			}
@@ -587,7 +648,7 @@ fn search_system(
 	commands.entity(list_entity).despawn_related::<Children>();
 	commands.entity(list_entity).with_children(|list| {
 		for (i, (label, kind)) in filtered.iter().enumerate() {
-			list.spawn(result_item_bundle(label.clone(), kind.clone(), player_idx, i == highlighted));
+			spawn_result_item(list, label.clone(), kind.clone(), player_idx, i == highlighted, &nerd_font.0);
 		}
 		if filtered.is_empty() {
 			list.spawn((
