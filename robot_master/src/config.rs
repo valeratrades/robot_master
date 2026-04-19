@@ -42,7 +42,7 @@ pub struct TrainArgs {
 	#[arg(long, default_value = "200")]
 	pub games: u32,
 	/// Gumbel simulations per move during self-play
-	#[arg(long, default_value = "25")]
+	#[arg(long, default_value = "64")]
 	pub sims: u32,
 	/// Board size (must match the selfplay binary and model architecture)
 	#[arg(long, default_value = "5")]
