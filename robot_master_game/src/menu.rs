@@ -69,6 +69,22 @@ struct SearchResultDeleteButton {
 	player_idx: usize,
 }
 
+/// Button shown when the search returns no matches; creates a ManualPlayer from the query.
+/// Shown only for player slots 0 and 1. Ratings are updated normally.
+#[derive(Component)]
+struct SearchNoMatchManualButton {
+	query: String,
+	player_idx: usize,
+}
+
+/// Button shown when the search returns no matches; parses the raw query as a PlayerKind spec and
+/// starts the game in no-priors mode (slots 0/1) or sets the eval model (slot 2).
+#[derive(Component)]
+struct NoPriorsSelectButton {
+	query: String,
+	player_idx: usize,
+}
+
 /// The full-screen search modal overlay.
 #[derive(Component)]
 struct SearchModal;
@@ -104,7 +120,8 @@ fn format_player_label(kind: &PlayerKind, ratings: &HashMap<Ustr, Rating>) -> St
 	}
 }
 
-fn setup_menu(mut commands: Commands, init: Res<InitialPlayers>, asset_server: Res<AssetServer>) {
+fn setup_menu(mut commands: Commands, mut init: ResMut<InitialPlayers>, asset_server: Res<AssetServer>) {
+	init.no_priors = false;
 	let ratings = load_ratings();
 	let p1_kind = init.p1.clone();
 	let p2_kind = init.p2.clone();
@@ -391,6 +408,40 @@ fn spawn_result_item(parent: &mut ChildSpawnerCommands, label: String, kind: Pla
 		});
 }
 
+fn spawn_no_match_button<M: Component>(list: &mut ChildSpawnerCommands, marker: M, label: &str, shortcut: &str, shortcut_font: &Handle<Font>) {
+	list.spawn((
+		marker,
+		Button,
+		Node {
+			width: Val::Percent(100.0),
+			height: Val::Px(40.0),
+			align_items: AlignItems::Center,
+			padding: UiRect::horizontal(Val::Px(12.0)),
+			border_radius: BorderRadius::all(Val::Px(6.0)),
+			..default()
+		},
+		BackgroundColor(theme::btn::NORMAL),
+	))
+	.with_children(|btn| {
+		btn.spawn((Text::new(label.to_string()), TextFont { font_size: 18.0, ..default() }, TextColor(theme::text::MUTED)));
+		btn.spawn((
+			Node {
+				position_type: PositionType::Absolute,
+				bottom: Val::Px(3.0),
+				right: Val::Px(6.0),
+				..default()
+			},
+			Text::new(shortcut.to_string()),
+			TextFont {
+				font: shortcut_font.clone(),
+				font_size: 10.0,
+				..default()
+			},
+			TextColor(theme::Catppuccin::color(theme::Palette::Surface2)),
+		));
+	});
+}
+
 // ── systems ───────────────────────────────────────────────────────────────────
 
 fn button_system(
@@ -407,6 +458,8 @@ fn button_system(
 			Option<&EvalModelButton>,
 			Option<&EvalModelClearButton>,
 			Option<&SearchResultDeleteButton>,
+			Option<&NoPriorsSelectButton>,
+			Option<&SearchNoMatchManualButton>,
 		),
 		Changed<Interaction>,
 	>,
@@ -419,7 +472,22 @@ fn button_system(
 	mut ratings: ResMut<Ratings>,
 	nerd_font: Res<crate::NerdFont>,
 ) {
-	for (interaction, mut color, start, player_btn, settings_btn, size_opt, hide_seg, result_item, eval_model_btn, eval_model_clear_btn, search_result_delete) in &mut interaction_query {
+	for (
+		interaction,
+		mut color,
+		start,
+		player_btn,
+		settings_btn,
+		size_opt,
+		hide_seg,
+		result_item,
+		eval_model_btn,
+		eval_model_clear_btn,
+		search_result_delete,
+		no_priors_btn,
+		no_match_manual_btn,
+	) in &mut interaction_query
+	{
 		match *interaction {
 			Interaction::Pressed => {
 				if start.is_some() {
@@ -496,6 +564,9 @@ fn button_system(
 						for entity in &search_modals {
 							commands.entity(entity).despawn();
 						}
+						for entity in &settings_modals {
+							commands.entity(entity).despawn();
+						}
 						spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref(), &nerd_font.0);
 					} else {
 						match item.player_idx {
@@ -531,6 +602,61 @@ fn button_system(
 						commands.entity(entity).despawn();
 					}
 					spawn_search_modal(&mut commands, del.player_idx, candidates, &nerd_font.0);
+				} else if let Some(btn) = no_priors_btn {
+					if btn.player_idx == 2 {
+						// Eval slot: only accept valid specs, no ManualPlayer fallback
+						if let Ok(kind) = btn.query.parse::<PlayerKind>() {
+							init.eval_model = Some(kind);
+							for entity in &search_modals {
+								commands.entity(entity).despawn();
+							}
+							for entity in &settings_modals {
+								commands.entity(entity).despawn();
+							}
+							spawn_settings_modal(&mut commands, init.size, init.hide, init.eval_model.as_ref(), &nerd_font.0);
+						}
+					} else {
+						use robot_master_arena::{algos::InnerKind, player::ManualPlayer as MP};
+						let kind = btn.query.parse::<PlayerKind>().unwrap_or_else(|_| PlayerKind {
+							inner: InnerKind::ManualPlayer(MP { name: btn.query.clone() }),
+							sims: None,
+							constrain_sizes: None,
+							constrain_hide: None,
+						});
+						match btn.player_idx {
+							0 => init.p1 = kind.clone(),
+							_ => init.p2 = kind.clone(),
+						}
+						for (label, mut text) in &mut label_query {
+							if label.0 == btn.player_idx {
+								**text = format_player_label(&kind, &ratings.0);
+							}
+						}
+						init.no_priors = true;
+						for entity in &search_modals {
+							commands.entity(entity).despawn();
+						}
+					}
+				} else if let Some(btn) = no_match_manual_btn {
+					use robot_master_arena::{algos::InnerKind, player::ManualPlayer as MP};
+					let kind = PlayerKind {
+						inner: InnerKind::ManualPlayer(MP { name: btn.query.clone() }),
+						sims: None,
+						constrain_sizes: None,
+						constrain_hide: None,
+					};
+					match btn.player_idx {
+						0 => init.p1 = kind.clone(),
+						_ => init.p2 = kind.clone(),
+					}
+					for (label, mut text) in &mut label_query {
+						if label.0 == btn.player_idx {
+							**text = format_player_label(&kind, &ratings.0);
+						}
+					}
+					for entity in &search_modals {
+						commands.entity(entity).despawn();
+					}
 				}
 				*color = theme::btn::PRESSED.into();
 			}
@@ -570,6 +696,7 @@ fn search_system(
 	ratings: Res<Ratings>,
 	settings_modals: Query<Entity, With<SettingsModal>>,
 	nerd_font: Res<crate::NerdFont>,
+	noto_symbols: Res<crate::NotoSymbolsFont>,
 ) {
 	let Ok((modal_entity, mut state)) = modal_query.single_mut() else {
 		return;
@@ -590,24 +717,37 @@ fn search_system(
 		highlight_changed = true;
 	}
 
+	let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
 	if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter) {
+		use robot_master_arena::{algos::InnerKind, player::ManualPlayer as MP};
 		let hide = init.hide;
 		let player_idx = state.player_idx;
-		let kind: Option<PlayerKind> = if let Some((_, k)) = filtered.get(state.highlighted) {
-			Some(k.clone())
-		} else if !(query_str.is_empty() || hide && player_idx == 1) && player_idx != 2 {
-			// No matches - treat raw input as a manual player name.
-			// Not allowed for player 2 in hidden-hand mode, or for eval model slot (idx 2).
-			Some(PlayerKind {
-				inner: robot_master_arena::algos::InnerKind::ManualPlayer(robot_master_arena::player::ManualPlayer { name: query_str.clone() }),
-				sims: None,
-				constrain_sizes: None,
-				constrain_hide: None,
-			})
-		} else {
-			None
+		let make_manual = || PlayerKind {
+			inner: InnerKind::ManualPlayer(MP { name: query_str.clone() }),
+			sims: None,
+			constrain_sizes: None,
+			constrain_hide: None,
 		};
-		if let Some(kind) = kind {
+		// (kind, no_priors)
+		let resolution: Option<(PlayerKind, bool)> = if ctrl && !query_str.is_empty() && !(hide && player_idx == 1) {
+			// Ctrl+Enter always constructs from the typed query, ignoring any matches.
+			if player_idx == 2 {
+				query_str.parse::<PlayerKind>().ok().map(|k| (k, false))
+			} else {
+				Some((query_str.parse::<PlayerKind>().unwrap_or_else(|_| make_manual()), true))
+			}
+		} else if let Some((_, k)) = filtered.get(state.highlighted) {
+			Some((k.clone(), false))
+		} else if query_str.is_empty() || (hide && player_idx == 1) {
+			None
+		} else if player_idx == 2 {
+			// Eval slot: Enter → parse as spec
+			query_str.parse::<PlayerKind>().ok().map(|k| (k, false))
+		} else {
+			// Plain Enter → manual player
+			Some((make_manual(), false))
+		};
+		if let Some((kind, no_priors)) = resolution {
 			if player_idx == 2 {
 				init.eval_model = Some(kind);
 				commands.entity(modal_entity).despawn();
@@ -624,6 +764,9 @@ fn search_system(
 					if label.0 == player_idx {
 						**text = format_player_label(&kind, &ratings.0);
 					}
+				}
+				if no_priors {
+					init.no_priors = true;
 				}
 				commands.entity(modal_entity).despawn();
 			}
@@ -661,6 +804,37 @@ fn search_system(
 				},
 				children![(Text::new("no matches"), TextFont { font_size: 18.0, ..default() }, TextColor(theme::text::MUTED))],
 			));
+			if !query_str.is_empty() {
+				// Manual button only for player slots 0/1 (not eval)
+				if player_idx != 2 {
+					spawn_no_match_button(
+						list,
+						SearchNoMatchManualButton {
+							query: query_str.clone(),
+							player_idx,
+						},
+						"New manual player",
+						"\u{23ce}",
+						&noto_symbols.0,
+					);
+				}
+				// Temp algo button for all slots
+				let (algo_label, algo_shortcut) = if player_idx == 2 {
+					("Use as eval model", "\u{23ce}")
+				} else {
+					("New temp algo", "Ctrl+\u{23ce}")
+				};
+				spawn_no_match_button(
+					list,
+					NoPriorsSelectButton {
+						query: query_str.clone(),
+						player_idx,
+					},
+					algo_label,
+					algo_shortcut,
+					&noto_symbols.0,
+				);
+			}
 		}
 	});
 }
