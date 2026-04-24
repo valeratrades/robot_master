@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 use robot_master_arena::{BoardSize, config::ArenaConfig};
 use v_utils::macros as v_macros;
@@ -28,7 +30,7 @@ pub struct PlayerArgs {
 	pub hide: bool,
 	/// Directory containing .onnx model files
 	#[arg(long, default_value = "./models")]
-	pub models_dir: std::path::PathBuf,
+	pub models_dir: PathBuf,
 }
 #[derive(Clone, Debug, Parser)]
 pub struct TrainArgs {

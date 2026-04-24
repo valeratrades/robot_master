@@ -1,6 +1,7 @@
 use std::{
 	io::{self, BufRead, Write},
 	ops::ControlFlow,
+	path::{Path, PathBuf},
 	sync::Arc,
 };
 
@@ -18,7 +19,7 @@ use robot_master_core::{
 };
 use robot_master_train::player_kind::kind_into_bot;
 
-pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Arc<dyn RatingDb>, models_dir: std::path::PathBuf) {
+pub fn run(config: GameConfig, size: BoardSize, p1: PlayerKind, p2: PlayerKind, rating_db: Arc<dyn RatingDb>, models_dir: PathBuf) {
 	let stdout_handle = io::stdout();
 	let mut stdout = stdout_handle.lock();
 	let stdin_handle = io::stdin();
@@ -133,7 +134,7 @@ fn run_sized<const N: usize>(
 	stdout: &mut impl Write,
 	stdin: &mut impl BufRead,
 	rating_db: Arc<dyn RatingDb>,
-	models_dir: &std::path::Path,
+	models_dir: &Path,
 ) where
 	[(); N * N]:,
 	[(); N + 1]:, {

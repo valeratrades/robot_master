@@ -7,6 +7,8 @@ mod menu;
 mod result;
 mod theme;
 
+use std::path::PathBuf;
+
 use bevy::{asset::AssetMetaCheck, prelude::*};
 use robot_master_arena::{BoardSize, algos::PlayerKind};
 use robot_master_core::cards::CardValue;
@@ -27,14 +29,14 @@ pub struct InitialPlayers {
 	pub p2: PlayerKind,
 	pub size: BoardSize,
 	pub hide: bool,
-	pub models_dir: std::path::PathBuf,
+	pub models_dir: PathBuf,
 	pub eval_model: Option<PlayerKind>,
 	/// When true the match result is not committed to the ratings DB.
 	pub no_priors: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn create_app(asset_dir: &str, size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, sound: bool, models_dir: std::path::PathBuf) -> App {
+pub fn create_app(asset_dir: &str, size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, sound: bool, models_dir: PathBuf) -> App {
 	let mut app = App::default();
 	app.insert_resource(InitialPlayers {
 		p1,
@@ -73,7 +75,7 @@ pub fn create_app() -> App {
 		},
 		size: BoardSize::DEFAULT,
 		hide: false,
-		models_dir: std::path::PathBuf::default(),
+		models_dir: PathBuf::default(),
 		eval_model: None,
 		no_priors: false,
 	});

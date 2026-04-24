@@ -1,3 +1,4 @@
+#![feature(default_field_values)]
 pub mod app;
 
 #[cfg(feature = "hydrate")]
