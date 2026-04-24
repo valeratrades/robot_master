@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Mutex};
 
 use miette::Diagnostic;
 use thiserror::Error;
@@ -33,10 +33,10 @@ pub fn from_config(config: &ArenaConfig) -> Box<dyn RatingDb> {
 }
 /// In-memory database: ratings are saved and loaded from memory, never persisted to disk.
 /// Used by `arena tourney --no-priors` for ephemeral matchups.
-pub struct NoopRatingDb(std::sync::Mutex<HashMap<Ustr, Rating>>);
+pub struct NoopRatingDb(Mutex<HashMap<Ustr, Rating>>);
 impl Default for NoopRatingDb {
 	fn default() -> Self {
-		Self(std::sync::Mutex::new(HashMap::new()))
+		Self(Mutex::new(HashMap::new()))
 	}
 }
 #[derive(Debug, Diagnostic, Error, derive_new::new)]

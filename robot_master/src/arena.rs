@@ -1,5 +1,6 @@
 use std::{
 	io::{self, BufRead, Write},
+	path::{Path, PathBuf},
 	sync::Arc,
 };
 
@@ -21,16 +22,7 @@ use v_utils::io::ProgressBar;
 
 use crate::config::{ArenaCommands, PlayersCommands, TourneyMode};
 
-pub fn run(
-	players_filter: Vec<String>,
-	no_priors: Vec<String>,
-	models_dir: std::path::PathBuf,
-	command: ArenaCommands,
-	size: BoardSize,
-	hide: bool,
-	rating_db: Arc<dyn RatingDb>,
-	auto_yes: bool,
-) {
+pub fn run(players_filter: Vec<String>, no_priors: Vec<String>, models_dir: PathBuf, command: ArenaCommands, size: BoardSize, hide: bool, rating_db: Arc<dyn RatingDb>, auto_yes: bool) {
 	if !no_priors.is_empty() && !players_filter.is_empty() {
 		die(miette::miette!("--no-priors and --select are mutually exclusive"));
 	}
@@ -81,7 +73,7 @@ fn die(report: impl Into<miette::Report>) -> ! {
 	std::process::exit(1);
 }
 
-fn resolve_players(filter: &[String], models_dir: &std::path::Path, rating_db: &dyn RatingDb) -> Vec<PlayerKind> {
+fn resolve_players(filter: &[String], models_dir: &Path, rating_db: &dyn RatingDb) -> Vec<PlayerKind> {
 	let all_ids: Vec<Ustr> = {
 		let ratings = rating_db.load_ratings();
 		let mut ids: Vec<Ustr> = ratings.keys().copied().collect();
@@ -139,14 +131,14 @@ fn resolve_players(filter: &[String], models_dir: &std::path::Path, rating_db: &
 		.collect()
 }
 
-fn bot_from_kind<const N: usize>(kind: &PlayerKind, models_dir: &std::path::Path) -> Box<dyn Bot<N>>
+fn bot_from_kind<const N: usize>(kind: &PlayerKind, models_dir: &Path) -> Box<dyn Bot<N>>
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
 	kind_into_bot(kind, models_dir).unwrap_or_else(|e| die(miette::miette!("{e}")))
 }
 
-fn run_tournament_no_priors(specs: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, hide: bool, json: bool) {
+fn run_tournament_no_priors(specs: Vec<String>, models_dir: &Path, mode: TourneyMode, size: BoardSize, hide: bool, json: bool) {
 	let config = GameConfig { size: size.into(), hide };
 	let kinds: Vec<PlayerKind> = specs
 		.iter()
@@ -190,7 +182,7 @@ fn run_tournament_no_priors(specs: Vec<String>, models_dir: &std::path::Path, mo
 	}
 }
 
-fn run_tournament(players_filter: Vec<String>, models_dir: &std::path::Path, mode: TourneyMode, size: BoardSize, hide: bool, rating_db: Arc<dyn RatingDb>, json: bool) {
+fn run_tournament(players_filter: Vec<String>, models_dir: &Path, mode: TourneyMode, size: BoardSize, hide: bool, rating_db: Arc<dyn RatingDb>, json: bool) {
 	let config = GameConfig { size: size.into(), hide };
 	let mut kinds = resolve_players(&players_filter, models_dir, rating_db.as_ref());
 	kinds.retain(|k| {
@@ -239,7 +231,7 @@ fn run_tournament_sized<const N: usize>(
 	config: GameConfig,
 	mode: TourneyMode,
 	threads: usize,
-	models_dir: &std::path::Path,
+	models_dir: &Path,
 	rating_db: Arc<dyn RatingDb>,
 	json: bool,
 ) where
@@ -338,7 +330,7 @@ fn run_tournament_sized<const N: usize>(
 	rating_db.save_ratings(&final_ratings);
 }
 
-fn run_players(players_filter: Vec<String>, command: PlayersCommands, models_dir: &std::path::Path, rating_db: Arc<dyn RatingDb>, auto_yes: bool) {
+fn run_players(players_filter: Vec<String>, command: PlayersCommands, models_dir: &Path, rating_db: Arc<dyn RatingDb>, auto_yes: bool) {
 	let mut ratings = rating_db.load_ratings();
 
 	let matched: Vec<Ustr> = if players_filter.is_empty() {

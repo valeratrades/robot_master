@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 fn main() {
 	use robot_master_arena::{
 		BoardSize,
@@ -21,7 +22,7 @@ fn main() {
 			constrain_hide: None,
 		},
 		true,
-		std::path::PathBuf::default(),
+		PathBuf::default(),
 	)
 	.run();
 }

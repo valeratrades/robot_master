@@ -5,8 +5,7 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
     devenv.url = "github:cachix/devenv/v1.6.1";
     pre-commit-hooks.url = "github:cachix/git-hooks.nix";
-    v_flakes.url = "path:/home/v/s/v_flakes"; #dbg
-    #v_flakes.url = "github:valeratrades/v_flakes?ref=v1.6";
+    v_flakes.url = "github:valeratrades/v_flakes?ref=v1.6";
   };
 
   outputs = inputs@{ self, nixpkgs, rust-overlay, flake-parts, devenv, pre-commit-hooks, v_flakes }:
@@ -30,7 +29,7 @@
             targets = [ "wasm32-unknown-unknown" ];
           });
           pre-commit-check = pre-commit-hooks.lib.${system}.run (v_flakes.files.preCommit { inherit pkgs; });
-          manifest = (pkgs.lib.importTOML ./robot_master_site/Cargo.toml).package;
+          manifest = (pkgs.lib.importTOML ./robot_master/Cargo.toml).package;
           pname = manifest.name;
           stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv;
           python = pkgs.python312;

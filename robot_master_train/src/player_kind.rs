@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use robot_master_arena::{
 	algos::{InnerKind, PlayerKind, SearchKind},
 	player::{Bot, StateEval},
@@ -15,7 +17,7 @@ use crate::{
 /// Returns `Err` if an ONNX model fails to load.
 // Structurally impossible to move onto PlayerKind: this fn needs NnEval/VanillaMcts/GumbelMcts
 // from this crate, but PlayerKind lives in robot_master_arena which cannot depend on robot_master_train.
-pub fn kind_into_bot<const N: usize>(kind: &PlayerKind, models_dir: &std::path::Path) -> Result<Box<dyn Bot<N>>, String>
+pub fn kind_into_bot<const N: usize>(kind: &PlayerKind, models_dir: &Path) -> Result<Box<dyn Bot<N>>, String>
 where
 	[(); N * N]:,
 	[(); N + 1]:, {
@@ -62,7 +64,7 @@ where
 }
 
 /// Load an ONNX model as a `StateEval<N>`. `kind` must be an `OnnxPlayer`.
-pub fn kind_into_eval<const N: usize>(kind: &PlayerKind, models_dir: &std::path::Path) -> Result<Box<dyn StateEval<N>>, String>
+pub fn kind_into_eval<const N: usize>(kind: &PlayerKind, models_dir: &Path) -> Result<Box<dyn StateEval<N>>, String>
 where
 	[(); N * N]:,
 	[(); N + 1]:, {

@@ -1,4 +1,4 @@
-use std::ops::ControlFlow;
+use std::{ops::ControlFlow, path::Path};
 
 use bevy::{ecs::message::MessageReader, prelude::*};
 use robot_master_arena::{
@@ -97,7 +97,7 @@ struct Warning {
 pub(crate) struct EvalHistory(pub Vec<f32>);
 
 /// Helper: create a `Box<dyn DynMatch>` for the given board size.
-fn make_match(size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, models_dir: &std::path::Path, eval_kind: Option<&PlayerKind>) -> Box<dyn DynMatch + Send + Sync> {
+fn make_match(size: BoardSize, hide: bool, p1: PlayerKind, p2: PlayerKind, models_dir: &Path, eval_kind: Option<&PlayerKind>) -> Box<dyn DynMatch + Send + Sync> {
 	let mut rng: rand::rngs::SmallRng = rand::make_rng();
 	let config = GameConfig { size: size.into(), hide };
 	let p1_id = p1.id();
