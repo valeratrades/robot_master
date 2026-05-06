@@ -53,13 +53,6 @@
           };
           py = v_flakes.py {
             inherit pkgs;
-            ruff.exclude.augment = [
-              "py_src/partie_guidee/a_test.py"
-              "py_src/partie_guidee/b_test.py"
-              "py_src/partie_guidee/c_test.py"
-              "py_src/partie_guidee/d_test.py"
-              "py_src/partie_guidee/e_test.py"
-            ];
           };
           github = v_flakes.github {
             inherit pkgs pname rs py;
@@ -117,43 +110,10 @@
                 '';
               };
 
-              core = python.pkgs.buildPythonPackage {
-                pname = "robot_master";
-                version = "0.1.0";
-                format = "pyproject";
-
-                src = pkgs.lib.cleanSource ./.;
-
-                cargoDeps = rustPlatform.importCargoLock {
-                  lockFile = ./Cargo.lock;
-                };
-
-                dependencies = [
-                  python.pkgs.typeguard
-                  python.pkgs.icecream
-                ];
-
-                nativeBuildInputs = [
-                  rustPlatform.cargoSetupHook
-                  rustPlatform.maturinBuildHook
-                  rust
-                  pkgs.maturin
-                  pkgs.mold
-                ];
-
-                maturinBuildFlags = [ "-m" "robot_master/Cargo.toml" "--features" "python" ];
-
-                # .cargo/config.toml has nightly-only -Z flags; use our nightly toolchain.
-                RUSTC = "${rust}/bin/rustc";
-                CARGO = "${rust}/bin/cargo";
-              };
             in
             {
-              inherit core site;
-              default = pkgs.symlinkJoin {
-                name = "robot-master";
-                paths = [ site core ];
-              };
+              inherit site;
+              default = site;
             };
 
           devenv.shells.default = {
@@ -167,10 +127,7 @@
             };
 
             scripts = {
-              run.exec = ''python -m py_src "$@"'';
-              maturin_build.exec = "maturin develop --features python -m robot_master/Cargo.toml";
-              uv_sync.exec = "maturin_build && uv sync --prerelease=allow --no-install-project --inexact --dev --group train";
-              pytest.exec = "maturin_build && pytest \"$@\"";
+              uv_sync.exec = "uv sync --prerelease=allow --inexact --dev --group train";
             };
 
             packages = [
@@ -178,7 +135,6 @@
               pkgs.openssl
               pkgs.pkg-config
               rust
-              pkgs.maturin
               pkgs.simple-http-server
               pkgs.cargo-leptos
               pkgs.fzf
@@ -206,9 +162,6 @@
                 cp -f ${pkgs.noto-fonts}/share/fonts/noto/NotoSansSymbols2-Regular.otf \
                   robot_master_game/assets/fonts/NotoSansSymbols2-Regular.otf
 
-                if ! python -c "import robot_master" 2>/dev/null; then
-                  echo "⚠ robot_master not built — run: maturin build"
-                fi
               '';
           };
         };

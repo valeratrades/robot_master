@@ -3,14 +3,6 @@ name = "robot_master"
 edition = "2024"
 version = "0.1.0"
 
-[lib]
-name = "robot_master"
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = []
-python = ["dep:pyo3", "robot_master_core/python"]
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 clap.workspace = true
 
@@ -18,7 +10,6 @@ clap.workspace = true
 derive-new.workspace = true
 indicatif.workspace = true
 miette.workspace = true
-pyo3 = { workspace = true, optional = true }
 rand.workspace = true
 regex.workspace = true
 robot_master_arena.workspace = true

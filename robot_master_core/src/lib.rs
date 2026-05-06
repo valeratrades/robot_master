@@ -6,6 +6,3 @@ pub mod board;
 pub mod cards;
 pub mod game;
 pub mod scoring;
-
-#[cfg(feature = "python")]
-pub mod python;
