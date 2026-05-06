@@ -1,14 +1,12 @@
 # AI Research: Robot Master
 
-Robot Master is a perfect-information, zero-sum, combinatorial game on an NxN board (5-11). 24 moves per game at 5x5, average branching factor ~25. State space ~10^15 at 5x5, growing dramatically with board size.
-
-Two parallel tracks: **Track A** is the proven approach to crush this game fast. **Track B** is a Transformer-based approach optimized for learning transferable ML skills (scales to larger boards, generalizes to other domains like finance).
+Two open tracks: **Stockfish-style improvements** on the existing transformer, and **hidden-hands variant** which is playable but untrained and unoptimized.
 
 ---
 
-## State Representation (Input Planes)
+## State Representation
 
-Like AlphaGo's 19x19 input planes, but NxN:
+~33 input planes on an NxN grid (already implemented in `encoding.rs`):
 
 | Planes | Content |
 |--------|---------|
@@ -19,308 +17,121 @@ Like AlphaGo's 19x19 input planes, but NxN:
 | 12 | Opponent's hand (same encoding) |
 | 1 | Current player indicator |
 
-~33 input planes on an NxN grid.
-
-### Why This Works for Robot Master
-
-| Property | Go | Robot Master (5x5) | Robot Master (11x11) |
-|----------|-----|-------------|-------------|
-| Board | 19x19 | 5x5 | 11x11 |
-| Branching factor | ~250 | ~25 avg | ~100+ avg |
-| Game length | ~200 | 24 | 120 |
-| State space | ~10^170 | ~10^15 | ~10^70+ |
-
-The scoring function is highly nonlinear (1 copy = face value, 2 copies = 10x, 3+ = 100 flat). Random MCTS rollouts won't discover these interactions - that's exactly why a learned value function guiding search dominates here.
-
-The min-across-lines objective creates a "weakest link" dynamic: shore up your worst line while attacking the opponent's worst. The neural net needs to learn this balance, similar to territorial balance in Go.
-
 ---
 
-## Track A: AlphaZero (Crush the Game)
+## Transformer Model
 
-The standard, proven approach. Small ResNet + MCTS + self-play. Goal: strongest possible play, fastest convergence.
+Encoder-only transformer, each board cell = 1 token. Already implemented in `py_src/model_transformer.py`.
 
-### Network Architecture
+| Property | Value |
+|----------|-------|
+| Tokens | N² (25 at 5x5, 121 at 11x11) |
+| Embedding dim | 256 |
+| Attention heads | 8 |
+| Encoder layers | 4-6 |
+| Policy head | per-token logits × card values = N² × 6 |
+| Value head | CLS token → MLP → scalar [-1, 1] |
 
-Small ResNet (5 residual blocks, 64 filters - board is only 5x5 to start):
-
-- **Policy head**: probability over all (card, position) pairs - 6 x N² logits
-- **Value head**: scalar in [-1, 1], win probability
-
-### Algorithm: Gumbel AlphaZero
-
-Use Gumbel AlphaZero over vanilla AlphaZero. Key advantage: works reliably with as few as 8-16 MCTS simulations per move during training (vanilla needs 400-800). Massively faster self-play.
-
-Reference: [Policy Improvement by Planning with Gumbel](https://openreview.net/forum?id=bERaNdoegnO)
-
-### Training Cycle
-
-```
-┌─────────────────────────────────────────────┐
-│              ITERATION CYCLE                 │
-│                                              │
-│  1. Self-Play Generation (Rust)              │
-│     ├─ Latest network plays itself           │
-│     ├─ MCTS, 16-64 sims/move                │
-│     ├─ Temperature τ=1 early, τ→0 late       │
-│     └─ Write (state, π, z) to disk           │
-│         π = MCTS visit counts (policy target)│
-│         z = game outcome (+1/-1)             │
-│                                              │
-│  2. Training (Python/PyTorch)                │
-│     ├─ Read game data from disk              │
-│     ├─ Sample minibatches from replay buffer │
-│     ├─ Loss = L_value(v, z) + L_policy(p, π) │
-│     │        + c*‖θ‖²                        │
-│     ├─ SGD with momentum, ~1000 steps        │
-│     └─ Export model.onnx                     │
-│                                              │
-│  3. Repeat (~50-100 iterations)              │
-└─────────────────────────────────────────────┘
-```
-
-Note: AlphaGo Zero had a separate evaluation step (new net vs current best, 400 games, promote only if win rate > 55%). AlphaZero dropped this entirely - the latest checkpoint is always used for the next self-play iteration. This was found to make no difference in practice and halves iteration overhead. We follow AlphaZero.
-
-Expected training: 4-12 hours on a single modern GPU (RTX 3080/4080) for 5x5.
-
-### Ideas to Steal
-
-**From Stockfish NNUE:**
-1. **Incremental evaluation** - board changes by one card per move, update accumulator instead of re-evaluating
-2. **Quantized inference** - int8/int16 for fast WASM deployment in the Bevy game
-
-**From AlphaGo/AlphaZero:**
-- [ ] **Virtual loss in parallel MCTS** - prevents threads from exploring same path
-- [x] **Symmetry augmentation** - 90° rotation + player swap is equivalent, multiplies training data
-
----
-
-## Post-Training NNUE Optimizations (Phase 5 detail)
-
-Once the AlphaZero eval head is trained and working, the following optimizations replicate the Stockfish NNUE stack. Priority-ordered.
-
-### 1. Flat Feature Representation + Incremental Accumulator (highest ROI)
-
-**The core NNUE insight:** The first linear layer is a sum of active feature columns. When a move changes O(1) features, you add/subtract those columns instead of recomputing the full matrix-vector multiply. 10-15x faster than full recomputation.
-
-**What changes:**
-- Ditch the CNN. Replace with a flat feature set: `(cell_square, card_value, occupancy)` - same information, different encoding. ~150 active features out of a ~2000-dim feature space (<0.1% sparse).
-- First layer is a `[features × hidden_dim]` weight matrix. Accumulator = sum of active feature columns + bias.
-- Maintain an accumulator stack as the search tree descends. On make/unmake move: add columns for new features, subtract columns for removed features. Full recompute only on "dirty" ancestors.
-- Separate accumulators for each player's perspective (white/black equivalent = rows player/cols player). Already done via board transpose in `encoding.rs` - same principle, now needs to live in the accumulator.
-
-**Prerequisite:** This requires redesigning the network architecture away from CNN. The current SE-ResNet cannot be incrementally updated because conv layers are spatially entangled. Same game information, different representation.
-
-### 2. Game-Phase Bucketing (HalfKP analogue)
-
-In chess, features are indexed as `(king_square, piece_square, piece_type)` - all piece values are relative to your king position. There's no king here, but the natural analogues:
-
-- **Turn-number buckets:** Divide the game into 4-8 phase buckets by `turn / total_turns`. The network weights can differ per bucket - early game (spread out) vs late game (shore up your worst line) need different evaluation logic.
-- **Line-state bucketing:** Features indexed by `(scoring_line_id, cell_position, card_value)` so the network explicitly represents "this card matters because it's on line X which is my current minimum." Analogous to king-relative piece values.
-- **Threat features (SFNNv10 analogue):** Add explicit `(line_id, current_minimum_card, cards_remaining_in_line)` as input features - the state of each scoring line directly in the input, not inferred through conv layers.
-
-### 3. INT8/INT16 Quantization
-
-**Feature transformer:** Store weights as int16 (scaled by 127). Accumulator in int16. With ~150 active features × max weight ~127, accumulator stays in int16 range.
-
-**Dense hidden layers:** After ClippedReLU (clamp to [0, 127]), all subsequent layers use int8 × int8 → int32 SIMD. AVX2 processes 32 int8 multiplications per instruction. This is 4-8x faster than float32 on CPU.
-
-**In practice:** ONNX Runtime already supports post-train INT8 quantization via the `quantize_dynamic` / `quantize_static` APIs - try this first before rolling custom SIMD. If you go full custom NNUE in Rust, use `std::arch` AVX2 intrinsics.
-
-### 4. Dual Network (Big + Small)
-
-Train two networks: a full-quality network and a tiny MLP (or even hand-crafted classical eval). Use a cheap `simple_eval()` first:
-- If `simple_eval()` is beyond a threshold (clearly decided - one player has locked in a dominant line), skip the full network.
-- Otherwise, run the full network.
-
-The "clearly decided" signal for Robot Master is easy to compute in O(N): if a player's current minimum line score is already above the opponent's best achievable total, the game is won. No NN needed.
-
-This is SF's `use_smallnet()` / lazy evaluation strategy. Direct analogue.
-
-### 5. Alpha-Beta + Classical Pruning (Architecture Switch)
-
-The biggest architectural question. Switching from Gumbel MCTS to iterative-deepening alpha-beta gives:
-
-- **LMR (Late Move Reductions):** Moves sorted later in the ordered list get searched at reduced depth. Only "interesting" moves (plays that improve your minimum line, block opponent's minimum) get full depth.
-- **Null move pruning:** Pass a turn, do a reduced-depth search. If still above beta, prune. Applicable since tempo has real value.
-- **Aspiration windows:** Start with a narrow window around the previous iteration's score. Converges fast when your evaluator is stable.
-- **Singular extensions:** If one move is clearly best at reduced depth, extend it - searches the critical line deeper.
-- **ProbCut:** Shallow search with a loose bound prunes clearly dominated lines.
-
-**Trade-off:** Gumbel MCTS already gives policy improvement guarantees and is GPU-batchable. Alpha-beta is better when eval quality is high and you want maximum tactical depth on a CPU. With Robot Master's branching factor (~25 avg at 5x5), alpha-beta at depth 8-10 is very practical.
-
-NNUE synergy: every pruning decision (null move, LMR, ProbCut) relies on the accuracy of the shallow eval. NNUE's accurate leaf evaluations make all of these pruning techniques safer and more aggressive.
-
-### 6. WDL Heads + Score Calibration
-
-Instead of a single value in `[-1, 1]`, output `(win, draw, loss)` probabilities separately. Calibrate so +100 eval units = 50% win probability in self-play games. This is what Stockfish and LC0 both do now.
-
-**Why:** Better-calibrated uncertainty estimates. Aspiration windows can be set in expected-value terms. The draw probability matters - Robot Master has draws, and the network should explicitly model them rather than collapsing to a signed scalar.
-
-### Summary Table
-
-| Optimization | Effort | Speedup/Benefit | Prerequisite |
-|---|---|---|---|
-| Flat features + incremental accumulator | High | 10-15x eval speed | Ditch CNN |
-| Game-phase bucketing | Medium | Better eval quality | Flat features |
-| INT8 quantization | Low (ONNX API) | 4-8x CPU throughput | None |
-| Dual network / lazy eval | Medium | 2-3x avg speed | Working NN |
-| Alpha-beta + pruning | High | Exponential depth gain | Good eval |
-| WDL heads | Low | Better calibration | None |
-
----
-
-## Track B: Transformers (Learn ML, Scale Up)
-
-Goal: learn modern ML practices that transfer beyond board games. Transformers are the architecture that matters - vision, language, time series, finance all converge on attention.
-
-### Why Transformers Here
-
-- **Variable board sizes**: a single model handles 5x5 through 11x11 (ResNet needs retraining per size)
-- **Global attention**: at 9x9+, CNN receptive fields struggle with whole-board patterns. Transformers see everything
-- **Transferable skills**: attention mechanisms, positional encodings, training dynamics - all transfer to sequence modeling (stocks, time series)
-- **Research frontier**: AlphaViT (2024), ResTNet (IJCAI 2025), Chessformer (2024) show transformers matching or beating CNNs for game playing
-
-### Architecture
-
-Encoder-only transformer, each board cell = 1 token:
-
-- **Input**: N² tokens, each embedding card value + position + hand context
-- **Positional encoding**: 2D geometric attention bias (row/col structure matters for scoring)
-- **Body**: 4-6 encoder layers, 256 embedding dim, 8 attention heads
-- **Policy head**: per-token logits × card values = N² × 6 output
-- **Value head**: CLS token or mean-pool → MLP → scalar [-1, 1]
-
-At 5x5: 25 tokens - attention is trivially cheap.
-At 11x11: 121 tokens - still tiny by transformer standards (GPT handles 128K).
-
-### Key Papers to Study
+Key design: 2D geometric attention bias (Chessformer) encodes row/col structure relevant for line-based scoring.
 
 | Paper | Year | Key Insight |
 |-------|------|-------------|
-| [AlphaViT](https://arxiv.org/abs/2408.13871) | 2024 | ViT replaces ResNet in AlphaZero; handles variable board sizes with single model |
-| [ResTNet](https://arxiv.org/html/2410.05347v2) | 2025 | CNN+Transformer hybrid; attention learns game concepts (alive stones, territory) |
-| [Chessformer](https://arxiv.org/html/2409.12272v2) | 2024 | 6M-param transformer matches 270M-param CNN for value estimation |
-| [Gumbel MuZero](https://openreview.net/forum?id=bERaNdoegnO) | 2022 | Planning with 2-16 sims instead of 800; works with any network arch |
-
-### What to Learn (in order)
-
-1. **Attention mechanism from scratch** - Karpathy's "Let's build GPT" gets you 80% of the way
-2. **Vision Transformer (ViT)** - how to tokenize a 2D grid, positional embeddings for spatial data
-3. **AlphaZero training loop** - MCTS + self-play + policy/value loss (same for both tracks)
-4. **Geometric attention bias** - Chessformer's key insight for board games
-5. **Training dynamics** - learning rate scheduling, gradient clipping, batch normalization vs layer normalization (transformers use LayerNorm)
+| [AlphaViT](https://arxiv.org/abs/2408.13871) | 2024 | ViT replaces ResNet in AlphaZero; single model handles variable board sizes |
+| [ResTNet](https://arxiv.org/html/2410.05347v2) | 2025 | Attention learns game concepts (alive groups, territory) not captured by conv |
+| [Chessformer](https://arxiv.org/html/2409.12272v2) | 2024 | 6M-param transformer matches 270M-param CNN; geometric attention bias |
+| [Gumbel MuZero](https://openreview.net/forum?id=bERaNdoegnO) | 2022 | Planning with 2-16 sims instead of 800 |
 
 ---
 
-## System Architecture
+## Stockfish-Style Improvements
 
-Both tracks share the same Rust ↔ Python split. No FFI, no bindings - filesystem is the interface.
+### 1. Alpha-Beta + Classical Pruning
 
-```
-robot_master_train/            (Rust crate)
-├── src/
-│   ├── mcts.rs                MCTS tree search + Evaluator trait
-│   ├── selfplay.rs            game generation loop
-│   ├── nn.rs                  ONNX Runtime inference wrapper
-│   ├── encoding.rs            GameState → tensor, training data serialization
-│   └── eval.rs                network-vs-network evaluation
-├── src/bin/
-│   ├── selfplay.rs            CLI: generate N games, write to disk
-│   └── evaluate.rs            CLI: new model vs current best
-└── Cargo.toml
+Switch from Gumbel MCTS to iterative-deepening alpha-beta, using the transformer as an eval function. Relevant pruning at ~25 avg branching factor (5x5):
 
-training/                      (Python, NOT a Rust crate)
-├── model_resnet.py            Track A: small ResNet
-├── model_transformer.py       Track B: encoder-only transformer
-├── train.py                   training loop (shared between tracks)
-├── export_onnx.py             PyTorch → ONNX conversion
-└── requirements.txt
-```
+- **LMR (Late Move Reductions)**: moves sorted later get reduced-depth search. "Interesting" moves = plays improving your minimum line or blocking opponent's minimum.
+- **Null move pruning**: skip a turn, reduced-depth search, prune if still above beta.
+- **Aspiration windows**: start narrow around previous iteration's score.
+- **Singular extensions**: one clearly-best move at reduced depth → extend it.
+- **ProbCut**: shallow search with loose bound prunes clearly dominated lines.
 
-**Data flow:**
-```
-Rust selfplay  ──writes──>  training_data/*.bin
-Python train   ──reads───>  training_data/*.bin
-Python train   ──writes──>  models/model_v{N}.onnx
-Rust selfplay  ──reads───>  models/model_v{N}.onnx  (via ort crate)
-Rust evaluate  ──reads───>  models/model_v{N}.onnx
-```
+NNUE synergy holds: every pruning decision relies on eval quality. The transformer's accurate leaf evaluations make all pruning techniques safer.
 
-**Rust-side inference**: `ort` crate (ONNX Runtime bindings). Supports CUDA/TensorRT for GPU inference during self-play. No libtorch dependency.
+Trade-off: Gumbel MCTS is GPU-batchable and gives policy improvement guarantees. Alpha-beta is better when eval quality is high and you want maximum tactical depth on CPU. At depth 8-10 with ~25 branching factor this is very practical.
 
-**Why not all-Rust training?** PyTorch's autograd, optimizers, LR schedulers, and debugging tools (tensorboard, wandb) are battle-tested. Reimplementing in Rust (via tch-rs/burn/candle) is pain for zero gain during training. Rust handles the hot path: self-play + inference.
+### 2. WDL Heads + Score Calibration
+
+Output `(win, draw, loss)` probabilities instead of scalar `[-1, 1]`. Calibrate so +100 eval units = 50% win probability.
+
+**Why**: Robot Master has draws. Explicit `draw` probability lets the network model "this position is drawn with high confidence" vs "this position is unclear" — collapsing to a signed scalar loses this. Also enables better-calibrated aspiration windows.
+
+This is what Stockfish and LC0 both do. Low implementation cost, high signal quality gain.
+
+### 3. Dual Network / Lazy Eval
+
+Train a tiny fast evaluator alongside the transformer. Use it first:
+- If the fast eval score is beyond a threshold (one player's current minimum line score is already above the opponent's best achievable total), skip the transformer.
+- Otherwise run the transformer.
+
+The "clearly decided" signal is O(N) to compute directly from game state. No NN needed for terminal-ish positions. This is SF's `use_smallnet()` / lazy evaluation. Direct analogue.
+
+### 4. INT8 Quantization
+
+ONNX Runtime supports post-train INT8 quantization via `quantize_dynamic` / `quantize_static`. Try this first before any custom work.
+
+**For WASM deployment**: small transformer with int8 quantization via ONNX Runtime Web. Transformers at 5x5 (25 tokens, 256 dim) are tiny — int8 gets real-time inference in the browser.
 
 ---
 
-## Roadmap
+## Hidden-Hands Variant
 
-### Phase 1 - Fast Game Engine ✅
-- Board state, move generation, scoring - done
-- `robot_master_core` + `robot_master_arena` crates
+Already supported at the engine level (`--hide` flag, `GameConfig::hide`), self-play training supports it (`--hide` in the train CLI). What's missing: a model actually trained for it, and any search/network optimisation that accounts for imperfect information.
 
-### Phase 2 - MCTS Foundation
-- Pure MCTS with greedy rollouts as baseline (no neural net)
-- Implement in `robot_master_train` crate
-- Will already beat Greedy and Sadist
-- Establishes search framework and benchmarking
+### The Problem
 
-### Phase 3 - Track A: AlphaZero
+In visible-hand mode the full state is known → perfect information → standard MCTS/AlphaZero applies cleanly. In hidden-hands mode each player sees only their own hand and the board → imperfect information → the opponent's hand is a hidden variable. Naive MCTS is not principled here.
 
-#### Done ✅
-- `training/model_resnet.py` - SE-ResNet (5 blocks, 64 filters, ~407K params), dual heads (policy + value), `encode_state`
-- `training/export_onnx.py` - ONNX export with roundtrip validation
-- `training/train.py` - training loop (SGD + cosine LR, TensorBoard logging, checkpointing)
-- `robot_master_train/src/encoding.rs` - `encode_planes` (GameState → 33 CHW planes), `encode_sample` (→ binary)
-- `robot_master_train/src/selfplay.rs` - `play_game` (MCTS self-play, records visit-count policy targets + retroactive value)
-- `robot_master_train/src/bin/selfplay.rs` - CLI binary, rayon-parallel, writes `.bin` files
+### Approach 1: ISMCTS (simplest baseline)
 
-#### Phase 3a - Data quality (do before real training) ⬅ NEXT
-1. **Temperature sampling in `play_game`** - currently picks most-visited move deterministically.
-   AlphaZero uses τ=1 (sample ∝ visit counts) for first ~10 moves, τ→0 after.
-   Adds diversity, prevents game collapse to a single line.
-2. **Dirichlet noise at root** - add `α*Dir(0.3) + (1-α)*prior` at root during self-play.
-   Prevents MCTS from always exploring the same moves. `α≈0.3`, noise weight `ε≈0.25`.
+**Information Set MCTS** (Cowling, Powley, Whitehouse, 2012): at each node, sample a determinization (a concrete opponent hand consistent with observations), run MCTS on that perfect-information instance, aggregate statistics across samples. Cheap to implement on top of existing MCTS infrastructure.
 
-#### Phase 3b - NN inference in Rust
-3. **`NnEval`** - implement `Evaluator<N>` backed by ONNX Runtime (`ort` crate).
-   Until this exists, selfplay uses `RolloutEval` (random rollouts), which produces garbage policy targets.
+Weakness: determinization can be misleading (optimal play under one sampled hand can be terrible under another). Works well in practice for moderate hidden-variable games, but is not theoretically sound.
 
-#### Phase 3c - Full training cycle ✅
-4. ~~**`bin/evaluate.rs`**~~ - dropped, following AlphaZero (see note above). `bin/evaluate.rs` kept as a diagnostic tool for arena comparisons but not part of the training loop.
-5. **Replay buffer management** - `train.py` currently reads all `.bin` files. Cap to last K iterations to prevent forgetting (K≈20 typically).
-6. **Iteration script** - `scripts/train_cnn.rs`: loops selfplay → train → export, always promotes latest checkpoint.
+### Approach 2: Belief-Augmented Network
 
-#### Long-term notes
-- Gumbel AlphaZero replaces standard MCTS for training - works with 8-16 sims instead of 400. Implement after baseline works.
-- Target: demolish all heuristic bots on 5x5
+Augment the transformer input: instead of the 12 "opponent's hand" planes (which are now hidden), substitute a **belief distribution** — a probability vector over possible opponent hands given the cards seen so far. The network learns to play well against uncertainty rather than against a known opponent.
 
-[^1] Gumbel takes knowledge of improvement values in this cycle, then explores the lines with the best ones repeatedly: rolls out ones it has, gets scores, cuts out bottom half, repeats. Basically, select the most promising point, then purposefully penetrate it; instead of sampling around the boundary.
-I think this works cause we're more likely to discover good *lines* this way. But we have too much variance on next rollout on the first move we make in this direction. So here we just pre-compile commitment (think fuel in matklad's lexer).
+Training: during self-play with `--hide`, the data generator only encodes what the current player can observe. The training objective is unchanged (minimize policy/value loss), but the network must learn to reason over belief states.
 
-### Phase 4 - Track B: Transformer
-- Encoder-only transformer in PyTorch (`training/model_transformer.py`)
-- Same MCTS + self-play infrastructure (swap the model, everything else identical)
-- Train on 5x5 first, then scale to 7x7, 9x9, 11x11 without retraining from scratch
-- Compare Elo curves: ResNet vs Transformer at each board size
+This is the standard approach in research (see ReBeL, Student of Games).
 
-### Phase 5 - Deployment
-- Distill best model into efficient architecture for real-time play
-- NNUE-style quantized eval for WASM (Bevy game)
-- Or: small transformer with int8 quantization via ONNX Runtime Web
+### Approach 3: CFR-Based Search
 
-### Phase 6 - Hidden Hands Variant
-- Extend engine to support imperfect information
-- ISMCTS or belief-augmented search
-- Compare open vs hidden Elo curves
+For a more principled treatment: **Counterfactual Regret Minimization** applied to the game tree. Relevant for finding Nash-approximate strategies rather than just strong heuristic play.
+
+Key papers:
+
+| Paper | Authors | Key Insight |
+|-------|---------|-------------|
+| [Student of Games](https://www.science.org/doi/10.1126/sciadv.adg3256) | Schmid et al. (2023) | Unified algorithm combining AlphaZero (perfect info) with PIMC+CFR (imperfect info); single framework handles both |
+| [ReBeL](https://arxiv.org/abs/2007.13544) | Brown et al. (2020) | Recursive belief-space RL+search; subgame solving in public belief states; beats poker pros |
+| ISMCTS | Cowling et al. (2012) | Determinization-based MCTS for imperfect info; practical baseline |
+
+Martin Schmid's work (DeepMind, now elsewhere) is the most directly relevant: Student of Games is specifically designed for the class of games where you might want to train a single agent that handles both perfect and imperfect information variants. That's exactly our situation.
+
+### What to Try First
+
+1. Train a hidden-hands transformer with `--hide` using the existing self-play infrastructure (no algorithmic changes, just a model checkpoint trained on hidden-hand games). Establishes a baseline.
+2. Measure the Elo gap between visible-hand and hidden-hand trained models on hidden-hand games.
+3. Add belief-state encoding to the transformer input (replace hidden opponent hand planes with a belief distribution derived from deck knowledge).
+4. If principled Nash-convergent play matters: implement ISMCTS first (cheap), then consider ReBeL-style subgame solving as a research project.
 
 ---
 
 ## Reference Implementations
 
-| Project | Language | What to learn from it |
-|---------|----------|----------------------|
+| Project | Language | What to learn |
+|---------|----------|---------------|
 | [kZero](https://github.com/KarelPeeters/kZero) | Rust+Python | Exactly our architecture: Rust self-play, Python training, ONNX bridge |
-| [alpha-zero-general](https://github.com/suragnair/alpha-zero-general) | Python | Simple reference for understanding the training loop |
-| [MiniZero](https://arxiv.org/abs/2310.11305) | C++/Python | Gumbel AlphaZero/MuZero reference implementation |
-| [michaelnny/alpha_zero](https://github.com/michaelnny/alpha_zero) | Python | Clean PyTorch AlphaZero for Go/Gomoku |
+| [MiniZero](https://arxiv.org/abs/2310.11305) | C++/Python | Gumbel AlphaZero/MuZero reference |
+| [OpenSpiel](https://github.com/google-deepmind/open_spiel) | C++/Python | CFR variants, ISMCTS, imperfect info baselines; Schmid et al. code often lands here |

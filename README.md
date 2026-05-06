@@ -1,4 +1,4 @@
-# robot_master <img width="25%" src="https://www.jeuxdenim.be/images/jeux/RobotMaster_large01.jpg" alt="Robot Master">
+# robot_master
 ![Minimum Supported Rust Version](https://img.shields.io/badge/nightly-1.92+-ab6000.svg)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/robot_master.svg?color=fc8d62&logo=rust" height="20" style=flat-square>](https://crates.io/crates/robot_master)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs&style=flat-square" height="20">](https://docs.rs/robot_master)
@@ -8,12 +8,6 @@
 [<img alt="ci warnings" src="https://img.shields.io/github/actions/workflow/status/valeratrades/robot_master/warnings.yml?branch=master&style=for-the-badge&style=flat-square&label=warnings&labelColor=d16002" height="20">](https://github.com/valeratrades/robot_master/actions?query=branch%3Amaster) <!--NB: Won't find it if repo is private-->
 
 multi-player implementation of robot_master // in rust, because of course it is
-
-
-### Reqs and `py_src/`
-provisioned pdf with requirements: ./docs/.readme_assets/assets/Sujet-RobotMaster-version-04-02.pdf
-
-rough arch outline, functionality of each function, tests, desired behavior, - can be found in this pdf file
 
 ## Rules
 1v1 on a 5x5 grid. Cards are numbered 0-5, with 6 copies each (36 total). Each player gets 12; a 25th card is placed at the center of the board.
@@ -41,10 +35,9 @@ nix develop
 ```
 This sets up Rust nightly, Python 3.12, maturin, cargo-leptos, native libraries (Vulkan, Wayland, X11, ALSA), and a Python virtualenv with all dependencies.
 
-Then build the Rust binary and Python bindings:
+Then build the Rust binary:
 ```sh
 cargo b -p robot_master
-maturin develop --features python
 ```
 or simply
 ```sh
@@ -64,7 +57,6 @@ NB: not actually tested, - you're on your own here
 - Rust nightly (1.92+)
 - Python >= 3.12
 - System libraries: `alsa-lib`, `udev`, `vulkan-loader`, `libxkbcommon`, `wayland` (+ X11 libs if on X11)
-- [`maturin`](https://github.com/PyO3/maturin) (`pip install maturin`)
 - [`fzf`](https://github.com/junegunn/fzf) (optional, for player name selection in TUI)
 
 ##### Steps
@@ -72,15 +64,8 @@ NB: not actually tested, - you're on your own here
 # build the main binary
 cargo b -p robot_master
 
-# install python dependencies (core)
-pip install typeguard icecream
-# (dev: pip install pytest ruff inline-snapshot)
-
 # training dependencies (torch, onnx, tensorboard)
 pip install torch numpy onnx onnxruntime tensorboard
-
-# build python bindings (required for `python -m py_src` to work)
-maturin develop --features python
 ```
 
 </details>

@@ -58,8 +58,8 @@ pub fn run(arch: TrainArch) {
 
 	let selfplay_bin = repo_root.join("target/release/selfplay");
 	let robot_master_bin = repo_root.join("target/release/robot_master");
-	let train_py = repo_root.join("training/train.py");
-	let export_py = repo_root.join("training/export_onnx.py");
+	let train_py = repo_root.join("py_src/train.py");
+	let export_py = repo_root.join("py_src/export_onnx.py");
 
 	// Find the highest existing model version to resume from
 	let mut version = latest_model_version(&models_out);

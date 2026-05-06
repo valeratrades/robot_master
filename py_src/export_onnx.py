@@ -1,8 +1,8 @@
 """Export a trained PyTorch model to ONNX for Rust-side inference via `ort`.
 
 Usage:
-    python training/export_onnx.py --checkpoint models/checkpoint.pt --output models/model.onnx
-    python training/export_onnx.py --checkpoint models/checkpoint.pt  # default output: same dir, .onnx ext
+    python py_src/export_onnx.py --checkpoint models/checkpoint.pt --output models/model.onnx
+    python py_src/export_onnx.py --checkpoint models/checkpoint.pt  # default output: same dir, .onnx ext
 """
 
 import argparse

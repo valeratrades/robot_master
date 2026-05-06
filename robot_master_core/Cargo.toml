@@ -3,19 +3,10 @@ name = "robot_master_core"
 edition = "2024"
 version = "0.1.0"
 
-[lib]
-name = "robot_master_core"
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = []
-python = ["dep:pyo3"]
-
 [dependencies]
 board-game.workspace = true
 derive_more.workspace = true
 internal-iterator.workspace = true
-pyo3 = { workspace = true, optional = true }
 rand.workspace = true
 secrecy.workspace = true
 thiserror.workspace = true

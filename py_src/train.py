@@ -3,7 +3,7 @@
 Reads self-play data from training_data/, trains the network, saves checkpoints.
 
 Usage:
-    python training/train.py --data-dir training_data/ --output-dir models/
+    python py_src/train.py --data-dir training_data/ --output-dir models/
 """
 from __future__ import annotations
 

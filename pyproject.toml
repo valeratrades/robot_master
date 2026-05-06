@@ -1,11 +1,6 @@
-[build-system]
-build-backend = "maturin"
-requires = ["maturin>=1.7"]
 
 [dependency-groups]
 dev = [
-  "pytest>=8.0",
-  "inline-snapshot>=0.19",
   "ruff>=0.9",
 ]
 train = [
@@ -16,24 +11,16 @@ train = [
   "onnxscript",
   "tensorboard",
 ]
-
 [project]
-dependencies = [
-  "typeguard>=4.4",
-  "icecream>=2.1",
-]
+dependencies = []
 name = "robot-master-py"
 requires-python = ">=3.12"
 version = "0.1.0"
 
+[tool]
+
 [tool.inline-snapshot]
 format-command = "ruff format --stdin-filename {filename}"
-
-[tool.maturin]
-features = ["python"]
-manifest-path = "robot_master/Cargo.toml"
-module-name = "robot_master"
-python-source = "py_src"
 
 [tool.pytest.ini_options]
 testpaths = ["py_src"]

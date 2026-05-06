@@ -1,11 +1,5 @@
 multi-player implementation of robot_master // in rust, because of course it is
 
-
-## Reqs and `py_src/`
-provisioned pdf with requirements: ./assets/Sujet-RobotMaster-version-04-02.pdf
-
-rough arch outline, functionality of each function, tests, desired behavior, - can be found in this pdf file
-
 # Rules
 1v1 on a 5x5 grid. Cards are numbered 0-5, with 6 copies each (36 total). Each player gets 12; a 25th card is placed at the center of the board.
 

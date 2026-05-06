@@ -130,7 +130,7 @@ pub fn action_index(card: u8, row: usize, col: usize, n: usize, player_b: bool) 
 /// Serialize one training sample to raw bytes (little-endian f32s).
 ///
 /// Layout: `state_planes || policy || [value]`
-/// - matches `SelfPlayDataset` in `training/train.py`.
+/// - matches `SelfPlayDataset` in `py_src/train.py`.
 pub fn encode_sample(state_planes: &[f32], policy: &[f32], value: f32) -> Vec<u8> {
 	let total = state_planes.len() + policy.len() + 1;
 	let mut out = Vec::with_capacity(total * 4);
@@ -177,7 +177,7 @@ mod tests {
 		let ch_hand_cur = 5 + 1;
 		for v in 0..=5usize {
 			let val = planes[(ch_hand_cur + v) * 25];
-			assert!(val >= 0.0 && val <= 1.0, "hand plane {v} out of range: {val}");
+			assert!((0.0..=1.0).contains(&val), "hand plane {v} out of range: {val}");
 		}
 	}
 
