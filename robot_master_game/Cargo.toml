@@ -2,8 +2,11 @@ cargo-features = ["codegen-backend"]
 
 [package]
 name = "robot_master_game"
-edition = "2024"
-version = "0.1.0"
+description = "Bevy-based game frontend for robot_master."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 bevy.workspace = true

@@ -1,7 +1,10 @@
 [package]
 name = "robot_master"
-edition = "2024"
-version = "0.1.0"
+description = "Top-level binary tying together robot_master core, arena, training, and game crates."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 clap.workspace = true
