@@ -1,11 +1,11 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    rust-overlay.url = "github:oxalica/rust-overlay";
-    flake-parts.url = "github:hercules-ci/flake-parts";
-    devenv.url = "github:cachix/devenv/v1.6.1";
-    pre-commit-hooks.url = "github:cachix/git-hooks.nix";
-    v_flakes.url = "github:valeratrades/v_flakes?ref=v1.6";
+    nixpkgs.url = "github:NixOS/nixpkgs/549bd84d6279f9852cae6225e372cc67fb91a4c1";
+    rust-overlay.url = "github:oxalica/rust-overlay/adf987c76af8d17b8256d23631bcf203f81e1a63";
+    flake-parts.url = "github:hercules-ci/flake-parts/0678d8986be1661af6bb555f3489f2fdfc31f6ff";
+    devenv.url = "github:cachix/devenv/f19b62ea677ec6046d78243e176fa01d5ef0d55a";
+    pre-commit-hooks.url = "github:cachix/git-hooks.nix/3cfd774b0a530725a077e17354fbdb87ea1c4aad";
+    v_flakes.url = "github:valeratrades/v_flakes/6062f652effc94be053865d58ff03c697c31ecb6";
   };
 
   outputs = inputs@{ self, nixpkgs, rust-overlay, flake-parts, devenv, pre-commit-hooks, v_flakes }:
