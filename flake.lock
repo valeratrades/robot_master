@@ -46,8 +46,8 @@
       },
       "original": {
         "owner": "cachix",
-        "ref": "v1.6.1",
         "repo": "devenv",
+        "rev": "f19b62ea677ec6046d78243e176fa01d5ef0d55a",
         "type": "github"
       }
     },
@@ -120,6 +120,7 @@
       "original": {
         "owner": "hercules-ci",
         "repo": "flake-parts",
+        "rev": "0678d8986be1661af6bb555f3489f2fdfc31f6ff",
         "type": "github"
       }
     },
@@ -332,8 +333,8 @@
       },
       "original": {
         "owner": "NixOS",
-        "ref": "nixos-unstable",
         "repo": "nixpkgs",
+        "rev": "549bd84d6279f9852cae6225e372cc67fb91a4c1",
         "type": "github"
       }
     },
@@ -418,6 +419,7 @@
       "original": {
         "owner": "cachix",
         "repo": "git-hooks.nix",
+        "rev": "3cfd774b0a530725a077e17354fbdb87ea1c4aad",
         "type": "github"
       }
     },
@@ -446,6 +448,7 @@
       "original": {
         "owner": "oxalica",
         "repo": "rust-overlay",
+        "rev": "adf987c76af8d17b8256d23631bcf203f81e1a63",
         "type": "github"
       }
     },
@@ -489,17 +492,17 @@
         "rust-overlay": "rust-overlay_2"
       },
       "locked": {
-        "lastModified": 1778086604,
-        "narHash": "sha256-wPI89f8KP8AmCDo7wNkHtLb3CRVWF+hS5egJi+AAnRU=",
+        "lastModified": 1778097448,
+        "narHash": "sha256-aC4pAYpF/R6JHJdAw1Wi/OmbUXYZolAExi+RMrcrw1A=",
         "owner": "valeratrades",
         "repo": "v_flakes",
-        "rev": "d9bd988e1ba4bc2a2d3d1f9720b658c33c3010b4",
+        "rev": "6062f652effc94be053865d58ff03c697c31ecb6",
         "type": "github"
       },
       "original": {
         "owner": "valeratrades",
-        "ref": "v1.6",
         "repo": "v_flakes",
+        "rev": "6062f652effc94be053865d58ff03c697c31ecb6",
         "type": "github"
       }
     }
