@@ -7,7 +7,7 @@ One iteration of the training loop:
 
 ```sh
 robot_master train transformer --iterations 100 --games 400 --sims 25
-robot_master train cnn --supervise 'rollout|v50'
+robot_master train cnn --supervise 'rollout|v50' #XXX: haven't gotten it to converge, - is either misimplemented or just much weaker than transformers in general
 ```
 
 **Options:**

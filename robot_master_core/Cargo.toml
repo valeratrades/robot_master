@@ -1,7 +1,10 @@
 [package]
 name = "robot_master_core"
-edition = "2024"
-version = "0.1.0"
+description = "Core primitives for the robot_master engine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 board-game.workspace = true

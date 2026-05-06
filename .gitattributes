@@ -1,22 +1,35 @@
 # Audio formats
-*.mp3 -filter -diff -merge text
-*.flac -filter -diff -merge text
-*.wav -filter -diff -merge text
-*.ogg -filter -diff -merge text
-*.m4a -filter -diff -merge text
-*.aac -filter -diff -merge text
-*.opus -filter -diff -merge text
-*.wma -filter -diff -merge text
+*.mp3 binary -filter
+*.flac binary -filter
+*.wav binary -filter
+*.ogg binary -filter
+*.m4a binary -filter
+*.aac binary -filter
+*.opus binary -filter
+*.wma binary -filter
 
 # Image formats
-*.jpg -filter -diff -merge text
-*.jpeg -filter -diff -merge text
-*.png -filter -diff -merge text
-*.gif -filter -diff -merge text
-*.bmp -filter -diff -merge text
-*.tiff -filter -diff -merge text
-*.webp -filter -diff -merge text
-*.svg -filter -diff -merge text
+*.jpg binary -filter
+*.jpeg binary -filter
+*.png binary -filter
+*.gif binary -filter
+*.bmp binary -filter
+*.tiff binary -filter
+*.webp binary -filter
+*.svg binary -filter
 
 # Documents
-*.pdf -filter -diff -merge text
+*.pdf binary -filter
+*.excalidraw binary -filter
+
+# Data
+*.json binary -filter
+*.csv binary -filter
+*.parquet binary -filter
+*.pkl binary -filter
+*.npy binary -filter
+*.npz binary -filter
+*.db binary -filter
+*.sqlite binary -filter
+*.sqlite3 binary -filter
+*.onnx binary -filter

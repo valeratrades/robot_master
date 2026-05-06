@@ -7,19 +7,54 @@
 [<img alt="ci errors" src="https://img.shields.io/github/actions/workflow/status/valeratrades/robot_master/errors.yml?branch=master&style=for-the-badge&style=flat-square&label=errors&labelColor=420d09" height="20">](https://github.com/valeratrades/robot_master/actions?query=branch%3Amaster) <!--NB: Won't find it if repo is private-->
 [<img alt="ci warnings" src="https://img.shields.io/github/actions/workflow/status/valeratrades/robot_master/warnings.yml?branch=master&style=for-the-badge&style=flat-square&label=warnings&labelColor=d16002" height="20">](https://github.com/valeratrades/robot_master/actions?query=branch%3Amaster) <!--NB: Won't find it if repo is private-->
 
-multi-player implementation of robot_master // in rust, because of course it is
+A board game built as a tractable environment for studying modern game AI — transformers, Gumbel AlphaZero self-play, and imperfect information search. Small enough to train to competent play on a single GPU overnight; complex enough to be non-trivial (non-linear scoring, asymmetric objectives, state space ~10¹⁵ at 5×5 scaling to ~10⁷⁰ at 11×11).
 
-## Rules
-1v1 on a 5x5 grid. Cards are numbered 0-5, with 6 copies each (36 total). Each player gets 12; a 25th card is placed at the center of the board.
+<div align="center">
+<table width="68%" cellspacing="4" cellpadding="0" border="0">
+  <tr>
+    <td width="50%" rowspan="2" valign="top">
+      <img width="1280" height="1586" alt="scrn-2026-05-06-17-01-28" src="https://github.com/user-attachments/assets/66ea6a35-31d0-4071-8417-58a4123ae3c3"/>
+    </td>
+    <td width="50%">
+      <img width="1279" height="794" alt="scrn-game" src="https://github.com/user-attachments/assets/5480426d-dabe-4dea-8c1f-22285ba22588" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img width="1279" height="791" alt="scrn-result" src="https://github.com/user-attachments/assets/4f447ed0-f819-4ba6-b41d-71b6b0ebe80c" />
+    </td>
+  </tr>
+</table>
+</div>
+
+### What's been built
+
+- **Gumbel AlphaZero pipeline** — self-play in Rust, training in PyTorch, ONNX as the runtime contract. [Gumbel MuZero](https://openreview.net/forum?id=bERaNdoegnO) (Danihelka et al., ICLR 2022): works with 2–16 MCTS sims per move instead of the 400–800 vanilla AlphaZero needs.
+- **Encoder-only transformer** — board cells as tokens, geometric attention bias ([Chessformer](https://arxiv.org/abs/2409.12272)), single model scales across board sizes 5×5 → 11×11 without retraining.
+- **Arena** — Glicko-2 ratings, Swiss/round-robin/elimination tournaments. Trained ONNX models plug in as arena players against each other and built-in bots.
+- **Bevy GUI + Leptos web app + TUI** — all const-generic over board size N ∈ {5, 7, 9, 11}.
+- **Hidden-hands variant** — opponent's hand is hidden; engine and self-play support it, dedicated training and search not yet done.
+
+### What's next
+
+- **Alpha-beta search** with the transformer as eval — LMR, null-move pruning, aspiration windows. Stockfish-style depth where MCTS gives breadth.
+- **WDL heads** — explicit win/draw/loss output instead of scalar value. Draws matter here and the scalar collapses them.
+- **Imperfect information search** for the hidden-hands variant: ISMCTS baseline → belief-augmented transformer input → [ReBeL](https://arxiv.org/abs/2007.13544) / [Student of Games](https://www.science.org/doi/10.1126/sciadv.adg3256) (Schmid et al., 2023).
+
+See [`docs/research.md`](docs/research.md) for details.
+
+### Rules
+
+1v1 on a 5×5 grid. Cards are numbered 0–5, with 6 copies each (36 total). Each player gets 12; a 25th card is placed at the center.
 
 **Turns**: players alternate placing a card from their hand onto an empty cell adjacent (no diagonals) to an occupied one.
 
 **Scoring** (per line/column, once the grid is full):
 | copies of a card | points |
 |---|---|
-| 1 | face value (0, 1, 2, 3, 4, or 5) |
-| 2 | 10 × face value (0, 10, 20, 30, 40, or 50) |
-| 3+ | 100 flat, regardless of face value |
+| 1 | face value |
+| 2 | 10 × face value |
+| 3+ | 100 flat |
 
 **Winner**: Alice's score = her lowest-scoring column; Bob's score = his lowest-scoring row. Highest score wins.
 <!-- markdownlint-disable -->
@@ -74,89 +109,33 @@ pip install torch numpy onnx onnxruntime tensorboard
 ## Usage
 ### Usage
 
-The main binary is `robot_master`. It takes two players (`-a`, `-b`), an optional board size (`-s`), and a subcommand for the interface.
-
-Players: `manual`, `random`, `greedy`, `sadist`, `rollout`. Search wrapping: append `|v<N>` (vanilla UCT-MCTS) or `|g<N>` (Gumbel) sims - `rollout|v800`, `rollout|g800`, `sadist|v200`. Unrecognized names prompt registration as a named manual player (with Elo tracking), or fall back to `fzf` selection.
-
-Board sizes: `5`, `7`, `9`, `11`.
-
-`--hide`: hide opponent's hand (information-hidden mode). At most one player may be manual when `--hide` is set.
-
-#### GUI
 ```sh
-robot_master gui
-robot_master gui -a manual -b greedy
-robot_master gui --sound                     # enable music and sound effects
+robot_master gui                          # main menu, pick players and board size
+robot_master gui -a manual -b random     # skip straight to a game
 ```
-Bevy app with a main menu where you can pick players and board size from dropdowns before starting. Elo ratings are shown next to player names.
+To get a live eval bar, click `Settings -> Eval Mode`
+
+Built-in players: `manual`, `random`, `greedy`, `sadist`, `rollout`. Board sizes: `5`, `7`, `9`, `11`. Append `|g<N>` to wrap any bot in Gumbel MCTS (`sadist|g200`). Named human players get Elo tracked automatically.
 
 <!-- markdownlint-disable -->
 <details>
 <summary>
-<h3>If you want TUI</h3>
+<h3>TUI / Arena</h3>
 </summary>
 
 ```sh
-robot_master tui                              # you vs random AI, 5x5
-robot_master tui -a greedy -b sadist -s 7    # watch two AIs fight on 7x7
-robot_master tui -a Alice -b Bob             # two named humans, Elo tracked
-robot_master tui --hide                      # hidden-hand mode
+# one-off match without touching saved ratings
+robot_master arena --no-priors 'random,onnx:model_v15|g200' tourney swiss 20
+
+# register a trained model, then run it in tournaments
+robot_master arena players new 'onnx:model_v15|g200' --sizes 5
+robot_master arena tourney swiss 10
 ```
-In manual mode, the TUI prompts for card, row, column each turn. Invalid moves get a warning and re-prompt.
+
+`robot_master --help` covers the full player spec syntax, tourney modes, arena player management, and `--hide` (hidden-hand mode).
 
 </details>
 <!-- markdownlint-restore -->
-
-#### Arena
-Run tournaments between AI players. Ratings use Glicko-2.
-
-```sh
-robot_master arena tourney swiss 10              # all registered players, 10 Swiss brackets
-robot_master arena tourney rating 200            # rating-based pairing, 200 rounds
-robot_master arena tourney elimination 5         # single-elimination, 5 cycles
-robot_master arena tourney round-robin 3         # every player vs every other, 3 sweeps
-robot_master arena -s 'rollout,sadist' tourney swiss 10    # filter players by regex
-robot_master arena tourney --json swiss 10       # output results as JSON to stdout
-```
-
-All tourney modes accept `-t <N>` / `--threads <N>`.
-
-**Ephemeral tournaments (no ratings DB):**
-```sh
-# run a one-off match between specific specs without touching saved ratings
-robot_master arena --no-priors 'rollout|v50,onnx:model_v15|g200' tourney swiss 20
-```
-`--no-priors` accepts a comma-separated list of player specs and bypasses the ratings database entirely. Mutually exclusive with `--select`.
-
-**Managing players:**
-```sh
-robot_master arena players list                  # show all players and ratings
-robot_master arena players new                   # register all default variants
-robot_master arena players new rollout|v800      # register a specific variant
-robot_master arena players reset-ratings         # reset all ratings to default
-robot_master arena players nuke                  # remove players from DB entirely
-```
-
-**ONNX models in the arena** - after training, register a model then include it in tourneys:
-```sh
-# bare: runs policy head directly (greedy argmax, no search)
-robot_master arena players new 'onnx:model_v15'
-
-# with Gumbel search
-robot_master arena players new 'onnx:model_v15|g200'
-
-# constrain to specific board size and hide mode (required for onnx bots)
-robot_master arena players new 'onnx:model_v15|g200' --sizes 5 --hide true
-
-# then run against other players
-robot_master arena -s 'onnx:model_v15,rollout$,sadist' tourney swiss 20
-```
-
-Player spec constraint suffixes (encoded in the ID, used for filtering):
-- `|s5` or `|s5,7` - restrict to specific board size(s)
-- `|hh` - hidden-hand mode only; `|hv` - visible-hand only
-
-Models are looked up in `./models` by default. Override with `--models-dir`.
 
 ## Training
 
@@ -167,7 +146,7 @@ One iteration of the training loop:
 
 ```sh
 robot_master train transformer --iterations 100 --games 400 --sims 25
-robot_master train cnn --supervise 'rollout|v50'
+robot_master train cnn --supervise 'rollout|v50' #XXX: haven't gotten it to converge, - is either misimplemented or just much weaker than transformers in general
 ```
 
 **Options:**
