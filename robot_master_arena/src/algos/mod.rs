@@ -28,7 +28,7 @@ pub enum SearchKind {
 /// happens in the binary crate against the user-specified models dir.
 ///
 /// Does not implement `Bot<N>` - the binary crate constructs the actual GumbelBot+NnEval.
-#[derive(Clone, Debug, Default, derive_more::Display, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, derive_more::Display)]
 #[display("onnx:{stem}")]
 pub struct OnnxPlayer {
 	pub stem: String,
@@ -47,7 +47,7 @@ impl std::str::FromStr for OnnxPlayer {
 }
 
 /// The underlying player algorithm, without Gumbel wrapping.
-#[derive(Clone, Debug, derive_more::Display, strum::EnumIter, Eq, PartialEq, v_utils::macros::TryParseVariants)]
+#[derive(Clone, Debug, Eq, PartialEq, derive_more::Display, strum::EnumIter, v_utils::macros::TryParseVariants)]
 pub enum InnerKind {
 	ManualPlayer(ManualPlayer),
 	RandomPlayer(RandomPlayer),

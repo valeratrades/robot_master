@@ -16,7 +16,7 @@ use std::{fmt, str::FromStr};
 /// Supported board dimensions.
 ///
 /// Each variant's numeric value is obtainable via `Into<u8>` / `From<BoardSize>`.
-#[derive(Clone, Copy, Debug, strum::EnumIter, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, strum::EnumIter)]
 pub enum BoardSize {
 	Five,
 	Seven,

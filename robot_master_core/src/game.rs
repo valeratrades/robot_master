@@ -62,7 +62,7 @@ impl GameConfig {
 	}
 }
 
-#[derive(Clone, Copy, Debug, derive_more::Display, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, derive_more::Display)]
 #[display("{}@({},{})", card.0, pos.row, pos.col)]
 pub struct Move {
 	pub pos: Pos,

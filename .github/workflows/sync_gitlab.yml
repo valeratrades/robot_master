@@ -2,14 +2,20 @@ jobs:
   other:
     runs-on: ubuntu-latest
     steps:
-    - name: Check required secrets
-      run: "if [ -z \"${{ secrets.GITLAB_TOKEN }}\" ]; then\n  echo \"::error::Missing\
-        \ required secret GITLAB_TOKEN for GitLab sync\"\n  echo \"\"\n  echo \"To\
-        \ configure:\"\n  echo \"  1. Go to your GitLab account -> Settings -> Access\
-        \ Tokens\"\n  echo \"  2. Create a token with 'write_repository' scope\"\n\
-        \  echo \"  3. In this GitHub repo, go to Settings -> Secrets and variables\
-        \ -> Actions\"\n  echo \"  4. Add GITLAB_TOKEN with your GitLab access token\"\
-        \n  exit 1\nfi\n"
+    - env:
+        GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+      name: Ensure GITLAB_TOKEN secret is configured
+      run: "if [ -z \"${GITLAB_TOKEN}\" ]; then\n  echo \"::error::Secret 'GITLAB_TOKEN'\
+        \ is not set (empty in this job).\"\n  if [ \"${{ github.event.repository.private\
+        \ }}\" = \"true\" ]; then\n    echo \"::error::This repo is PRIVATE. On GitHub\
+        \ Free-plan orgs, organization secrets are NOT exposed to private repos —\
+        \ if 'GITLAB_TOKEN' is set org-wide it still won't reach here. Fix: set it\
+        \ repo-level (gh secret set GITLAB_TOKEN -R ${{ github.repository }}), or\
+        \ upgrade the org to Team/Enterprise.\"\n  else\n    echo \"::error::Add it\
+        \ under Settings → Secrets and variables → Actions (repo-level, or org-level\
+        \ with 'All repositories' visibility — org secrets reach public repos on any\
+        \ plan).\"\n  fi\n  echo \"::error::Create a GitLab access token with 'write_repository'\
+        \ scope (GitLab → Settings → Access Tokens).\"\n  exit 1\nfi\n"
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
