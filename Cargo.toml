@@ -27,6 +27,9 @@ manual_is_multiple_of = "allow"
 [workspace.lints.rust]
 unused_features = "allow"
 
+[workspace.lints.cargo]
+non_kebab_case_bins = "allow"
+
 [workspace.dependencies]
 axum = "=0.8.9"
 bevy = "=0.18.1"
