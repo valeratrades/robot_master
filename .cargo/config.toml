@@ -3,13 +3,22 @@ t = "nextest run --workspace"
 ta = "nextest run --workspace --no-fail-fast"
 
 [build]
-rustc-wrapper = "sccache"
+rustc-wrapper = "kache"
 
 [profile.rust]
 codegen-backend = "cranelift"
+
+[profile.dev]
+split-debuginfo = "unpacked"
 
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg=getrandom_backend="wasm_js"']
 
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-arg=-fuse-ld=mold", "--cfg", "tokio_unstable", "-Z", "threads=8", "-Z", "track-diagnostics"]
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))']
+rustflags = '--cfg=getrandom_backend="wasm_js"'
+
+[target.'cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))']
+rustflags = "-C link-arg=-fuse-ld=mold --cfg tokio_unstable -Z threads=8 -Z track-diagnostics"

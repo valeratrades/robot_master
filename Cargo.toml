@@ -23,8 +23,11 @@ undocumented_unsafe_blocks = "warn"
 too_many_arguments = "allow"
 type_complexity = "allow"
 manual_is_multiple_of = "allow"
+if_not_else = "warn"
+integer_division = "warn"
 
 [workspace.lints.rust]
+stable_features = "allow"
 unused_features = "allow"
 
 [workspace.lints.cargo]
